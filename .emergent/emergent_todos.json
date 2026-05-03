@@ -1,30 +1,6 @@
 [
   {
-    "content": "Stage 2: Backend - Trip lifecycle (start/end, mileage by state, IFTA summary)",
-    "status": "completed"
-  },
-  {
-    "content": "Stage 2: Backend - CSV exports (trips, HOS, maintenance, mileage)",
-    "status": "completed"
-  },
-  {
-    "content": "Stage 2: Backend - Profile update + forgot/reset password",
-    "status": "completed"
-  },
-  {
-    "content": "Stage 2: Backend - Maintenance reminders + expanded voice command intents",
-    "status": "completed"
-  },
-  {
-    "content": "Stage 2: Frontend - Driver HOS quick-change + Start/End trip + mileage entry",
-    "status": "completed"
-  },
-  {
-    "content": "Stage 2: Frontend - Forgot/Reset password pages + Profile page",
-    "status": "completed"
-  },
-  {
-    "content": "Stage 2: Frontend - CSV export buttons + IFTA admin page",
+    "content": "Stage 2: All non-credential features built and tested (100% pass)",
     "status": "completed"
   },
   {
@@ -36,11 +12,7 @@
     "status": "pending"
   },
   {
-    "content": "Stage 2: Push to GitHub once code is built",
+    "content": "Stage 2: Push to GitHub (after user clicks Save to GitHub)",
     "status": "pending"
-  },
-  {
-    "content": "Stage 2: End-to-end testing with testing agent",
-    "status": "in_progress"
   }
 ]
