@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
-import { ArrowLeft, MapPin, Plus, Play, Square, Trash2 } from 'lucide-react';
+import { ArrowLeft, MapPin, Plus, Play, Square, Trash2, Truck, Clock, Route as RouteIcon, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
+import { MapboxMap, fetchTruckRoute, geocodeAddress } from '@/components/MapboxMap';
 
 const statusStyle = {
   planned: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
@@ -20,6 +21,12 @@ export default function DriverTripDetail() {
   const [mileage, setMileage] = useState([]);
   const [state, setState] = useState('');
   const [miles, setMiles] = useState('');
+  const [origin, setOrigin] = useState(null);
+  const [destination, setDestination] = useState(null);
+  const [routeGeometry, setRouteGeometry] = useState(null);
+  const [routeMeta, setRouteMeta] = useState(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState(null);
 
   const load = async () => {
     const all = (await api.get('/trips')).data;
@@ -27,6 +34,38 @@ export default function DriverTripDetail() {
     setMileage((await api.get(`/trips/${id}/mileage`)).data);
   };
   useEffect(() => { load(); }, [id]);
+
+  // Geocode + fetch truck-aware route once we have the trip
+  useEffect(() => {
+    if (!trip?.origin || !trip?.destination) return;
+    let cancelled = false;
+    (async () => {
+      setRouteLoading(true);
+      setRouteError(null);
+      try {
+        const [o, d] = await Promise.all([
+          geocodeAddress(trip.origin),
+          geocodeAddress(trip.destination),
+        ]);
+        if (cancelled) return;
+        if (!o || !d) { setRouteError('Could not geocode trip endpoints.'); setRouteLoading(false); return; }
+        setOrigin(o); setDestination(d);
+        try {
+          const r = await fetchTruckRoute({ origin: [o.lng, o.lat], destination: [d.lng, d.lat] });
+          if (cancelled) return;
+          setRouteGeometry(r.geometry);
+          setRouteMeta({ miles: r.distance_miles, minutes: r.duration_minutes });
+        } catch (e) {
+          if (!cancelled) setRouteError('Could not load route — endpoints shown only.');
+        }
+      } catch (e) {
+        if (!cancelled) setRouteError('Mapbox unavailable.');
+      } finally {
+        if (!cancelled) setRouteLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [trip?.origin, trip?.destination]);
 
   const start = async () => { try { await api.post(`/trips/${id}/start`); toast.success('Trip started'); await load(); } catch { toast.error('Failed'); } };
   const end = async () => { try { await api.post(`/trips/${id}/end`, {}); toast.success('Trip completed'); await load(); } catch { toast.error('Failed'); } };
@@ -52,6 +91,37 @@ export default function DriverTripDetail() {
         <div className="hp-divider my-3" />
         {trip.status === 'planned' && <Button data-testid="trip-start-btn" onClick={start} className="w-full bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold"><Play className="w-4 h-4 mr-1" /> Start trip</Button>}
         {trip.status === 'active' && <Button data-testid="trip-end-btn" onClick={end} className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold"><Square className="w-4 h-4 mr-1" /> End trip</Button>}
+      </div>
+
+      {/* Truck-aware route map (Mapbox) */}
+      <div className="hp-panel rounded-2xl overflow-hidden">
+        <div className="px-5 pt-4 pb-3 flex items-center justify-between">
+          <div className="text-xs uppercase tracking-widest text-sky-400/80 flex items-center gap-1.5">
+            <Truck className="w-3.5 h-3.5" /> Truck-aware route
+          </div>
+          {routeMeta && (
+            <div className="flex items-center gap-3 text-xs text-slate-300">
+              <span className="inline-flex items-center gap-1"><RouteIcon className="w-3 h-3 text-sky-400" /> {routeMeta.miles.toFixed(0)} mi</span>
+              <span className="inline-flex items-center gap-1"><Clock className="w-3 h-3 text-sky-400" /> {Math.round(routeMeta.minutes / 60)}h {Math.round(routeMeta.minutes % 60)}m</span>
+            </div>
+          )}
+        </div>
+        <MapboxMap
+          height={260}
+          showTraffic={true}
+          fitBounds={true}
+          markers={[
+            origin && { id: 'origin', lng: origin.lng, lat: origin.lat, color: '#10b981', label: `Origin: ${trip.origin}` },
+            destination && { id: 'dest', lng: destination.lng, lat: destination.lat, color: '#f59e0b', label: `Destination: ${trip.destination}` },
+          ].filter(Boolean)}
+          route={routeGeometry}
+          testId="trip-route-map"
+        />
+        <div className="px-5 py-3 text-[11px] text-slate-500 flex items-center justify-between gap-2">
+          <span className="flex items-center gap-1"><AlertTriangle className="w-3 h-3 text-amber-500/80" /> Routes avoid known low-clearance and weight-restricted segments via Mapbox.</span>
+          {routeLoading && <span className="text-sky-400">loading...</span>}
+          {routeError && <span className="text-red-400">{routeError}</span>}
+        </div>
       </div>
 
       <div className="hp-panel rounded-2xl p-5">

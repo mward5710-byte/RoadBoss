@@ -5,6 +5,7 @@ import { ArrowLeft, Phone, MapPin, Clock, ShieldCheck, X, CheckCircle2, Truck } 
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
+import { MapboxMap } from '@/components/MapboxMap';
 
 const FLOW = ['requested', 'confirmed', 'en_route', 'arrived', 'completed'];
 const FLOW_LABELS = {
@@ -72,6 +73,24 @@ export default function RoadsideDetail() {
           <div className="mt-3 pt-3 border-t border-white/5 text-sm text-slate-300">"{doc.description}"</div>
         )}
       </div>
+
+      {/* Location map (if we have driver coords) */}
+      {(doc.latitude && doc.longitude) && (
+        <div className="hp-panel rounded-2xl overflow-hidden">
+          <div className="px-5 pt-4 pb-3 text-xs uppercase tracking-widest text-sky-400/80 flex items-center gap-1.5">
+            <MapPin className="w-3.5 h-3.5" /> Your location
+          </div>
+          <MapboxMap
+            height={200}
+            showTraffic={false}
+            fitBounds={false}
+            center={[doc.longitude, doc.latitude]}
+            zoom={13}
+            markers={[{ id: 'me', lng: doc.longitude, lat: doc.latitude, color: '#38bdf8', label: 'You' }]}
+            testId="roadside-location-map"
+          />
+        </div>
+      )}
 
       {/* Status timeline */}
       <div className="hp-panel rounded-2xl p-5">

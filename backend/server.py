@@ -1996,6 +1996,23 @@ async def copilot_status(user=Depends(get_current_user)):
         'persona': 'Co-Pilot Buddy',
     }
 
+
+# ============================================================
+# Mapbox config (public token exposed to frontend) - Slide 3 GPS promise
+# ============================================================
+
+MAPBOX_PUBLIC_TOKEN = os.environ.get('MAPBOX_PUBLIC_TOKEN', '').strip()
+
+
+@api_router.get("/mapbox/config")
+async def mapbox_config(user=Depends(get_current_user)):
+    return {
+        'configured': bool(MAPBOX_PUBLIC_TOKEN),
+        'token': MAPBOX_PUBLIC_TOKEN,
+        'default_style': 'mapbox://styles/mapbox/dark-v11',
+        'truck_route_supported': bool(MAPBOX_PUBLIC_TOKEN),
+    }
+
 # ============================================================
 # Seed (idempotent) - run via GET /api/seed
 # ============================================================

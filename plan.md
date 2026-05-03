@@ -6,14 +6,15 @@
 
 ---
 
-## Status: STAGE 3 — PHASE 2A COMPLETE ✅
+## Status: STAGE 3 — PHASE 2B COMPLETE ✅
 - Stage 1 (Foundation): ✅ Done
 - Stage 2 (Workflows + Stripe + Google OAuth): ✅ Done
 - Stage 3 Phase 1 (Pricing alignment + AI Copilot): ✅ Done
 - Stage 3 Phase 1.5 (Co-Pilot action execution + FMCSA DVIR): ✅ Done
 - Stage 3 Phase 1.6 (Wake-word + iframe-aware mic UX): ✅ Done
-- **Stage 3 Phase 2A (Crash Detection + Roadside Assistance): ✅ Done** ← latest
-- Stage 3 Phase 2B (Mapbox / Twilio / SendGrid / Dashcam / QuickBooks): 🔜 Next (needs free Mapbox token from founder)
+- Stage 3 Phase 2A (Crash Detection + Roadside Assistance): ✅ Done
+- **Stage 3 Phase 2B (Mapbox truck-aware GPS): ✅ Done** ← latest
+- Stage 3 Phase 2C (Twilio / SendGrid / Dashcam adapters / QuickBooks): 🔜 Next (founder needs to provide Twilio/SendGrid keys)
 - Stage 4 / 5: Backlog
 
 ---
@@ -150,7 +151,28 @@
   - Driver Home reorganized: HOS → Co-Pilot → DVIR → **Roadside** → Duty Status → Voice Command (priority order matches use frequency)
   - Tested: **94/94 backend tests passed (100%)**
 
-### Phase 2B (NEXT — pending Mike's approval and any required keys)
+### Phase 2B (DONE — May 3) ✅ — Mapbox Truck-Aware GPS
+**Founder provided** a Mapbox public token (default scopes, no URL restrictions yet).
+
+- Backend: `GET /api/mapbox/config` — returns the token + default style + `truck_route_supported` flag (follows same pattern as `/api/stripe/config`).
+- Token stored in `backend/.env` as `MAPBOX_PUBLIC_TOKEN`. Public tokens are designed to be exposed to browsers; abuse mitigation is via Mapbox URL restrictions (founder can lock to `*.preview.emergentagent.com` later).
+- Frontend: `mapbox-gl` 3.x installed via `yarn add mapbox-gl`.
+- New reusable component `/app/frontend/src/components/MapboxMap.jsx`:
+  - Lazy-loads token from `/api/mapbox/config` (single fetch, cached promise)
+  - 3 base styles: dark (default), streets, satellite
+  - Auto-fit bounds to markers + route
+  - Live traffic overlay (Mapbox vector tiles) — green/amber/orange/red congestion
+  - Pulsing-orb markers with HTML popups
+  - Glowing route polyline rendering
+  - `fetchTruckRoute()` helper: hits Mapbox Directions API with `driving-traffic` profile, returns geometry + miles + minutes
+  - `geocodeAddress()` helper: address → `{lng, lat, place_name}`
+- Updated pages with real Mapbox maps:
+  1. **Admin Fleet Overview** — `FleetMap` rewritten to use Mapbox instead of Leaflet. Live driver positions with status-colored markers + traffic overlay.
+  2. **Driver Trip Detail** (`/driver/trips/:id`) — geocodes origin + destination, plots truck-aware route line, displays calculated miles + ETA. Visible upgrade for trip-planning.
+  3. **Driver Roadside Detail** (`/driver/roadside/:id`) — pin showing driver's saved location when geolocation was captured at dispatch.
+- **Truck dimension routing note**: Mapbox's standard `driving-traffic` profile is used. Strict truck-dimension routing (avoid bridges < height, weight-restricted roads, hazmat-restricted) is in their **Optimization v2 / Truck Routing tier** — flagged as an upgrade path. UI labels routes as "truck-aware" with a disclaimer about this current limitation.
+
+### Phase 2C (NEXT — pending Mike's keys)
 - **Mapbox** — truck-restriction routing (height/weight/hazmat). Needs free Mapbox token.
 - **Twilio** — SMS dispatch alerts. Needs Account SID / Auth Token / from-number.
 - **SendGrid** — transactional email (password resets, billing receipts, fleet invitations). Needs API key.
