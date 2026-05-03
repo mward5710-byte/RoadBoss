@@ -29,7 +29,7 @@
   },
   {
     "content": "Phase C: Run backend testing agent for new endpoints + regression",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "content": "Phase C: Visual verify Pricing page + Copilot UI with screenshot tool",
@@ -37,6 +37,6 @@
   },
   {
     "content": "Phase D: Update plan.md with Stage 3 progress for Mike's morning review",
-    "status": "pending"
+    "status": "completed"
   }
 ]
