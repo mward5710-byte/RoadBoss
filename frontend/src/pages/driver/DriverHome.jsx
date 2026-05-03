@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, getUser } from '@/lib/api';
-import { Mic, MicOff, Volume2, Bell, Route as RouteIcon, BellRing, Bot, Play, Square, Wrench, ArrowRight, ClipboardCheck, ClipboardX, ExternalLink, AlertTriangle } from 'lucide-react';
+import { Mic, MicOff, Volume2, Bell, Route as RouteIcon, BellRing, Bot, Play, Square, Wrench, ArrowRight, ClipboardCheck, ClipboardX, ExternalLink, AlertTriangle, LifeBuoy, Sparkles } from 'lucide-react';
 import { dutyColor, formatMinutes, severityColor, timeAgo } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -42,6 +42,7 @@ export default function DriverHome() {
   const [transcript, setTranscript] = useState('');
   const [response, setResponse] = useState('');
   const [busyDvir, setBusyDvir] = useState('');
+  const [showWakeHint, setShowWakeHint] = useState(false);
   const recogRef = useRef(null);
   const sttSupported = supportsSTT();
 
@@ -54,6 +55,19 @@ export default function DriverHome() {
     try { setReminders((await api.get('/maintenance/reminders')).data); } catch {}
   };
   useEffect(() => { refresh(); }, [user.email]);
+
+  // First-run tip about the wake word
+  useEffect(() => {
+    try {
+      const seen = localStorage.getItem('roadboss.wake_hint_seen.v1');
+      if (!seen) setShowWakeHint(true);
+    } catch {}
+  }, []);
+
+  const dismissWakeHint = () => {
+    try { localStorage.setItem('roadboss.wake_hint_seen.v1', '1'); } catch {}
+    setShowWakeHint(false);
+  };
 
   const handleVoice = async (text) => {
     setTranscript(text); setResponse('Thinking...');
@@ -178,6 +192,22 @@ export default function DriverHome() {
 
   return (
     <div className="p-5 space-y-5">
+      {/* First-run wake-word tip */}
+      {showWakeHint && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl p-4 bg-gradient-to-br from-emerald-500/15 via-emerald-500/5 to-transparent border border-emerald-500/40 flex items-start gap-3 hp-glow"
+          data-testid="wake-hint-card"
+        >
+          <Sparkles className="w-5 h-5 text-emerald-300 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-white">Try saying <span className="text-emerald-300">"Hey Co-Pilot"</span></div>
+            <div className="text-xs text-slate-400 mt-1">Tap the wake-word pill at the bottom to enable hands-free voice. Then just say "Hey Co-Pilot, switch me to sleeper" — no tapping needed.</div>
+          </div>
+          <button onClick={dismissWakeHint} className="text-slate-400 hover:text-white text-xs px-2 py-1" data-testid="wake-hint-dismiss" aria-label="Dismiss tip">Got it</button>
+        </motion.div>
+      )}
+
       {/* HOS card */}
       <div className="hp-panel-bordered rounded-2xl p-5 hp-glow">
         <div className="flex items-center justify-between"><div className="text-xs uppercase tracking-widest text-sky-400/80">Hours of service</div><span className={`text-[10px] px-1.5 py-0.5 rounded-full ${dc.bg} ${dc.text} uppercase tracking-wider`}>{dc.label}</span></div>
@@ -238,6 +268,23 @@ export default function DriverHome() {
           Or just say "Hey Co-Pilot, start my pre-trip"
         </div>
       </div>
+
+      {/* Roadside Assistance launcher */}
+      <Link to="/driver/roadside" data-testid="open-roadside-card" className="block">
+        <div className="rounded-2xl p-5 bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/30 hover:border-amber-400/50 transition-colors">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center flex-shrink-0">
+              <LifeBuoy className="w-7 h-7 text-amber-300" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] uppercase tracking-widest text-amber-400/80">24/7 Roadside</div>
+              <div className="text-base font-semibold text-white mt-0.5">Need help out there?</div>
+              <div className="text-xs text-slate-400 mt-0.5 truncate">Vetted providers — tire, tow, fuel, mechanical.</div>
+            </div>
+            <ArrowRight className="w-5 h-5 text-amber-400 flex-shrink-0" />
+          </div>
+        </div>
+      </Link>
 
       {/* Duty quick-change */}
       <div className="hp-panel rounded-2xl p-5">

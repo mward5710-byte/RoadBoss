@@ -22,6 +22,8 @@ import IFTA from '@/pages/admin/IFTA';
 import Billing from '@/pages/admin/Billing';
 import Inspections from '@/pages/admin/Inspections';
 import InspectionDetail from '@/pages/admin/InspectionDetail';
+import AdminRoadside from '@/pages/admin/AdminRoadside';
+import CrashEvents from '@/pages/admin/CrashEvents';
 import Pricing from '@/pages/Pricing';
 import DriverShell from '@/pages/driver/DriverShell';
 import DriverHome from '@/pages/driver/DriverHome';
@@ -32,6 +34,8 @@ import DriverSettings from '@/pages/driver/DriverSettings';
 import DriverProfile from '@/pages/driver/DriverProfile';
 import Copilot from '@/pages/driver/Copilot';
 import Inspection from '@/pages/driver/Inspection';
+import Roadside from '@/pages/driver/Roadside';
+import RoadsideDetail from '@/pages/driver/RoadsideDetail';
 import { getUser } from '@/lib/api';
 
 function RequireAuth({ roles, children }) {
@@ -69,6 +73,8 @@ function App() {
             <Route path="billing" element={<Billing />} />
             <Route path="inspections" element={<Inspections />} />
             <Route path="inspections/:id" element={<InspectionDetail />} />
+            <Route path="roadside" element={<AdminRoadside />} />
+            <Route path="crash-events" element={<CrashEvents />} />
             <Route path="waitlist" element={<WaitlistAdmin />} />
             <Route path="profile" element={<Profile />} />
           </Route>
@@ -77,6 +83,8 @@ function App() {
             <Route index element={<DriverHome />} />
             <Route path="copilot" element={<Copilot />} />
             <Route path="inspection/:id" element={<Inspection />} />
+            <Route path="roadside" element={<Roadside />} />
+            <Route path="roadside/:id" element={<RoadsideDetail />} />
             <Route path="trips" element={<DriverTrips />} />
             <Route path="trips/:id" element={<DriverTripDetail />} />
             <Route path="vehicle" element={<DriverVehicle />} />

@@ -1364,6 +1364,202 @@ async def certify_inspection(insp_id: str, body: InspectionCertifyIn, user=Depen
 
 
 # ============================================================
+# Crash Events (OnStar-for-every-truck) - Slide 3
+# ============================================================
+
+class CrashEventIn(BaseModel):
+    severity: str = 'high'  # low | medium | high | critical
+    g_force: Optional[float] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    speed_mph: Optional[float] = None
+    auto_detected: bool = True
+    confirmed: bool = False  # driver tapped "I'm OK" => false; no response => true (real crash)
+    notes: Optional[str] = None
+
+
+@api_router.post("/crash-events")
+async def create_crash_event(body: CrashEventIn, user=Depends(get_current_user)):
+    driver = await _get_my_driver(user['email']) if user.get('role') == 'driver' else None
+    sev = body.severity if body.severity in ('low', 'medium', 'high', 'critical') else 'high'
+    doc = _make_doc({
+        'driver_id': (driver or {}).get('id'),
+        'driver_name': (driver or {}).get('name') or user.get('name'),
+        'vehicle_id': (driver or {}).get('vehicle_id'),
+        'severity': sev,
+        'g_force': body.g_force,
+        'latitude': body.latitude,
+        'longitude': body.longitude,
+        'speed_mph': body.speed_mph,
+        'auto_detected': bool(body.auto_detected),
+        'confirmed': bool(body.confirmed),
+        'status': 'unacknowledged',  # unacknowledged | acknowledged | dismissed | resolved
+        'notes': body.notes,
+    })
+    await db.crash_events.insert_one(dict(doc))
+    # Auto-create critical alert if confirmed crash
+    if body.confirmed:
+        await db.alerts.insert_one(_make_doc({
+            'type': 'crash_detected',
+            'severity': 'critical',
+            'driver_id': (driver or {}).get('id'),
+            'vehicle_id': (driver or {}).get('vehicle_id'),
+            'message': f"CRASH DETECTED — {(driver or {}).get('name') or 'Driver'} — {sev} severity, {body.g_force or 'n/a'}g{f', {body.speed_mph} mph' if body.speed_mph else ''}.",
+        }))
+    return doc
+
+
+@api_router.get("/crash-events")
+async def list_crash_events(limit: int = 100, user=Depends(get_current_user)):
+    query: Dict[str, Any] = {}
+    if user.get('role') == 'driver':
+        me = await _get_my_driver(user['email'])
+        if not me: return []
+        query['driver_id'] = me['id']
+    rows = await db.crash_events.find(query, {'_id': 0}).sort('created_at', -1).to_list(max(1, min(limit, 500)))
+    return rows
+
+
+class CrashStatusIn(BaseModel):
+    status: str  # acknowledged | dismissed | resolved
+    notes: Optional[str] = None
+
+
+@api_router.put("/crash-events/{ev_id}/status")
+async def update_crash_status(ev_id: str, body: CrashStatusIn, user=Depends(require_role('fleet_admin', 'dispatcher', 'super_admin'))):
+    if body.status not in ('acknowledged', 'dismissed', 'resolved'):
+        raise HTTPException(400, "status must be acknowledged | dismissed | resolved")
+    ev = await db.crash_events.find_one({'id': ev_id}, {'_id': 0})
+    if not ev: raise HTTPException(404, "Crash event not found")
+    update = {'status': body.status, 'updated_at': now_utc().isoformat()}
+    if body.notes: update['notes'] = body.notes
+    await db.crash_events.update_one({'id': ev_id}, {'$set': update})
+    ev.update(update)
+    return ev
+
+
+# ============================================================
+# Roadside Assistance - Slide 3
+# ============================================================
+
+class RoadsideDispatchIn(BaseModel):
+    service_type: str  # tire | tow | jumpstart | fuel | mechanical | lockout | other
+    description: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    location_text: Optional[str] = None
+    provider_id: Optional[str] = None  # if driver picked one; else auto-assign
+
+
+SERVICE_TYPES = ['tire', 'tow', 'jumpstart', 'fuel', 'mechanical', 'lockout', 'other']
+
+
+@api_router.get("/roadside/providers")
+async def list_roadside_providers(service_type: Optional[str] = None, user=Depends(get_current_user)):
+    query: Dict[str, Any] = {'active': True}
+    if service_type and service_type in SERVICE_TYPES:
+        query['services'] = service_type
+    rows = await db.roadside_providers.find(query, {'_id': 0}).sort('eta_avg_minutes', 1).to_list(50)
+    return rows
+
+
+@api_router.post("/roadside/dispatch")
+async def create_roadside_dispatch(body: RoadsideDispatchIn, user=Depends(get_current_user)):
+    if body.service_type not in SERVICE_TYPES:
+        raise HTTPException(400, f"service_type must be one of {SERVICE_TYPES}")
+    driver = await _get_my_driver(user['email']) if user.get('role') == 'driver' else None
+    # Auto-pick best provider if not specified
+    provider = None
+    if body.provider_id:
+        provider = await db.roadside_providers.find_one({'id': body.provider_id}, {'_id': 0})
+    if not provider:
+        provider = await db.roadside_providers.find_one(
+            {'active': True, 'services': body.service_type},
+            {'_id': 0},
+            sort=[('eta_avg_minutes', 1)]
+        )
+    doc = _make_doc({
+        'driver_id': (driver or {}).get('id'),
+        'driver_name': (driver or {}).get('name') or user.get('name'),
+        'vehicle_id': (driver or {}).get('vehicle_id'),
+        'service_type': body.service_type,
+        'description': body.description,
+        'latitude': body.latitude,
+        'longitude': body.longitude,
+        'location_text': body.location_text,
+        'provider_id': (provider or {}).get('id'),
+        'provider_name': (provider or {}).get('name'),
+        'provider_phone': (provider or {}).get('phone'),
+        'eta_minutes': (provider or {}).get('eta_avg_minutes'),
+        'status': 'requested',  # requested | confirmed | en_route | arrived | completed | cancelled
+        'price_estimate': (provider or {}).get('typical_cost'),
+        'history': [{'status': 'requested', 'at': now_utc().isoformat(), 'note': f"Driver requested {body.service_type}"}],
+    })
+    await db.roadside_dispatches.insert_one(dict(doc))
+    # Alert fleet admin
+    await db.alerts.insert_one(_make_doc({
+        'type': 'roadside_dispatch',
+        'severity': 'warning',
+        'driver_id': (driver or {}).get('id'),
+        'vehicle_id': (driver or {}).get('vehicle_id'),
+        'message': f"Roadside requested: {body.service_type} for {(driver or {}).get('name') or 'driver'}. Provider: {(provider or {}).get('name', 'auto-assigning')}.",
+    }))
+    return doc
+
+
+@api_router.get("/roadside/dispatch")
+async def list_roadside_dispatches(limit: int = 100, user=Depends(get_current_user)):
+    query: Dict[str, Any] = {}
+    if user.get('role') == 'driver':
+        me = await _get_my_driver(user['email'])
+        if not me: return []
+        query['driver_id'] = me['id']
+    rows = await db.roadside_dispatches.find(query, {'_id': 0}).sort('created_at', -1).to_list(max(1, min(limit, 500)))
+    return rows
+
+
+@api_router.get("/roadside/dispatch/{disp_id}")
+async def get_roadside_dispatch(disp_id: str, user=Depends(get_current_user)):
+    doc = await db.roadside_dispatches.find_one({'id': disp_id}, {'_id': 0})
+    if not doc: raise HTTPException(404, "Dispatch not found")
+    if user.get('role') == 'driver':
+        me = await _get_my_driver(user['email'])
+        if not me or doc.get('driver_id') != me['id']:
+            raise HTTPException(403, "Not your dispatch")
+    return doc
+
+
+class RoadsideStatusIn(BaseModel):
+    status: str  # confirmed | en_route | arrived | completed | cancelled
+    note: Optional[str] = None
+    eta_minutes: Optional[int] = None
+
+
+@api_router.put("/roadside/dispatch/{disp_id}/status")
+async def update_roadside_status(disp_id: str, body: RoadsideStatusIn, user=Depends(get_current_user)):
+    valid = ('confirmed', 'en_route', 'arrived', 'completed', 'cancelled')
+    if body.status not in valid:
+        raise HTTPException(400, f"status must be one of {valid}")
+    doc = await db.roadside_dispatches.find_one({'id': disp_id}, {'_id': 0})
+    if not doc: raise HTTPException(404, "Dispatch not found")
+    # Drivers can only cancel their own; admins can update anything
+    if user.get('role') == 'driver':
+        me = await _get_my_driver(user['email'])
+        if not me or doc.get('driver_id') != me['id']:
+            raise HTTPException(403, "Not your dispatch")
+        if body.status != 'cancelled':
+            raise HTTPException(403, "Drivers can only cancel.")
+    history = doc.get('history') or []
+    history.append({'status': body.status, 'at': now_utc().isoformat(), 'note': body.note})
+    update = {'status': body.status, 'history': history, 'updated_at': now_utc().isoformat()}
+    if body.eta_minutes is not None:
+        update['eta_minutes'] = body.eta_minutes
+    await db.roadside_dispatches.update_one({'id': disp_id}, {'$set': update})
+    doc.update(update)
+    return doc
+
+
+# ============================================================
 # AI Copilot — RoadBoss "Co-Pilot Buddy" (Stage 3)
 # Natural-language voice assistant powered by Emergent LLM key.
 # Context-aware: knows driver name, HOS remaining, current trip, vehicle, alerts.
@@ -1421,6 +1617,8 @@ Available actions:
   Use when: "log a fuel stop", "just fueled up", "filled up", "logging fuel"
 - start_inspection — args: {"inspection_type":"pre_trip"|"post_trip"}
   Use when: "start my pre-trip", "begin pre-trip inspection", "pre trip", "post-trip", "DVIR", "vehicle inspection"
+- dispatch_roadside — args: {"service_type":"tire"|"tow"|"jumpstart"|"fuel"|"mechanical"|"lockout"|"other","description":"<short desc>"}
+  Use when: "I need a tire fixed", "I broke down", "need a tow", "send a wrecker", "I'm out of fuel", "battery's dead", "locked out", "something broke", "need roadside assistance"
 
 Rules for actions:
 - Only emit an ACTION marker if the driver clearly wants the action done. If unsure, ask a quick clarifying question instead.
@@ -1594,6 +1792,52 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
                 'inspection_id': inspection['id'],
                 'inspection_type': insp_type,
                 'redirect': f"/driver/inspection/{inspection['id']}",
+            })
+            return result
+
+        # ----- dispatch_roadside -----
+        if action_type == 'dispatch_roadside':
+            if not driver:
+                result['error'] = 'Only drivers can dispatch roadside help.'
+                return result
+            svc = str(args.get('service_type', 'other')).lower()
+            if svc not in SERVICE_TYPES:
+                svc = 'other'
+            description = str(args.get('description', '')).strip() or None
+            provider = await db.roadside_providers.find_one(
+                {'active': True, 'services': svc},
+                {'_id': 0},
+                sort=[('eta_avg_minutes', 1)]
+            )
+            doc = _make_doc({
+                'driver_id': driver['id'],
+                'driver_name': driver.get('name'),
+                'vehicle_id': driver.get('vehicle_id'),
+                'service_type': svc,
+                'description': description,
+                'provider_id': (provider or {}).get('id'),
+                'provider_name': (provider or {}).get('name'),
+                'provider_phone': (provider or {}).get('phone'),
+                'eta_minutes': (provider or {}).get('eta_avg_minutes'),
+                'status': 'requested',
+                'price_estimate': (provider or {}).get('typical_cost'),
+                'history': [{'status': 'requested', 'at': now_utc().isoformat(), 'note': f"Co-Pilot voice dispatch — {svc}"}],
+            })
+            await db.roadside_dispatches.insert_one(dict(doc))
+            await db.alerts.insert_one(_make_doc({
+                'type': 'roadside_dispatch',
+                'severity': 'warning',
+                'driver_id': driver['id'],
+                'vehicle_id': driver.get('vehicle_id'),
+                'message': f"Roadside (voice): {svc} for {driver.get('name')}. Provider: {(provider or {}).get('name', 'pending assignment')}.",
+            }))
+            result.update({
+                'executed': True,
+                'dispatch_id': doc['id'],
+                'service_type': svc,
+                'provider_name': (provider or {}).get('name'),
+                'eta_minutes': (provider or {}).get('eta_avg_minutes'),
+                'redirect': f"/driver/roadside/{doc['id']}",
             })
             return result
 
@@ -1868,6 +2112,42 @@ async def _seed_demo():
     ]
     for c in cam_specs:
         await db.dashcam_events.insert_one(_make_doc(c))
+
+    # Roadside provider directory (vetted demo network)
+    provider_specs = [
+        {'name': 'Heartland 24/7 Truck Service', 'phone': '+1-765-555-0188', 'region': 'IN/OH/IL',
+         'services': ['tire', 'tow', 'mechanical', 'jumpstart'],
+         'eta_avg_minutes': 32, 'rating': 4.8, 'typical_cost': 285,
+         'notes': 'Family-owned. Specializes in heavy-duty.', 'active': True,
+         'logo_url': 'https://cdn-icons-png.flaticon.com/512/2730/2730032.png'},
+        {'name': 'BigRig Roadside Co.', 'phone': '+1-800-555-7244', 'region': 'Nationwide',
+         'services': ['tire', 'tow', 'jumpstart', 'fuel', 'mechanical', 'lockout', 'other'],
+         'eta_avg_minutes': 45, 'rating': 4.5, 'typical_cost': 350,
+         'notes': 'National coverage. Higher cost but always available.', 'active': True,
+         'logo_url': 'https://cdn-icons-png.flaticon.com/512/2933/2933245.png'},
+        {'name': 'Pilot Towing Network', 'phone': '+1-865-555-0411', 'region': 'TN/KY/GA',
+         'services': ['tow', 'mechanical', 'jumpstart'],
+         'eta_avg_minutes': 38, 'rating': 4.6, 'typical_cost': 320,
+         'notes': 'Pilot Flying-J truck stop network. Discounts at fuel.', 'active': True,
+         'logo_url': 'https://cdn-icons-png.flaticon.com/512/3306/3306921.png'},
+        {'name': 'Speedy Diesel Mechanics', 'phone': '+1-405-555-0312', 'region': 'OK/TX/AR',
+         'services': ['mechanical', 'fuel'],
+         'eta_avg_minutes': 50, 'rating': 4.7, 'typical_cost': 410,
+         'notes': 'Mobile diesel mechanics. Best for engine issues.', 'active': True,
+         'logo_url': 'https://cdn-icons-png.flaticon.com/512/2942/2942067.png'},
+        {'name': 'Lockout Pros', 'phone': '+1-877-555-9622', 'region': 'Nationwide',
+         'services': ['lockout'],
+         'eta_avg_minutes': 28, 'rating': 4.9, 'typical_cost': 145,
+         'notes': 'Lockout specialists. Fast and cheap.', 'active': True,
+         'logo_url': 'https://cdn-icons-png.flaticon.com/512/991/991956.png'},
+        {'name': 'Trucker Tire Express', 'phone': '+1-918-555-7710', 'region': 'OK/MO/KS',
+         'services': ['tire'],
+         'eta_avg_minutes': 25, 'rating': 4.8, 'typical_cost': 220,
+         'notes': 'Tire-only specialist. Fastest tire response in the corridor.', 'active': True,
+         'logo_url': 'https://cdn-icons-png.flaticon.com/512/4821/4821637.png'},
+    ]
+    for p in provider_specs:
+        await db.roadside_providers.insert_one(_make_doc(p))
 
     logger.info('Seed complete')
 

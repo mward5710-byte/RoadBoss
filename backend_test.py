@@ -1946,6 +1946,597 @@ class HighwayPilotAPITester:
                 'endpoint': '/auth/google'
             })
 
+    def test_crash_events(self):
+        """Test Crash Events module (Stage 3 Phase 2)"""
+        self.log("\n" + "="*60)
+        self.log("TESTING: Crash Events (Stage 3 Phase 2)")
+        self.log("="*60)
+        
+        if not self.driver_token or not self.fleet_token:
+            self.log("⚠️  Skipping - missing tokens", "WARN")
+            return
+        
+        # Get driver record
+        success, drivers = self.run_test(
+            "Get drivers for crash event tests",
+            "GET",
+            "/drivers",
+            200,
+            token=self.fleet_token
+        )
+        
+        driver_email = "driver@highwaypilot.io"
+        driver_record = next((d for d in drivers if d.get('email') == driver_email), None) if success else None
+        
+        if not driver_record:
+            self.log("⚠️  Could not find driver record", "WARN")
+            return
+        
+        driver_id = driver_record['id']
+        
+        # Test 1: POST crash event with confirmed=true (should create critical alert)
+        success, crash_event = self.run_test(
+            "POST /crash-events with confirmed=true (creates alert)",
+            "POST",
+            "/crash-events",
+            200,
+            data={
+                "severity": "high",
+                "g_force": 3.2,
+                "latitude": 32.7767,
+                "longitude": -96.7970,
+                "speed_mph": 55.0,
+                "auto_detected": True,
+                "confirmed": True,
+                "notes": "Test crash event - confirmed"
+            },
+            token=self.driver_token
+        )
+        
+        crash_event_id = None
+        if success:
+            crash_event_id = crash_event.get('id')
+            self.log(f"   Created crash event: {crash_event_id}")
+            self.log(f"   Status: {crash_event.get('status')}")
+            
+            if crash_event.get('status') != 'unacknowledged':
+                self.log(f"   ❌ Expected status 'unacknowledged', got '{crash_event.get('status')}'", "FAIL")
+            
+            # Verify critical alert was created
+            time.sleep(0.5)
+            success_alert, alerts = self.run_test(
+                "Verify critical alert created for confirmed crash",
+                "GET",
+                "/alerts",
+                200,
+                token=self.fleet_token
+            )
+            
+            if success_alert:
+                crash_alerts = [a for a in alerts if a.get('type') == 'crash_detected' and a.get('severity') == 'critical']
+                if crash_alerts:
+                    self.log(f"   ✓ Critical alert created: {crash_alerts[0].get('message')[:60]}...")
+                else:
+                    self.log(f"   ❌ No critical alert found for confirmed crash", "FAIL")
+        
+        # Test 2: POST crash event with confirmed=false (should NOT create alert)
+        alerts_before_count = 0
+        success_before, alerts_before = self.run_test(
+            "Get alerts count before false alarm",
+            "GET",
+            "/alerts",
+            200,
+            token=self.fleet_token
+        )
+        if success_before:
+            alerts_before_count = len(alerts_before)
+        
+        success, false_alarm = self.run_test(
+            "POST /crash-events with confirmed=false (no alert)",
+            "POST",
+            "/crash-events",
+            200,
+            data={
+                "severity": "low",
+                "g_force": 1.5,
+                "confirmed": False,
+                "notes": "False alarm - driver OK"
+            },
+            token=self.driver_token
+        )
+        
+        if success:
+            time.sleep(0.5)
+            success_after, alerts_after = self.run_test(
+                "Verify no new alert for false alarm",
+                "GET",
+                "/alerts",
+                200,
+                token=self.fleet_token
+            )
+            
+            if success_after:
+                new_crash_alerts = [a for a in alerts_after if a.get('type') == 'crash_detected' and a.get('created_at') > false_alarm.get('created_at', '')]
+                if new_crash_alerts:
+                    self.log(f"   ❌ Alert created for false alarm (should not happen)", "FAIL")
+                else:
+                    self.log(f"   ✓ No alert created for false alarm (correct)")
+        
+        # Test 3: GET crash events as driver (should see only own)
+        success, driver_crashes = self.run_test(
+            "GET /crash-events as driver (driver-scoped)",
+            "GET",
+            "/crash-events",
+            200,
+            token=self.driver_token
+        )
+        
+        if success:
+            self.log(f"   Driver sees {len(driver_crashes)} crash events")
+            # All should belong to this driver
+            other_driver_crashes = [c for c in driver_crashes if c.get('driver_id') != driver_id]
+            if other_driver_crashes:
+                self.log(f"   ❌ Driver sees other drivers' crashes", "FAIL")
+            else:
+                self.log(f"   ✓ Driver sees only their own crashes")
+        
+        # Test 4: GET crash events as admin (should see all)
+        success, admin_crashes = self.run_test(
+            "GET /crash-events as admin (sees all)",
+            "GET",
+            "/crash-events",
+            200,
+            token=self.fleet_token
+        )
+        
+        if success:
+            self.log(f"   Admin sees {len(admin_crashes)} crash events")
+            if len(admin_crashes) >= len(driver_crashes):
+                self.log(f"   ✓ Admin sees all crashes (>= driver's count)")
+            else:
+                self.log(f"   ❌ Admin sees fewer crashes than driver", "FAIL")
+        
+        # Test 5: PUT crash event status as admin (should work)
+        if crash_event_id:
+            success, updated = self.run_test(
+                "PUT /crash-events/{id}/status as admin (acknowledged)",
+                "PUT",
+                f"/crash-events/{crash_event_id}/status",
+                200,
+                data={"status": "acknowledged", "notes": "Fleet admin reviewed"},
+                token=self.fleet_token
+            )
+            
+            if success:
+                if updated.get('status') == 'acknowledged':
+                    self.log(f"   ✓ Status updated to 'acknowledged'")
+                else:
+                    self.log(f"   ❌ Status not updated correctly", "FAIL")
+        
+        # Test 6: PUT crash event status as driver (should fail 403)
+        if crash_event_id:
+            success, data = self.run_test(
+                "PUT /crash-events/{id}/status as driver (should fail 403)",
+                "PUT",
+                f"/crash-events/{crash_event_id}/status",
+                403,
+                data={"status": "resolved"},
+                token=self.driver_token
+            )
+        
+        # Test 7: PUT crash event with invalid status (should fail 400)
+        if crash_event_id:
+            success, data = self.run_test(
+                "PUT /crash-events/{id}/status with invalid status (400)",
+                "PUT",
+                f"/crash-events/{crash_event_id}/status",
+                400,
+                data={"status": "invalid_status"},
+                token=self.fleet_token
+            )
+
+    def test_roadside_assistance(self):
+        """Test Roadside Assistance module (Stage 3 Phase 2)"""
+        self.log("\n" + "="*60)
+        self.log("TESTING: Roadside Assistance (Stage 3 Phase 2)")
+        self.log("="*60)
+        
+        if not self.driver_token or not self.fleet_token:
+            self.log("⚠️  Skipping - missing tokens", "WARN")
+            return
+        
+        # Get driver record
+        success, drivers = self.run_test(
+            "Get drivers for roadside tests",
+            "GET",
+            "/drivers",
+            200,
+            token=self.fleet_token
+        )
+        
+        driver_email = "driver@highwaypilot.io"
+        driver_record = next((d for d in drivers if d.get('email') == driver_email), None) if success else None
+        
+        if not driver_record:
+            self.log("⚠️  Could not find driver record", "WARN")
+            return
+        
+        driver_id = driver_record['id']
+        
+        # Test 1: GET roadside providers (should return 6 seeded providers)
+        success, providers = self.run_test(
+            "GET /roadside/providers (6 seeded providers)",
+            "GET",
+            "/roadside/providers",
+            200,
+            token=self.driver_token
+        )
+        
+        if success:
+            self.log(f"   Found {len(providers)} providers")
+            if len(providers) != 6:
+                self.log(f"   ⚠️  Expected 6 providers, got {len(providers)}", "WARN")
+            
+            # Check for expected providers
+            provider_names = [p.get('name') for p in providers]
+            expected_names = ['Heartland', 'BigRig', 'Pilot', 'Speedy', 'Lockout', 'Trucker']
+            for exp in expected_names:
+                if any(exp in name for name in provider_names):
+                    self.log(f"   ✓ Found provider with '{exp}' in name")
+                else:
+                    self.log(f"   ⚠️  Provider with '{exp}' not found", "WARN")
+        
+        # Test 2: GET roadside providers with service_type=tire filter
+        success, tire_providers = self.run_test(
+            "GET /roadside/providers?service_type=tire",
+            "GET",
+            "/roadside/providers",
+            200,
+            params={"service_type": "tire"},
+            token=self.driver_token
+        )
+        
+        if success:
+            self.log(f"   Found {len(tire_providers)} tire providers")
+            # All should have 'tire' in services
+            for p in tire_providers:
+                if 'tire' not in p.get('services', []):
+                    self.log(f"   ❌ Provider {p.get('name')} doesn't offer tire service", "FAIL")
+            
+            # Trucker Tire Express should be fastest (25 min)
+            if tire_providers:
+                fastest = tire_providers[0]
+                self.log(f"   Fastest tire provider: {fastest.get('name')} ({fastest.get('eta_avg_minutes')} min)")
+                if 'Trucker' in fastest.get('name', ''):
+                    self.log(f"   ✓ Trucker Tire Express is fastest")
+                else:
+                    self.log(f"   ⚠️  Expected Trucker Tire Express to be fastest", "WARN")
+        
+        # Test 3: POST roadside dispatch with service_type=tire (auto-selects fastest)
+        success, dispatch = self.run_test(
+            "POST /roadside/dispatch with service_type=tire (auto-select)",
+            "POST",
+            "/roadside/dispatch",
+            200,
+            data={
+                "service_type": "tire",
+                "description": "Blew a tire on I-30",
+                "latitude": 32.7767,
+                "longitude": -96.7970,
+                "location_text": "I-30 mile marker 45"
+            },
+            token=self.driver_token
+        )
+        
+        dispatch_id = None
+        if success:
+            dispatch_id = dispatch.get('id')
+            self.log(f"   Created dispatch: {dispatch_id}")
+            self.log(f"   Provider: {dispatch.get('provider_name')}")
+            self.log(f"   ETA: {dispatch.get('eta_minutes')} min")
+            self.log(f"   Status: {dispatch.get('status')}")
+            
+            if dispatch.get('status') != 'requested':
+                self.log(f"   ❌ Expected status 'requested', got '{dispatch.get('status')}'", "FAIL")
+            
+            # Should auto-select Trucker Tire Express (fastest tire provider)
+            if 'Trucker' in dispatch.get('provider_name', ''):
+                self.log(f"   ✓ Auto-selected fastest tire provider (Trucker Tire Express)")
+            else:
+                self.log(f"   ⚠️  Expected Trucker Tire Express, got {dispatch.get('provider_name')}", "WARN")
+            
+            # Verify alert was created
+            time.sleep(0.5)
+            success_alert, alerts = self.run_test(
+                "Verify roadside_dispatch alert created",
+                "GET",
+                "/alerts",
+                200,
+                token=self.fleet_token
+            )
+            
+            if success_alert:
+                roadside_alerts = [a for a in alerts if a.get('type') == 'roadside_dispatch']
+                if roadside_alerts:
+                    self.log(f"   ✓ Roadside alert created")
+                else:
+                    self.log(f"   ❌ No roadside alert found", "FAIL")
+        
+        # Test 4: POST roadside dispatch with invalid service_type (should fail 400)
+        success, data = self.run_test(
+            "POST /roadside/dispatch with invalid service_type (400)",
+            "POST",
+            "/roadside/dispatch",
+            400,
+            data={
+                "service_type": "invalid_service",
+                "description": "Test"
+            },
+            token=self.driver_token
+        )
+        
+        # Test 5: POST roadside dispatch with provider_id specified
+        if tire_providers and len(tire_providers) > 1:
+            specific_provider = tire_providers[1]  # Pick second provider
+            success, dispatch2 = self.run_test(
+                "POST /roadside/dispatch with provider_id specified",
+                "POST",
+                "/roadside/dispatch",
+                200,
+                data={
+                    "service_type": "tire",
+                    "description": "Another tire issue",
+                    "provider_id": specific_provider.get('id')
+                },
+                token=self.driver_token
+            )
+            
+            if success:
+                if dispatch2.get('provider_id') == specific_provider.get('id'):
+                    self.log(f"   ✓ Used specified provider: {dispatch2.get('provider_name')}")
+                else:
+                    self.log(f"   ❌ Did not use specified provider", "FAIL")
+        
+        # Test 6: GET roadside dispatches as driver (should see only own)
+        success, driver_dispatches = self.run_test(
+            "GET /roadside/dispatch as driver (driver-scoped)",
+            "GET",
+            "/roadside/dispatch",
+            200,
+            token=self.driver_token
+        )
+        
+        if success:
+            self.log(f"   Driver sees {len(driver_dispatches)} dispatches")
+            # All should belong to this driver
+            other_driver_dispatches = [d for d in driver_dispatches if d.get('driver_id') != driver_id]
+            if other_driver_dispatches:
+                self.log(f"   ❌ Driver sees other drivers' dispatches", "FAIL")
+            else:
+                self.log(f"   ✓ Driver sees only their own dispatches")
+        
+        # Test 7: GET roadside dispatches as admin (should see all)
+        success, admin_dispatches = self.run_test(
+            "GET /roadside/dispatch as admin (sees all)",
+            "GET",
+            "/roadside/dispatch",
+            200,
+            token=self.fleet_token
+        )
+        
+        if success:
+            self.log(f"   Admin sees {len(admin_dispatches)} dispatches")
+            if len(admin_dispatches) >= len(driver_dispatches):
+                self.log(f"   ✓ Admin sees all dispatches")
+            else:
+                self.log(f"   ❌ Admin sees fewer dispatches than driver", "FAIL")
+        
+        # Test 8: GET single dispatch by ID as driver
+        if dispatch_id:
+            success, single = self.run_test(
+                "GET /roadside/dispatch/{id} as driver",
+                "GET",
+                f"/roadside/dispatch/{dispatch_id}",
+                200,
+                token=self.driver_token
+            )
+            
+            if success:
+                if single.get('id') == dispatch_id:
+                    self.log(f"   ✓ Retrieved dispatch by ID")
+                else:
+                    self.log(f"   ❌ Wrong dispatch returned", "FAIL")
+        
+        # Test 9: PUT dispatch status as admin (full lifecycle)
+        if dispatch_id:
+            # confirmed
+            success, updated = self.run_test(
+                "PUT /roadside/dispatch/{id}/status to 'confirmed' (admin)",
+                "PUT",
+                f"/roadside/dispatch/{dispatch_id}/status",
+                200,
+                data={"status": "confirmed", "note": "Provider confirmed"},
+                token=self.fleet_token
+            )
+            
+            if success:
+                if updated.get('status') == 'confirmed':
+                    self.log(f"   ✓ Status: requested → confirmed")
+                    history = updated.get('history', [])
+                    if len(history) >= 2:
+                        self.log(f"   ✓ History has {len(history)} entries")
+                    else:
+                        self.log(f"   ❌ History not appended correctly", "FAIL")
+                else:
+                    self.log(f"   ❌ Status not updated", "FAIL")
+            
+            # en_route
+            success, updated = self.run_test(
+                "PUT /roadside/dispatch/{id}/status to 'en_route' (admin)",
+                "PUT",
+                f"/roadside/dispatch/{dispatch_id}/status",
+                200,
+                data={"status": "en_route", "note": "Provider on the way"},
+                token=self.fleet_token
+            )
+            
+            if success and updated.get('status') == 'en_route':
+                self.log(f"   ✓ Status: confirmed → en_route")
+            
+            # arrived
+            success, updated = self.run_test(
+                "PUT /roadside/dispatch/{id}/status to 'arrived' (admin)",
+                "PUT",
+                f"/roadside/dispatch/{dispatch_id}/status",
+                200,
+                data={"status": "arrived", "note": "Provider on site"},
+                token=self.fleet_token
+            )
+            
+            if success and updated.get('status') == 'arrived':
+                self.log(f"   ✓ Status: en_route → arrived")
+            
+            # completed
+            success, updated = self.run_test(
+                "PUT /roadside/dispatch/{id}/status to 'completed' (admin)",
+                "PUT",
+                f"/roadside/dispatch/{dispatch_id}/status",
+                200,
+                data={"status": "completed", "note": "Service complete"},
+                token=self.fleet_token
+            )
+            
+            if success:
+                if updated.get('status') == 'completed':
+                    self.log(f"   ✓ Status: arrived → completed")
+                    history = updated.get('history', [])
+                    if len(history) >= 5:
+                        self.log(f"   ✓ Full lifecycle tracked in history ({len(history)} entries)")
+                    else:
+                        self.log(f"   ⚠️  History has only {len(history)} entries", "WARN")
+                else:
+                    self.log(f"   ❌ Status not updated to completed", "FAIL")
+        
+        # Test 10: PUT dispatch status as driver (only cancel allowed)
+        # Create a new dispatch for this test
+        success, cancel_dispatch = self.run_test(
+            "Create dispatch for driver cancel test",
+            "POST",
+            "/roadside/dispatch",
+            200,
+            data={
+                "service_type": "tow",
+                "description": "Test cancel"
+            },
+            token=self.driver_token
+        )
+        
+        if success:
+            cancel_id = cancel_dispatch.get('id')
+            
+            # Try to set to 'confirmed' as driver (should fail 403)
+            success, data = self.run_test(
+                "PUT dispatch status to 'confirmed' as driver (403)",
+                "PUT",
+                f"/roadside/dispatch/{cancel_id}/status",
+                403,
+                data={"status": "confirmed"},
+                token=self.driver_token
+            )
+            
+            # Try to cancel as driver (should work)
+            success, cancelled = self.run_test(
+                "PUT dispatch status to 'cancelled' as driver (allowed)",
+                "PUT",
+                f"/roadside/dispatch/{cancel_id}/status",
+                200,
+                data={"status": "cancelled", "note": "Driver cancelled"},
+                token=self.driver_token
+            )
+            
+            if success:
+                if cancelled.get('status') == 'cancelled':
+                    self.log(f"   ✓ Driver can cancel their own dispatch")
+                else:
+                    self.log(f"   ❌ Status not updated to cancelled", "FAIL")
+
+    def test_copilot_dispatch_roadside(self):
+        """Test Co-Pilot dispatch_roadside action (Stage 3 Phase 2)"""
+        self.log("\n" + "="*60)
+        self.log("TESTING: Co-Pilot dispatch_roadside Action (Stage 3 Phase 2)")
+        self.log("="*60)
+        
+        if not self.driver_token:
+            self.log("⚠️  Skipping - no driver token", "WARN")
+            return
+        
+        # Test 1: Co-Pilot dispatch_roadside action with "I blew a tire"
+        self.log("\n   ⚠️  Making LLM call for dispatch_roadside action", "WARN")
+        success, data = self.run_test(
+            "Co-Pilot dispatch_roadside: 'I blew a tire'",
+            "POST",
+            "/copilot/chat",
+            200,
+            data={"message": "Hey, I blew a tire and need help"},
+            token=self.driver_token
+        )
+        
+        dispatch_id = None
+        if success:
+            reply = data.get('reply', '')
+            action = data.get('action')
+            self.log(f"   Reply: {reply[:100]}...")
+            
+            # Verify action object
+            if action:
+                self.log(f"   Action type: {action.get('type')}")
+                self.log(f"   Action executed: {action.get('executed')}")
+                self.log(f"   Service type: {action.get('service_type')}")
+                self.log(f"   Provider: {action.get('provider_name')}")
+                self.log(f"   ETA: {action.get('eta_minutes')} min")
+                
+                if action.get('type') != 'dispatch_roadside':
+                    self.log(f"   ❌ Expected action type 'dispatch_roadside', got '{action.get('type')}'", "FAIL")
+                if action.get('executed') != True:
+                    self.log(f"   ❌ Expected action.executed=true", "FAIL")
+                if action.get('service_type') != 'tire':
+                    self.log(f"   ❌ Expected service_type='tire', got '{action.get('service_type')}'", "FAIL")
+                
+                dispatch_id = action.get('dispatch_id')
+                if not dispatch_id:
+                    self.log(f"   ❌ No dispatch_id in action", "FAIL")
+                else:
+                    self.log(f"   ✓ Dispatch created: {dispatch_id}")
+            else:
+                self.log(f"   ❌ No action object returned", "FAIL")
+            
+            # Verify reply text does NOT contain ACTION marker
+            if '<<<ACTION' in reply or '>>>' in reply:
+                self.log(f"   ❌ Reply text contains ACTION marker remnants", "FAIL")
+            else:
+                self.log(f"   ✓ Reply text clean (no ACTION marker)")
+            
+            # Verify dispatch record was created
+            if dispatch_id:
+                time.sleep(0.5)
+                success_verify, dispatches = self.run_test(
+                    "Verify dispatch record created via Co-Pilot",
+                    "GET",
+                    "/roadside/dispatch",
+                    200,
+                    token=self.driver_token
+                )
+                
+                if success_verify:
+                    created_dispatch = next((d for d in dispatches if d.get('id') == dispatch_id), None)
+                    if created_dispatch:
+                        self.log(f"   ✓ Dispatch record found in DB")
+                        self.log(f"   Service: {created_dispatch.get('service_type')}")
+                        self.log(f"   Provider: {created_dispatch.get('provider_name')}")
+                        self.log(f"   Status: {created_dispatch.get('status')}")
+                    else:
+                        self.log(f"   ❌ Dispatch record not found in DB", "FAIL")
+
     def print_summary(self):
         """Print test summary"""
         self.log("\n" + "="*60)
@@ -1974,7 +2565,7 @@ class HighwayPilotAPITester:
 def main():
     print("="*60)
     print("Highway Pilot Backend API Test Suite")
-    print("Stage 3 Phase 1.5: Co-Pilot Action Execution + DVIR")
+    print("Stage 3 Phase 2: Crash Events + Roadside Assistance + Co-Pilot dispatch_roadside")
     print("="*60)
     
     tester = HighwayPilotAPITester()
@@ -1986,9 +2577,14 @@ def main():
         print("\n❌ Authentication failed - cannot proceed with authenticated tests")
         return tester.print_summary()
     
-    # Stage 3 Phase 1.5 tests (NEW)
-    tester.test_copilot_actions()  # NEW Co-Pilot action execution tests
-    tester.test_dvir()  # NEW DVIR tests
+    # Stage 3 Phase 2 tests (NEW - Iteration 6)
+    tester.test_crash_events()  # NEW Crash Events module
+    tester.test_roadside_assistance()  # NEW Roadside Assistance module
+    tester.test_copilot_dispatch_roadside()  # NEW Co-Pilot dispatch_roadside action
+    
+    # Stage 3 Phase 1.5 tests (from iteration 5)
+    tester.test_copilot_actions()  # Co-Pilot action execution tests
+    tester.test_dvir()  # DVIR tests
     
     # Stage 3 Phase 1 tests (from iteration 4)
     tester.test_stripe()  # Stripe pricing (pro, fleet)

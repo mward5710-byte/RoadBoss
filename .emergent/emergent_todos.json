@@ -1,38 +1,54 @@
 [
   {
-    "content": "Diagnose: iframe mic block (NOT a code bug — iOS Safari security)",
+    "content": "P0: Backend Crash Events — model, POST/GET /api/crash-events, auto-alert creation, link to driver/vehicle",
     "status": "completed"
   },
   {
-    "content": "Add iframe detection + 'Open in browser' CTA when mic fails",
+    "content": "P0: Frontend Crash Detection hook — DeviceMotion G-force monitoring with 'I'm OK' countdown modal",
+    "status": "in_progress"
+  },
+  {
+    "content": "P0: Add crash detection to DriverShell so it runs across all driver pages",
+    "status": "pending"
+  },
+  {
+    "content": "P0: Admin Crash Events page — surface critical alerts with location/replay",
+    "status": "pending"
+  },
+  {
+    "content": "P1: Backend Roadside — RoadsideProvider, RoadsideDispatch models, provider directory, dispatch endpoints",
     "status": "completed"
   },
   {
-    "content": "Build WakeWord listener hook — continuous STT watching for trigger phrases",
+    "content": "P1: Co-Pilot action 'dispatch_roadside' so 'Hey Co-Pilot, I need a tow' works hands-free",
     "status": "completed"
   },
   {
-    "content": "Add 'Always Listening' toggle to Driver Home (and persist preference)",
+    "content": "P1: Driver Roadside page with one-tap dispatch + status tracking",
+    "status": "pending"
+  },
+  {
+    "content": "P1: Admin Roadside dispatch list page",
+    "status": "pending"
+  },
+  {
+    "content": "P1: Seed roadside provider directory (vetted mock data)",
     "status": "completed"
   },
   {
-    "content": "Visual + audio confirmation when wake word fires",
-    "status": "completed"
+    "content": "P2: Wake-word first-run tooltip + clearer default copy ('Say Hey Co-Pilot')",
+    "status": "pending"
   },
   {
-    "content": "Settings page — let driver choose wake phrase ('Hey Co-Pilot' / 'Highway Pilot' / 'Hey Boss')",
-    "status": "completed"
+    "content": "P2: Driver Home reorganization — prioritize hands-free actions, demote screen-only",
+    "status": "pending"
   },
   {
-    "content": "Update DriverHome voice button to show better error UI when mic fails",
-    "status": "completed"
+    "content": "P3: Run testing agent (backend) + visual verify",
+    "status": "pending"
   },
   {
-    "content": "Visual verify with screenshot",
-    "status": "completed"
-  },
-  {
-    "content": "Update plan.md",
-    "status": "completed"
+    "content": "P3: Update plan.md",
+    "status": "pending"
   }
 ]
