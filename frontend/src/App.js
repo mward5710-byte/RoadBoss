@@ -20,6 +20,8 @@ import WaitlistAdmin from '@/pages/admin/WaitlistAdmin';
 import Profile from '@/pages/admin/Profile';
 import IFTA from '@/pages/admin/IFTA';
 import Billing from '@/pages/admin/Billing';
+import Inspections from '@/pages/admin/Inspections';
+import InspectionDetail from '@/pages/admin/InspectionDetail';
 import Pricing from '@/pages/Pricing';
 import DriverShell from '@/pages/driver/DriverShell';
 import DriverHome from '@/pages/driver/DriverHome';
@@ -29,6 +31,7 @@ import DriverVehicle from '@/pages/driver/DriverVehicle';
 import DriverSettings from '@/pages/driver/DriverSettings';
 import DriverProfile from '@/pages/driver/DriverProfile';
 import Copilot from '@/pages/driver/Copilot';
+import Inspection from '@/pages/driver/Inspection';
 import { getUser } from '@/lib/api';
 
 function RequireAuth({ roles, children }) {
@@ -64,6 +67,8 @@ function App() {
             <Route path="dashcam" element={<DashcamPage />} />
             <Route path="ifta" element={<IFTA />} />
             <Route path="billing" element={<Billing />} />
+            <Route path="inspections" element={<Inspections />} />
+            <Route path="inspections/:id" element={<InspectionDetail />} />
             <Route path="waitlist" element={<WaitlistAdmin />} />
             <Route path="profile" element={<Profile />} />
           </Route>
@@ -71,6 +76,7 @@ function App() {
           <Route path="/driver" element={<RequireAuth roles={['driver']}><DriverShell /></RequireAuth>}>
             <Route index element={<DriverHome />} />
             <Route path="copilot" element={<Copilot />} />
+            <Route path="inspection/:id" element={<Inspection />} />
             <Route path="trips" element={<DriverTrips />} />
             <Route path="trips/:id" element={<DriverTripDetail />} />
             <Route path="vehicle" element={<DriverVehicle />} />

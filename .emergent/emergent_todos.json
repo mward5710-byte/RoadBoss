@@ -1,42 +1,46 @@
 [
   {
-    "content": "Phase A: Fix Stripe pricing to match Pitch Deck exactly (Pro $29.99, Fleet $19.99/truck, Free, Enterprise)",
+    "content": "P0: Add action execution to Co-Pilot (parse <<<ACTION:json>>> markers in LLM reply, execute safely, strip from text)",
     "status": "completed"
   },
   {
-    "content": "Phase A: Update Pricing.jsx UI with deck tagline + accurate tier copy",
+    "content": "P0: Wire all Driver Home voice into Co-Pilot (replace old /voice/command call) + show action toast",
     "status": "completed"
   },
   {
-    "content": "Phase A: Smoke-test Stripe checkout flow still works",
+    "content": "P1: Backend DVIR — model, FMCSA-standard template, endpoints (create/list/get/certify)",
     "status": "completed"
   },
   {
-    "content": "Phase B: Get integration playbook for Emergent LLM (AI Copilot)",
+    "content": "P1: Frontend DVIR — full-screen page, voice walkthrough mode + tap mode toggle",
     "status": "completed"
   },
   {
-    "content": "Phase B: Build /api/copilot/chat endpoint with Co-Pilot Buddy persona",
+    "content": "P1: Add 'pre-trip' & 'post-trip' as Co-Pilot actions so 'Hey, start my pre-trip' works hands-free",
     "status": "completed"
   },
   {
-    "content": "Phase B: Build voice interface in Driver PWA (STT in, TTS out)",
+    "content": "P1: Add DVIR launcher to Driver Home (so it appears when needed)",
     "status": "completed"
   },
   {
-    "content": "Phase B: Wire context awareness (current trip, HOS, vehicle) into Copilot",
+    "content": "P1: Add Inspections list page to admin dashboard",
     "status": "completed"
   },
   {
-    "content": "Phase C: Run backend testing agent for new endpoints + regression",
+    "content": "P1: Auto-redirect to inspection page when Copilot returns redirect URL",
     "status": "completed"
   },
   {
-    "content": "Phase C: Visual verify Pricing page + Copilot UI with screenshot tool",
+    "content": "P2: Run testing agent for new endpoints + regression",
+    "status": "in_progress"
+  },
+  {
+    "content": "P2: Visual verify with screenshots (driver flow + DVIR + admin DVIR list)",
     "status": "completed"
   },
   {
-    "content": "Phase D: Update plan.md with Stage 3 progress for Mike's morning review",
-    "status": "completed"
+    "content": "P2: Update plan.md with Phase 1.5 (action exec + DVIR)",
+    "status": "pending"
   }
 ]

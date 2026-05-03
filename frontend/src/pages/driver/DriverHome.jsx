@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api, getUser } from '@/lib/api';
-import { Mic, MicOff, Volume2, Bell, Route as RouteIcon, BellRing, Bot, Play, Square, Wrench, ArrowRight } from 'lucide-react';
+import { Mic, MicOff, Volume2, Bell, Route as RouteIcon, BellRing, Bot, Play, Square, Wrench, ArrowRight, ClipboardCheck, ClipboardX } from 'lucide-react';
 import { dutyColor, formatMinutes, severityColor, timeAgo } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -32,6 +32,7 @@ const dutyBtn = {
 
 export default function DriverHome() {
   const user = getUser();
+  const navigate = useNavigate();
   const [me, setMe] = useState(null);
   const [trips, setTrips] = useState([]);
   const [alerts, setAlerts] = useState([]);
@@ -39,6 +40,7 @@ export default function DriverHome() {
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [response, setResponse] = useState('');
+  const [busyDvir, setBusyDvir] = useState('');
   const recogRef = useRef(null);
   const supportsSTT = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
 
@@ -55,13 +57,33 @@ export default function DriverHome() {
   const handleVoice = async (text) => {
     setTranscript(text); setResponse('Thinking...');
     try {
-      const r = await api.post('/voice/command', { transcript: text });
-      setResponse(r.data.response);
-      speak(r.data.response);
-      // refresh state if a side effect happened
-      if (r.data.side_effect && Object.keys(r.data.side_effect).length) await refresh();
-      if (['duty_driving', 'duty_on_duty', 'duty_off_duty', 'duty_sleeper'].includes(r.data.intent)) await refresh();
-    } catch (e) { setResponse('Voice service unavailable.'); }
+      // Route through AI Co-Pilot — smarter intent + executes real actions
+      const r = await api.post('/copilot/chat', { message: text });
+      const reply = r.data?.reply || '';
+      setResponse(reply);
+      if (reply) speak(reply);
+      const action = r.data?.action;
+      if (action?.executed) {
+        const t = action.type;
+        if (t === 'duty_change') toast.success(`Status changed to ${action.new_status?.replace('_', ' ')}`);
+        if (t === 'start_trip') toast.success(`Trip started: ${action.origin} → ${action.destination}`);
+        if (t === 'end_trip') toast.success('Trip completed');
+        if (t === 'log_fuel') toast.success('Fuel stop logged');
+        if (t === 'start_inspection' && action.redirect) {
+          toast.success('Pre-trip inspection started');
+          setTimeout(() => navigate(action.redirect), 800);
+          return;
+        }
+        // Refresh state since something changed
+        await refresh();
+      } else if (action && action.error) {
+        toast.info(action.error);
+      }
+    } catch (e) {
+      const msg = e?.response?.data?.detail || 'Co-Pilot is unavailable right now.';
+      setResponse(msg);
+      toast.error(msg);
+    }
   };
 
   const startListening = () => {
@@ -100,6 +122,17 @@ export default function DriverHome() {
       toast.success('Trip started');
       await refresh();
     } catch { toast.error('Failed to start trip'); }
+  };
+
+  const startInspection = async (inspection_type) => {
+    setBusyDvir(inspection_type);
+    try {
+      const r = await api.post('/inspections', { inspection_type });
+      toast.success(`${inspection_type === 'pre_trip' ? 'Pre' : 'Post'}-trip inspection started`);
+      navigate(`/driver/inspection/${r.data.id}`);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not start inspection');
+    } finally { setBusyDvir(''); }
   };
 
   const endActiveTrip = async () => {
@@ -154,6 +187,37 @@ export default function DriverHome() {
         </div>
       </Link>
 
+      {/* DVIR launchers (FMCSA pre-trip + post-trip inspections) */}
+      <div className="hp-panel rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-xs uppercase tracking-widest text-sky-400/80 flex items-center gap-2"><ClipboardCheck className="w-3.5 h-3.5" /> DVIR Inspections</div>
+          <span className="text-[10px] text-slate-500">FMCSA 49 CFR § 396.11</span>
+        </div>
+        <div className="text-xs text-slate-400 mb-3">Required before and after every shift. Voice walkthrough — no need to look at the screen.</div>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            data-testid="start-pretrip-btn"
+            onClick={() => startInspection('pre_trip')}
+            disabled={busyDvir !== ''}
+            className="bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold"
+          >
+            {busyDvir === 'pre_trip' ? 'Starting...' : <><ClipboardCheck className="w-4 h-4 mr-1.5" /> Pre-Trip</>}
+          </Button>
+          <Button
+            data-testid="start-posttrip-btn"
+            onClick={() => startInspection('post_trip')}
+            disabled={busyDvir !== ''}
+            variant="outline"
+            className="border-sky-500/40 text-sky-300 hover:bg-sky-500/10"
+          >
+            {busyDvir === 'post_trip' ? 'Starting...' : <><ClipboardX className="w-4 h-4 mr-1.5" /> Post-Trip</>}
+          </Button>
+        </div>
+        <div className="mt-2 text-[10px] text-slate-500 text-center">
+          Or just say "Hey Co-Pilot, start my pre-trip"
+        </div>
+      </div>
+
       {/* Duty quick-change */}
       <div className="hp-panel rounded-2xl p-5">
         <div className="text-xs uppercase tracking-widest text-sky-400/80 mb-3">Change duty status</div>
@@ -174,7 +238,7 @@ export default function DriverHome() {
           <button data-testid="voice-button" onClick={listening ? stopListening : startListening} className={`relative w-24 h-24 rounded-full flex items-center justify-center transition ${listening ? 'bg-red-500 hp-voice-ring' : 'bg-sky-500 hover:bg-sky-400'}`}>
             {listening ? <MicOff className="w-9 h-9 text-white" /> : <Mic className="w-9 h-9 text-slate-950" />}
           </button>
-          <div className="text-xs text-slate-400">{listening ? 'Listening... speak now' : 'Tap to speak. Try: "check HOS", "start trip", "on duty", "help".'}</div>
+          <div className="text-xs text-slate-400">{listening ? 'Listening... speak now' : 'Tap to talk to Co-Pilot. Try: "switch me to sleeper", "start my pre-trip", "how much HOS time do I have".'}</div>
           <AnimatePresence>
             {transcript && (
               <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-sm mx-auto space-y-2">

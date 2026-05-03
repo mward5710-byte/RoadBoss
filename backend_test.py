@@ -1202,6 +1202,618 @@ class HighwayPilotAPITester:
             if len(messages) > 0:
                 self.log(f"   ⚠️  Expected 0 messages after reset, got {len(messages)}", "WARN")
 
+    def test_copilot_actions(self):
+        """Test AI Copilot ACTION EXECUTION (Stage 3 Phase 1.5)"""
+        self.log("\n" + "="*60)
+        self.log("TESTING: Co-Pilot Action Execution (Stage 3 Phase 1.5)")
+        self.log("="*60)
+        
+        if not self.driver_token:
+            self.log("⚠️  Skipping - no driver token", "WARN")
+            return
+        
+        # Get driver record to verify side effects
+        success, drivers = self.run_test(
+            "Get drivers for action tests",
+            "GET",
+            "/drivers",
+            200,
+            token=self.fleet_token
+        )
+        
+        driver_email = "driver@highwaypilot.io"
+        driver_record = next((d for d in drivers if d.get('email') == driver_email), None) if success else None
+        
+        if not driver_record:
+            self.log("⚠️  Could not find driver record, skipping action tests", "WARN")
+            return
+        
+        driver_id = driver_record['id']
+        self.log(f"   Testing with driver: {driver_record.get('name')} (ID: {driver_id})")
+        
+        # Test 1: duty_change action - "Switch me to sleeper berth"
+        self.log("\n   ⚠️  Making LLM call for duty_change action", "WARN")
+        success, data = self.run_test(
+            "Co-Pilot action: duty_change to sleeper",
+            "POST",
+            "/copilot/chat",
+            200,
+            data={"message": "Switch me to sleeper berth, gonna grab some shut-eye"},
+            token=self.driver_token
+        )
+        
+        if success:
+            reply = data.get('reply', '')
+            action = data.get('action')
+            self.log(f"   Reply: {reply[:80]}...")
+            
+            # Verify action object
+            if action:
+                self.log(f"   Action type: {action.get('type')}")
+                self.log(f"   Action executed: {action.get('executed')}")
+                self.log(f"   New status: {action.get('new_status')}")
+                
+                if action.get('type') != 'duty_change':
+                    self.log(f"   ❌ Expected action type 'duty_change', got '{action.get('type')}'", "FAIL")
+                if action.get('executed') != True:
+                    self.log(f"   ❌ Expected action.executed=true", "FAIL")
+                if action.get('new_status') != 'sleeper':
+                    self.log(f"   ❌ Expected new_status='sleeper', got '{action.get('new_status')}'", "FAIL")
+            else:
+                self.log(f"   ❌ No action object returned", "FAIL")
+            
+            # Verify reply text does NOT contain ACTION marker
+            if '<<<ACTION' in reply or '>>>' in reply or '{' in reply:
+                self.log(f"   ❌ Reply text contains ACTION marker remnants", "FAIL")
+            else:
+                self.log(f"   ✓ Reply text clean (no ACTION marker)")
+            
+            # Verify driver status actually changed in DB
+            time.sleep(0.5)  # Brief wait for DB update
+            success_verify, updated_driver = self.run_test(
+                "Verify driver status changed in DB",
+                "GET",
+                f"/drivers/{driver_id}",
+                200,
+                token=self.fleet_token
+            )
+            if success_verify:
+                actual_status = updated_driver.get('status')
+                self.log(f"   Driver status in DB: {actual_status}")
+                if actual_status != 'sleeper':
+                    self.log(f"   ❌ Expected driver status 'sleeper', got '{actual_status}'", "FAIL")
+                else:
+                    self.log(f"   ✓ Driver status correctly updated to 'sleeper'")
+        
+        # Test 2: start_trip action - create a planned trip first
+        success, trip = self.run_test(
+            "Create planned trip for start_trip test",
+            "POST",
+            "/trips",
+            200,
+            data={
+                "driver_id": driver_id,
+                "origin": "Dallas, TX",
+                "destination": "Memphis, TN",
+                "miles": 450,
+                "status": "planned"
+            },
+            token=self.fleet_token
+        )
+        
+        if success and 'id' in trip:
+            trip_id = trip['id']
+            self.log(f"   Created planned trip: {trip_id}")
+            
+            self.log("\n   ⚠️  Making LLM call for start_trip action", "WARN")
+            success, data = self.run_test(
+                "Co-Pilot action: start_trip",
+                "POST",
+                "/copilot/chat",
+                200,
+                data={"message": "Start my trip"},
+                token=self.driver_token
+            )
+            
+            if success:
+                reply = data.get('reply', '')
+                action = data.get('action')
+                self.log(f"   Reply: {reply[:80]}...")
+                
+                if action:
+                    self.log(f"   Action type: {action.get('type')}")
+                    self.log(f"   Action executed: {action.get('executed')}")
+                    self.log(f"   Trip ID: {action.get('trip_id')}")
+                    
+                    if action.get('type') != 'start_trip':
+                        self.log(f"   ❌ Expected action type 'start_trip'", "FAIL")
+                    if action.get('executed') != True:
+                        self.log(f"   ❌ Expected action.executed=true", "FAIL")
+                    if not action.get('trip_id'):
+                        self.log(f"   ❌ Expected trip_id in action", "FAIL")
+                else:
+                    self.log(f"   ❌ No action object returned", "FAIL")
+                
+                # Verify trip status changed to active
+                time.sleep(0.5)
+                success_verify, updated_trip = self.run_test(
+                    "Verify trip status changed to active",
+                    "GET",
+                    "/trips",
+                    200,
+                    params={"driver_id": driver_id},
+                    token=self.fleet_token
+                )
+                if success_verify:
+                    active_trips = [t for t in updated_trip if t.get('id') == trip_id]
+                    if active_trips and active_trips[0].get('status') == 'active':
+                        self.log(f"   ✓ Trip status correctly updated to 'active'")
+                    else:
+                        self.log(f"   ❌ Trip status not updated correctly", "FAIL")
+        
+        # Test 3: end_trip action
+        self.log("\n   ⚠️  Making LLM call for end_trip action", "WARN")
+        success, data = self.run_test(
+            "Co-Pilot action: end_trip",
+            "POST",
+            "/copilot/chat",
+            200,
+            data={"message": "End my trip, I'm here"},
+            token=self.driver_token
+        )
+        
+        if success:
+            reply = data.get('reply', '')
+            action = data.get('action')
+            self.log(f"   Reply: {reply[:80]}...")
+            
+            if action:
+                self.log(f"   Action type: {action.get('type')}")
+                self.log(f"   Action executed: {action.get('executed')}")
+                
+                if action.get('type') != 'end_trip':
+                    self.log(f"   ❌ Expected action type 'end_trip'", "FAIL")
+                if action.get('executed') != True:
+                    self.log(f"   ❌ Expected action.executed=true", "FAIL")
+            else:
+                self.log(f"   ❌ No action object returned", "FAIL")
+        
+        # Test 4: log_fuel action
+        self.log("\n   ⚠️  Making LLM call for log_fuel action", "WARN")
+        success, data = self.run_test(
+            "Co-Pilot action: log_fuel",
+            "POST",
+            "/copilot/chat",
+            200,
+            data={"message": "Just fueled up, log it"},
+            token=self.driver_token
+        )
+        
+        if success:
+            reply = data.get('reply', '')
+            action = data.get('action')
+            self.log(f"   Reply: {reply[:80]}...")
+            
+            if action:
+                self.log(f"   Action type: {action.get('type')}")
+                self.log(f"   Action executed: {action.get('executed')}")
+                
+                if action.get('type') != 'log_fuel':
+                    self.log(f"   ❌ Expected action type 'log_fuel'", "FAIL")
+                if action.get('executed') != True:
+                    self.log(f"   ❌ Expected action.executed=true", "FAIL")
+            else:
+                self.log(f"   ❌ No action object returned", "FAIL")
+            
+            # Verify fuel_log alert was created
+            time.sleep(0.5)
+            success_verify, alerts = self.run_test(
+                "Verify fuel_log alert created",
+                "GET",
+                "/alerts",
+                200,
+                token=self.fleet_token
+            )
+            if success_verify:
+                fuel_alerts = [a for a in alerts if a.get('type') == 'fuel_log']
+                if fuel_alerts:
+                    self.log(f"   ✓ Found {len(fuel_alerts)} fuel_log alert(s)")
+                else:
+                    self.log(f"   ❌ No fuel_log alert found", "FAIL")
+        
+        # Test 5: start_inspection action
+        self.log("\n   ⚠️  Making LLM call for start_inspection action", "WARN")
+        success, data = self.run_test(
+            "Co-Pilot action: start_inspection (pre-trip)",
+            "POST",
+            "/copilot/chat",
+            200,
+            data={"message": "Start my pre-trip inspection"},
+            token=self.driver_token
+        )
+        
+        if success:
+            reply = data.get('reply', '')
+            action = data.get('action')
+            self.log(f"   Reply: {reply[:80]}...")
+            
+            if action:
+                self.log(f"   Action type: {action.get('type')}")
+                self.log(f"   Action executed: {action.get('executed')}")
+                self.log(f"   Inspection type: {action.get('inspection_type')}")
+                self.log(f"   Inspection ID: {action.get('inspection_id', '')[:30]}...")
+                self.log(f"   Redirect URL: {action.get('redirect')}")
+                
+                if action.get('type') != 'start_inspection':
+                    self.log(f"   ❌ Expected action type 'start_inspection'", "FAIL")
+                if action.get('executed') != True:
+                    self.log(f"   ❌ Expected action.executed=true", "FAIL")
+                if action.get('inspection_type') != 'pre_trip':
+                    self.log(f"   ❌ Expected inspection_type='pre_trip'", "FAIL")
+                if not action.get('inspection_id'):
+                    self.log(f"   ❌ Expected inspection_id", "FAIL")
+                if not action.get('redirect') or '/driver/inspection/' not in action.get('redirect', ''):
+                    self.log(f"   ❌ Expected redirect URL with /driver/inspection/", "FAIL")
+                
+                # Verify inspection record exists
+                if action.get('inspection_id'):
+                    time.sleep(0.5)
+                    success_verify, inspection = self.run_test(
+                        "Verify inspection record exists",
+                        "GET",
+                        f"/inspections/{action['inspection_id']}",
+                        200,
+                        token=self.driver_token
+                    )
+                    if success_verify:
+                        self.log(f"   ✓ Inspection record found: {inspection.get('status')}, {len(inspection.get('items', []))} items")
+                    else:
+                        self.log(f"   ❌ Inspection record not found", "FAIL")
+            else:
+                self.log(f"   ❌ No action object returned", "FAIL")
+        
+        # Test 6: Informational query (no action)
+        self.log("\n   ⚠️  Making LLM call for informational query (no action expected)", "WARN")
+        success, data = self.run_test(
+            "Co-Pilot informational query (no action)",
+            "POST",
+            "/copilot/chat",
+            200,
+            data={"message": "What's my next destination?"},
+            token=self.driver_token
+        )
+        
+        if success:
+            reply = data.get('reply', '')
+            action = data.get('action')
+            self.log(f"   Reply: {reply[:80]}...")
+            
+            if action is None:
+                self.log(f"   ✓ No action object (as expected for informational query)")
+            else:
+                self.log(f"   ⚠️  Action object present for informational query: {action.get('type')}", "WARN")
+        
+        # Test 7: start_trip with no planned trip (should fail gracefully)
+        # First, complete any active trips
+        success, trips = self.run_test(
+            "Get trips to clean up",
+            "GET",
+            "/trips",
+            200,
+            params={"driver_id": driver_id},
+            token=self.fleet_token
+        )
+        if success:
+            for t in trips:
+                if t.get('status') in ('active', 'planned'):
+                    self.run_test(
+                        f"Complete trip {t['id']}",
+                        "POST",
+                        f"/trips/{t['id']}/end",
+                        200,
+                        token=self.fleet_token
+                    )
+        
+        self.log("\n   ⚠️  Making LLM call for start_trip with no planned trip", "WARN")
+        success, data = self.run_test(
+            "Co-Pilot action: start_trip with no planned trip",
+            "POST",
+            "/copilot/chat",
+            200,
+            data={"message": "Start my trip"},
+            token=self.driver_token
+        )
+        
+        if success:
+            reply = data.get('reply', '')
+            action = data.get('action')
+            self.log(f"   Reply: {reply[:80]}...")
+            
+            if action:
+                self.log(f"   Action executed: {action.get('executed')}")
+                self.log(f"   Action error: {action.get('error')}")
+                
+                if action.get('executed') == False and 'No planned trip' in action.get('error', ''):
+                    self.log(f"   ✓ Action correctly failed with 'No planned trip' error")
+                else:
+                    self.log(f"   ⚠️  Expected action.executed=false with error", "WARN")
+
+    def test_dvir(self):
+        """Test DVIR (Driver Vehicle Inspection Reports) endpoints (Stage 3 Phase 1.5)"""
+        self.log("\n" + "="*60)
+        self.log("TESTING: DVIR - Driver Vehicle Inspection Reports (Stage 3 Phase 1.5)")
+        self.log("="*60)
+        
+        if not self.driver_token or not self.fleet_token:
+            self.log("⚠️  Skipping - missing tokens", "WARN")
+            return
+        
+        # Test 1: GET /inspections/template
+        success, data = self.run_test(
+            "Get DVIR template",
+            "GET",
+            "/inspections/template",
+            200,
+            token=self.driver_token
+        )
+        
+        if success:
+            template = data.get('template', {})
+            tractor_items = template.get('tractor', [])
+            trailer_items = template.get('trailer', [])
+            self.log(f"   Tractor items: {len(tractor_items)}")
+            self.log(f"   Trailer items: {len(trailer_items)}")
+            
+            if len(tractor_items) != 18:
+                self.log(f"   ❌ Expected 18 tractor items, got {len(tractor_items)}", "FAIL")
+            if len(trailer_items) != 9:
+                self.log(f"   ❌ Expected 9 trailer items, got {len(trailer_items)}", "FAIL")
+            
+            # Verify structure
+            if tractor_items and isinstance(tractor_items[0], dict):
+                sample = tractor_items[0]
+                if 'key' in sample and 'label' in sample:
+                    self.log(f"   ✓ Template structure correct: {sample.get('key')} - {sample.get('label')}")
+                else:
+                    self.log(f"   ❌ Template items missing key/label", "FAIL")
+        
+        # Test 2: POST /inspections (create pre-trip inspection as driver)
+        success, inspection = self.run_test(
+            "Create pre-trip inspection (driver)",
+            "POST",
+            "/inspections",
+            200,
+            data={"inspection_type": "pre_trip"},
+            token=self.driver_token
+        )
+        
+        inspection_id = None
+        if success and 'id' in inspection:
+            inspection_id = inspection['id']
+            self.log(f"   Created inspection ID: {inspection_id}")
+            self.log(f"   Status: {inspection.get('status')}")
+            self.log(f"   Type: {inspection.get('inspection_type')}")
+            self.log(f"   Items: {len(inspection.get('items', []))}")
+            
+            if inspection.get('status') != 'in_progress':
+                self.log(f"   ❌ Expected status 'in_progress', got '{inspection.get('status')}'", "FAIL")
+            if inspection.get('inspection_type') != 'pre_trip':
+                self.log(f"   ❌ Expected type 'pre_trip'", "FAIL")
+            if len(inspection.get('items', [])) != 27:
+                self.log(f"   ❌ Expected 27 items (18+9), got {len(inspection.get('items', []))}", "FAIL")
+            
+            # Verify all items are status='pending'
+            items = inspection.get('items', [])
+            pending_count = sum(1 for i in items if i.get('status') == 'pending')
+            if pending_count != 27:
+                self.log(f"   ❌ Expected all 27 items with status='pending', got {pending_count}", "FAIL")
+        
+        # Test 3: POST /inspections as fleet_admin (should fail - only drivers)
+        success, data = self.run_test(
+            "Create inspection as fleet_admin (should fail)",
+            "POST",
+            "/inspections",
+            403,
+            data={"inspection_type": "pre_trip"},
+            token=self.fleet_token
+        )
+        
+        # Test 4: GET /inspections (list inspections as driver - scoped)
+        success, inspections = self.run_test(
+            "List inspections (driver scoped)",
+            "GET",
+            "/inspections",
+            200,
+            token=self.driver_token
+        )
+        
+        if success:
+            self.log(f"   Found {len(inspections)} inspection(s)")
+            if len(inspections) > 0:
+                self.log(f"   Sample: {inspections[0].get('inspection_type')} - {inspections[0].get('status')}")
+        
+        # Test 5: GET /inspections/{id}
+        if inspection_id:
+            success, data = self.run_test(
+                "Get inspection by ID",
+                "GET",
+                f"/inspections/{inspection_id}",
+                200,
+                token=self.driver_token
+            )
+            
+            if success:
+                self.log(f"   Retrieved inspection: {data.get('id')[:30]}...")
+        
+        # Test 6: PUT /inspections/{id}/item (update item status to 'pass')
+        if inspection_id:
+            success, data = self.run_test(
+                "Update inspection item (service_brakes to pass)",
+                "PUT",
+                f"/inspections/{inspection_id}/item",
+                200,
+                data={"key": "service_brakes", "status": "pass"},
+                token=self.driver_token
+            )
+            
+            if success:
+                items = data.get('items', [])
+                service_brakes = next((i for i in items if i.get('key') == 'service_brakes'), None)
+                if service_brakes and service_brakes.get('status') == 'pass':
+                    self.log(f"   ✓ Item updated: service_brakes status='pass'")
+                else:
+                    self.log(f"   ❌ Item not updated correctly", "FAIL")
+        
+        # Test 7: PUT item with status='defect' and note
+        if inspection_id:
+            success, data = self.run_test(
+                "Update inspection item (tires to defect with note)",
+                "PUT",
+                f"/inspections/{inspection_id}/item",
+                200,
+                data={"key": "tires", "status": "defect", "note": "Left front tire worn"},
+                token=self.driver_token
+            )
+            
+            if success:
+                items = data.get('items', [])
+                tires = next((i for i in items if i.get('key') == 'tires'), None)
+                if tires and tires.get('status') == 'defect' and tires.get('note'):
+                    self.log(f"   ✓ Item updated: tires status='defect', note='{tires.get('note')}'")
+                else:
+                    self.log(f"   ❌ Item not updated correctly", "FAIL")
+        
+        # Test 8: PUT item with invalid status (should fail)
+        if inspection_id:
+            success, data = self.run_test(
+                "Update item with invalid status (should fail)",
+                "PUT",
+                f"/inspections/{inspection_id}/item",
+                400,
+                data={"key": "horn", "status": "invalid_status"},
+                token=self.driver_token
+            )
+        
+        # Test 9: PUT item with unknown key (should fail)
+        if inspection_id:
+            success, data = self.run_test(
+                "Update item with unknown key (should fail)",
+                "PUT",
+                f"/inspections/{inspection_id}/item",
+                400,
+                data={"key": "unknown_item_key", "status": "pass"},
+                token=self.driver_token
+            )
+        
+        # Test 10: POST /inspections/{id}/certify with defects
+        if inspection_id:
+            # Mark another item as defect
+            self.run_test(
+                "Mark mirrors as defect",
+                "PUT",
+                f"/inspections/{inspection_id}/item",
+                200,
+                data={"key": "mirrors", "status": "defect", "note": "Passenger mirror cracked"},
+                token=self.driver_token
+            )
+            
+            success, data = self.run_test(
+                "Certify inspection with defects",
+                "POST",
+                f"/inspections/{inspection_id}/certify",
+                200,
+                data={"no_defects": False, "signature": "Diego Ruiz"},
+                token=self.driver_token
+            )
+            
+            if success:
+                self.log(f"   Status: {data.get('status')}")
+                self.log(f"   Defect count: {data.get('defect_count')}")
+                self.log(f"   Certified at: {data.get('certified_at', '')[:19]}")
+                self.log(f"   Signature: {data.get('signature')}")
+                
+                if data.get('status') != 'certified':
+                    self.log(f"   ❌ Expected status 'certified'", "FAIL")
+                if data.get('defect_count') != 2:
+                    self.log(f"   ❌ Expected defect_count=2 (tires, mirrors), got {data.get('defect_count')}", "FAIL")
+                if not data.get('certified_at'):
+                    self.log(f"   ❌ Expected certified_at timestamp", "FAIL")
+                
+                # Verify maintenance records auto-created
+                time.sleep(0.5)
+                success_maint, maintenance = self.run_test(
+                    "Verify maintenance records auto-created",
+                    "GET",
+                    "/maintenance",
+                    200,
+                    token=self.fleet_token
+                )
+                if success_maint:
+                    dvir_maintenance = [m for m in maintenance if 'DVIR Defect:' in m.get('service_type', '')]
+                    self.log(f"   Found {len(dvir_maintenance)} DVIR maintenance record(s)")
+                    if len(dvir_maintenance) >= 2:
+                        self.log(f"   ✓ Maintenance records auto-created for defects")
+                    else:
+                        self.log(f"   ⚠️  Expected at least 2 DVIR maintenance records", "WARN")
+                
+                # Verify alerts auto-created
+                success_alerts, alerts = self.run_test(
+                    "Verify alerts auto-created for defects",
+                    "GET",
+                    "/alerts",
+                    200,
+                    token=self.fleet_token
+                )
+                if success_alerts:
+                    dvir_alerts = [a for a in alerts if a.get('type') == 'maintenance_due' and 'DVIR' in a.get('message', '')]
+                    self.log(f"   Found {len(dvir_alerts)} DVIR alert(s)")
+                    if len(dvir_alerts) >= 2:
+                        self.log(f"   ✓ Alerts auto-created for defects")
+        
+        # Test 11: Certify with empty signature (should fail)
+        success, inspection2 = self.run_test(
+            "Create another inspection for certify tests",
+            "POST",
+            "/inspections",
+            200,
+            data={"inspection_type": "post_trip"},
+            token=self.driver_token
+        )
+        
+        if success and 'id' in inspection2:
+            inspection2_id = inspection2['id']
+            
+            success, data = self.run_test(
+                "Certify with empty signature (should fail)",
+                "POST",
+                f"/inspections/{inspection2_id}/certify",
+                400,
+                data={"no_defects": True, "signature": ""},
+                token=self.driver_token
+            )
+        
+        # Test 12: Certify already-certified inspection (should fail)
+        if inspection_id:
+            success, data = self.run_test(
+                "Certify already-certified inspection (should fail)",
+                "POST",
+                f"/inspections/{inspection_id}/certify",
+                400,
+                data={"no_defects": False, "signature": "Diego Ruiz"},
+                token=self.driver_token
+            )
+        
+        # Test 13: PUT item on certified inspection (should fail)
+        if inspection_id:
+            success, data = self.run_test(
+                "Update item on certified inspection (should fail)",
+                "PUT",
+                f"/inspections/{inspection_id}/item",
+                400,
+                data={"key": "horn", "status": "pass"},
+                token=self.driver_token
+            )
+
     def test_regression(self):
         """Test existing endpoints still work (regression)"""
         self.log("\n" + "="*60)
@@ -1362,7 +1974,7 @@ class HighwayPilotAPITester:
 def main():
     print("="*60)
     print("Highway Pilot Backend API Test Suite")
-    print("Stage 3 Phase 1: Stripe Pricing + AI Copilot")
+    print("Stage 3 Phase 1.5: Co-Pilot Action Execution + DVIR")
     print("="*60)
     
     tester = HighwayPilotAPITester()
@@ -1374,9 +1986,13 @@ def main():
         print("\n❌ Authentication failed - cannot proceed with authenticated tests")
         return tester.print_summary()
     
-    # Stage 3 Phase 1 tests (NEW)
-    tester.test_stripe()  # Updated for new pricing (pro, fleet)
-    tester.test_copilot()  # NEW AI Copilot tests
+    # Stage 3 Phase 1.5 tests (NEW)
+    tester.test_copilot_actions()  # NEW Co-Pilot action execution tests
+    tester.test_dvir()  # NEW DVIR tests
+    
+    # Stage 3 Phase 1 tests (from iteration 4)
+    tester.test_stripe()  # Stripe pricing (pro, fleet)
+    tester.test_copilot()  # AI Copilot basic tests
     
     # Regression tests
     tester.test_regression()

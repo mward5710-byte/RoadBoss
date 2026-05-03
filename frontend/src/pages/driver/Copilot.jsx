@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, Volume2, VolumeX, Loader2, RotateCcw, ArrowLeft, Sparkles, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,7 @@ function speak(text, onEnd) {
 }
 
 export default function Copilot() {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [mode, setMode] = useState('idle'); // idle | listening | thinking | speaking
   const [handsFree, setHandsFree] = useState(false);
@@ -67,6 +68,33 @@ export default function Copilot() {
       const reply = r.data?.reply || "Sorry boss, I didn't catch that.";
       const aMsg = { id: `a-${Date.now()}`, role: 'assistant', content: reply, created_at: new Date().toISOString() };
       setMessages((prev) => [...prev, aMsg]);
+
+      // Action feedback
+      const action = r.data?.action;
+      if (action?.executed) {
+        const t = action.type;
+        if (t === 'duty_change') toast.success(`Status: ${action.new_status?.replace('_', ' ')}`);
+        if (t === 'start_trip') toast.success(`Trip started: ${action.origin} → ${action.destination}`);
+        if (t === 'end_trip') toast.success('Trip completed');
+        if (t === 'log_fuel') toast.success('Fuel stop logged');
+        if (t === 'start_inspection' && action.redirect) {
+          toast.success(`${action.inspection_type === 'pre_trip' ? 'Pre' : 'Post'}-trip inspection started`);
+          // Speak first, then navigate to the inspection page (it auto-runs voice walkthrough)
+          if (mutedRef.current) {
+            setMode('idle');
+            setTimeout(() => navigate(action.redirect), 400);
+          } else {
+            setMode('speaking');
+            speak(reply, () => {
+              setMode('idle');
+              navigate(action.redirect);
+            });
+          }
+          return;
+        }
+      } else if (action?.error) {
+        toast.info(action.error);
+      }
 
       if (mutedRef.current) {
         setMode('idle');

@@ -6,6 +6,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import re
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr, ConfigDict, field_validator
 from typing import List, Optional, Dict, Any
@@ -1126,6 +1127,243 @@ async def voice_command(body: VoiceCmdIn, user=Depends(get_current_user)):
     return {'intent': intent, 'response': response, 'side_effect': side_effect}
 
 # ============================================================
+# DVIR — Driver Vehicle Inspection Reports (FMCSA 49 CFR 396.11/396.13)
+# ============================================================
+
+DVIR_TEMPLATE: Dict[str, List[Dict[str, str]]] = {
+    'tractor': [
+        {'key': 'service_brakes', 'label': 'Service Brakes'},
+        {'key': 'parking_brake', 'label': 'Parking Brake'},
+        {'key': 'steering', 'label': 'Steering Mechanism'},
+        {'key': 'lights_reflectors', 'label': 'Lights and Reflectors'},
+        {'key': 'tires', 'label': 'Tires'},
+        {'key': 'wheels_rims', 'label': 'Wheels and Rims'},
+        {'key': 'mirrors', 'label': 'Mirrors'},
+        {'key': 'windshield_wipers', 'label': 'Windshield and Wipers'},
+        {'key': 'horn', 'label': 'Horn'},
+        {'key': 'coupling', 'label': 'Coupling Devices and Fifth Wheel'},
+        {'key': 'fluid_leaks', 'label': 'Fluid Leaks (oil, coolant, fuel)'},
+        {'key': 'fluid_levels', 'label': 'Fluid Levels (oil, coolant, washer)'},
+        {'key': 'air_brakes', 'label': 'Air Pressure and Air Lines'},
+        {'key': 'suspension', 'label': 'Suspension'},
+        {'key': 'exhaust', 'label': 'Exhaust System'},
+        {'key': 'frame_body', 'label': 'Frame, Body, and Doors'},
+        {'key': 'emergency_equipment', 'label': 'Emergency Equipment (Triangles, Fire Extinguisher, Spare Fuses)'},
+        {'key': 'seat_belt', 'label': 'Seat Belt'},
+    ],
+    'trailer': [
+        {'key': 'trailer_brakes', 'label': 'Trailer Brakes'},
+        {'key': 'trailer_lights', 'label': 'Trailer Lights and Reflectors'},
+        {'key': 'trailer_tires', 'label': 'Trailer Tires'},
+        {'key': 'trailer_wheels', 'label': 'Trailer Wheels and Rims'},
+        {'key': 'trailer_coupling', 'label': 'Coupling (King Pin, Apron, Hooks)'},
+        {'key': 'trailer_doors', 'label': 'Doors, Hinges, Latches'},
+        {'key': 'trailer_frame', 'label': 'Frame and Body'},
+        {'key': 'trailer_suspension', 'label': 'Suspension and Air Lines'},
+        {'key': 'trailer_load', 'label': 'Load Securement'},
+    ],
+}
+
+
+def _build_blank_items() -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    for section, rows in DVIR_TEMPLATE.items():
+        for row in rows:
+            items.append({
+                'section': section,
+                'key': row['key'],
+                'label': row['label'],
+                'status': 'pending',  # pending | pass | defect | na
+                'note': None,
+                'updated_at': None,
+            })
+    return items
+
+
+async def _create_blank_inspection(driver: Dict[str, Any], inspection_type: str) -> Dict[str, Any]:
+    insp_type = 'pre_trip' if inspection_type not in ('pre_trip', 'post_trip') else inspection_type
+    doc = {
+        'id': str(uuid.uuid4()),
+        'driver_id': driver['id'],
+        'driver_name': driver.get('name'),
+        'vehicle_id': driver.get('vehicle_id'),
+        'inspection_type': insp_type,
+        'status': 'in_progress',  # in_progress | certified
+        'items': _build_blank_items(),
+        'no_defects': None,
+        'signature': None,
+        'certified_at': None,
+        'created_at': now_utc().isoformat(),
+        'updated_at': now_utc().isoformat(),
+    }
+    if doc['vehicle_id']:
+        veh = await db.vehicles.find_one({'id': doc['vehicle_id']}, {'_id': 0})
+        if veh:
+            doc['vehicle_name'] = veh.get('name')
+            doc['vehicle_plate'] = veh.get('plate')
+    await db.inspections.insert_one(dict(doc))
+    return doc
+
+
+class InspectionCreateIn(BaseModel):
+    inspection_type: str  # pre_trip | post_trip
+    vehicle_id: Optional[str] = None
+
+
+class InspectionItemUpdateIn(BaseModel):
+    key: str
+    status: str  # pass | defect | na
+    note: Optional[str] = None
+
+
+class InspectionCertifyIn(BaseModel):
+    no_defects: bool
+    signature: str
+
+
+@api_router.get("/inspections/template")
+async def get_inspection_template(user=Depends(get_current_user)):
+    return {'template': DVIR_TEMPLATE}
+
+
+@api_router.get("/inspections")
+async def list_inspections(driver_id: Optional[str] = None,
+                            vehicle_id: Optional[str] = None,
+                            inspection_type: Optional[str] = None,
+                            status_filter: Optional[str] = None,
+                            limit: int = 50,
+                            user=Depends(get_current_user)):
+    query: Dict[str, Any] = {}
+    # Drivers can only see their own inspections
+    if user.get('role') == 'driver':
+        me = await _get_my_driver(user['email'])
+        if not me:
+            return []
+        query['driver_id'] = me['id']
+    else:
+        if driver_id:
+            query['driver_id'] = driver_id
+    if vehicle_id:
+        query['vehicle_id'] = vehicle_id
+    if inspection_type:
+        query['inspection_type'] = inspection_type
+    if status_filter:
+        query['status'] = status_filter
+    rows = await db.inspections.find(query, {'_id': 0}).sort('created_at', -1).to_list(max(1, min(limit, 200)))
+    return rows
+
+
+@api_router.post("/inspections")
+async def create_inspection(body: InspectionCreateIn, user=Depends(get_current_user)):
+    if user.get('role') != 'driver':
+        raise HTTPException(403, "Only drivers can start a DVIR inspection.")
+    driver = await _get_my_driver(user['email'])
+    if not driver:
+        raise HTTPException(404, "Driver record not found.")
+    if body.vehicle_id and body.vehicle_id != driver.get('vehicle_id'):
+        # allow override only if admin; for driver, just use their assigned vehicle
+        pass
+    doc = await _create_blank_inspection(driver, body.inspection_type)
+    return doc
+
+
+@api_router.get("/inspections/{insp_id}")
+async def get_inspection(insp_id: str, user=Depends(get_current_user)):
+    doc = await db.inspections.find_one({'id': insp_id}, {'_id': 0})
+    if not doc:
+        raise HTTPException(404, "Inspection not found")
+    # Drivers can only access their own
+    if user.get('role') == 'driver':
+        me = await _get_my_driver(user['email'])
+        if not me or doc.get('driver_id') != me['id']:
+            raise HTTPException(403, "Not your inspection")
+    return doc
+
+
+@api_router.put("/inspections/{insp_id}/item")
+async def update_inspection_item(insp_id: str, body: InspectionItemUpdateIn,
+                                  user=Depends(get_current_user)):
+    if body.status not in ('pass', 'defect', 'na'):
+        raise HTTPException(400, "status must be pass | defect | na")
+    doc = await db.inspections.find_one({'id': insp_id}, {'_id': 0})
+    if not doc:
+        raise HTTPException(404, "Inspection not found")
+    if doc.get('status') == 'certified':
+        raise HTTPException(400, "Inspection already certified — cannot modify.")
+    # Driver scope check
+    if user.get('role') == 'driver':
+        me = await _get_my_driver(user['email'])
+        if not me or doc.get('driver_id') != me['id']:
+            raise HTTPException(403, "Not your inspection")
+    found = False
+    for item in doc.get('items', []):
+        if item.get('key') == body.key:
+            item['status'] = body.status
+            item['note'] = body.note
+            item['updated_at'] = now_utc().isoformat()
+            found = True
+            break
+    if not found:
+        raise HTTPException(400, f"Unknown inspection item key: {body.key}")
+    doc['updated_at'] = now_utc().isoformat()
+    await db.inspections.update_one(
+        {'id': insp_id},
+        {'$set': {'items': doc['items'], 'updated_at': doc['updated_at']}}
+    )
+    return doc
+
+
+@api_router.post("/inspections/{insp_id}/certify")
+async def certify_inspection(insp_id: str, body: InspectionCertifyIn, user=Depends(get_current_user)):
+    sig = (body.signature or '').strip()
+    if not sig:
+        raise HTTPException(400, "Signature required to certify.")
+    doc = await db.inspections.find_one({'id': insp_id}, {'_id': 0})
+    if not doc:
+        raise HTTPException(404, "Inspection not found")
+    if doc.get('status') == 'certified':
+        raise HTTPException(400, "Already certified.")
+    # Driver scope check
+    if user.get('role') == 'driver':
+        me = await _get_my_driver(user['email'])
+        if not me or doc.get('driver_id') != me['id']:
+            raise HTTPException(403, "Not your inspection")
+    # Compute defects detected
+    defect_items = [i for i in doc.get('items', []) if i.get('status') == 'defect']
+    has_defects = len(defect_items) > 0
+    # FMCSA: driver must certify either "no defects" OR list defects. Both allowed.
+    now_iso = now_utc().isoformat()
+    update = {
+        'status': 'certified',
+        'no_defects': bool(body.no_defects) and not has_defects,
+        'signature': sig,
+        'certified_at': now_iso,
+        'updated_at': now_iso,
+        'defect_count': len(defect_items),
+    }
+    await db.inspections.update_one({'id': insp_id}, {'$set': update})
+    # Auto-create maintenance records + alert for each defect
+    for d in defect_items:
+        if doc.get('vehicle_id'):
+            await db.maintenance.insert_one(_make_doc({
+                'vehicle_id': doc.get('vehicle_id'),
+                'service_type': f"DVIR Defect: {d.get('label', d.get('key'))}",
+                'completed': False,
+                'notes': f"Reported on {doc.get('inspection_type', 'inspection').replace('_', '-')} by {doc.get('driver_name', 'driver')}. Note: {d.get('note') or 'no note'}",
+                'cost': None,
+            }))
+        await db.alerts.insert_one(_make_doc({
+            'type': 'maintenance_due',
+            'severity': 'warning' if doc.get('inspection_type') == 'pre_trip' else 'info',
+            'driver_id': doc.get('driver_id'),
+            'vehicle_id': doc.get('vehicle_id'),
+            'message': f"DVIR defect: {d.get('label')} on {doc.get('vehicle_name', 'vehicle')}. {d.get('note') or ''}".strip(),
+        }))
+    doc.update(update)
+    return doc
+
+
+# ============================================================
 # AI Copilot — RoadBoss "Co-Pilot Buddy" (Stage 3)
 # Natural-language voice assistant powered by Emergent LLM key.
 # Context-aware: knows driver name, HOS remaining, current trip, vehicle, alerts.
@@ -1159,13 +1397,56 @@ RESPONSE STYLE
 WHAT YOU CAN HELP WITH RIGHT NOW
 - Hours of Service (HOS) status, time remaining, duty changes (on duty, off duty, sleeper berth, driving)
 - Trip status — start a trip, end a trip, what's the next destination
+- Pre-trip / post-trip DVIR inspections (FMCSA-compliant)
 - Fleet alerts and dispatch messages
 - Maintenance reminders
+- Logging fuel stops
 - General trucking questions (weigh stations, weather thinking, route planning advice)
 - Conversation, encouragement, keeping the driver alert and safe
 
+ACTIONS YOU CAN EXECUTE (CRITICAL — this is what makes it hands-free)
+When the driver clearly asks you to DO something on this list, you MUST emit a single ACTION marker at the very end of your reply on its own line. You speak first (1 sentence confirming what you're doing), then the marker. The user never sees the marker — it's parsed out by the system.
+
+Format:
+<<<ACTION:{"type":"<action_name>","args":{...}}>>>
+
+Available actions:
+- duty_change — args: {"status":"driving"|"on_duty"|"off_duty"|"sleeper"}
+  Use when driver says: "switch me to X", "I'm going on duty", "put me in sleeper", "logging off duty", "I'm driving now"
+- start_trip — args: {} (starts the next planned trip)
+  Use when: "start my trip", "begin trip", "I'm rolling", "kick off the next run"
+- end_trip — args: {} (ends the active trip)
+  Use when: "end trip", "I'm here", "trip done", "completed the run", "made it to the destination"
+- log_fuel — args: {"gallons": float (optional), "amount": float (optional)}
+  Use when: "log a fuel stop", "just fueled up", "filled up", "logging fuel"
+- start_inspection — args: {"inspection_type":"pre_trip"|"post_trip"}
+  Use when: "start my pre-trip", "begin pre-trip inspection", "pre trip", "post-trip", "DVIR", "vehicle inspection"
+
+Rules for actions:
+- Only emit an ACTION marker if the driver clearly wants the action done. If unsure, ask a quick clarifying question instead.
+- Never invent action types not on the list above.
+- Do not mention the marker syntax in your spoken reply — just say what you're doing in plain English.
+- If the action is impossible (e.g., "start trip" but there's no planned trip in context), DO NOT emit the marker; instead say plainly that there's nothing to start.
+
+Examples (your full reply, marker included):
+
+Driver: "Switch me to sleeper, gonna grab some shut-eye."
+You: "Copy that, putting you in sleeper. Rest easy.
+<<<ACTION:{"type":"duty_change","args":{"status":"sleeper"}}>>>"
+
+Driver: "Start my trip."
+You: "On it, kicking off the run.
+<<<ACTION:{"type":"start_trip","args":{}}>>>"
+
+Driver: "Let's do my pre-trip inspection."
+You: "You bet, starting your pre-trip inspection now.
+<<<ACTION:{"type":"start_inspection","args":{"inspection_type":"pre_trip"}}>>>"
+
+Driver: "What's my next destination?"
+You: "Memphis, boss. About four hundred miles out." (no marker — informational only)
+
 SIGN-OFF
-- End assertive actions with a brief confirmation ("Logged it." "Done.").
+- End assertive actions with a brief confirmation ("Logged it." "Done." "Rolling.").
 - For safety-critical replies, end with "Stay safe out there.\""""
 
 
@@ -1207,6 +1488,142 @@ def _build_driver_context(user: Dict[str, Any], driver: Optional[Dict[str, Any]]
 class CopilotChatIn(BaseModel):
     message: str
     session_id: Optional[str] = None
+
+
+# Pattern matches <<<ACTION:{...}>>> at the end of an LLM reply (DOTALL allows JSON across lines)
+_ACTION_MARKER_RE = re.compile(r'<<<\s*ACTION\s*:\s*(\{.*?\})\s*>>>', re.DOTALL)
+
+
+async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
+                                   driver: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Execute a whitelisted Co-Pilot action. Returns a dict with success/details."""
+    import json as _json  # local
+    action_type = (action or {}).get('type', '')
+    args = (action or {}).get('args') or {}
+    if not isinstance(args, dict):
+        args = {}
+
+    result: Dict[str, Any] = {'type': action_type, 'args': args, 'executed': False}
+
+    try:
+        # ----- duty_change -----
+        if action_type == 'duty_change':
+            valid = {'driving', 'on_duty', 'off_duty', 'sleeper'}
+            new_status = str(args.get('status', '')).lower().replace(' ', '_').replace('-', '_')
+            if new_status == 'sleeper_berth':
+                new_status = 'sleeper'
+            if new_status not in valid:
+                result['error'] = f"Invalid duty status: {args.get('status')}"
+                return result
+            if not driver:
+                result['error'] = 'Only drivers can change duty status.'
+                return result
+            await db.drivers.update_one(
+                {'id': driver['id']},
+                {'$set': {'status': new_status, 'updated_at': now_utc().isoformat()}}
+            )
+            await db.hos_logs.insert_one(_make_doc({
+                'driver_id': driver['id'],
+                'duty_status': new_status,
+                'started_at': now_utc().isoformat(),
+                'notes': 'Co-Pilot voice command',
+            }))
+            result.update({'executed': True, 'new_status': new_status})
+            return result
+
+        # ----- start_trip -----
+        if action_type == 'start_trip':
+            if not driver:
+                result['error'] = 'Only drivers can start trips.'
+                return result
+            tr = await db.trips.find_one({'driver_id': driver['id'], 'status': 'planned'},
+                                          {'_id': 0}, sort=[('created_at', 1)])
+            if not tr:
+                result['error'] = 'No planned trip ready to start.'
+                return result
+            await db.trips.update_one(
+                {'id': tr['id']},
+                {'$set': {'status': 'active', 'started_at': now_utc().isoformat()}}
+            )
+            result.update({
+                'executed': True,
+                'trip_id': tr['id'],
+                'origin': tr.get('origin'),
+                'destination': tr.get('destination'),
+            })
+            return result
+
+        # ----- end_trip -----
+        if action_type == 'end_trip':
+            if not driver:
+                result['error'] = 'Only drivers can end trips.'
+                return result
+            tr = await db.trips.find_one({'driver_id': driver['id'], 'status': 'active'}, {'_id': 0})
+            if not tr:
+                result['error'] = 'No active trip to end.'
+                return result
+            await db.trips.update_one(
+                {'id': tr['id']},
+                {'$set': {'status': 'completed', 'ended_at': now_utc().isoformat()}}
+            )
+            result.update({'executed': True, 'trip_id': tr['id']})
+            return result
+
+        # ----- log_fuel -----
+        if action_type == 'log_fuel':
+            await db.alerts.insert_one(_make_doc({
+                'type': 'fuel_log',
+                'severity': 'info',
+                'driver_id': (driver or {}).get('id'),
+                'message': f"Driver logged a fuel stop via Co-Pilot ({args.get('gallons', 'n/a')} gal, ${args.get('amount', 'n/a')}).",
+            }))
+            result.update({'executed': True})
+            return result
+
+        # ----- start_inspection -----
+        if action_type == 'start_inspection':
+            if not driver:
+                result['error'] = 'Only drivers can start inspections.'
+                return result
+            insp_type = str(args.get('inspection_type', 'pre_trip')).lower().replace('-', '_')
+            if insp_type not in ('pre_trip', 'post_trip'):
+                insp_type = 'pre_trip'
+            inspection = await _create_blank_inspection(driver, insp_type)
+            result.update({
+                'executed': True,
+                'inspection_id': inspection['id'],
+                'inspection_type': insp_type,
+                'redirect': f"/driver/inspection/{inspection['id']}",
+            })
+            return result
+
+        # Unknown action — silently ignore
+        result['error'] = f"Unknown action type: {action_type}"
+        return result
+    except Exception as e:
+        logger.error(f"Action execution failed ({action_type}): {e}")
+        result['error'] = str(e)
+        return result
+
+
+async def _parse_and_execute_action(reply_text: str, user: Dict[str, Any],
+                                      driver: Optional[Dict[str, Any]]):
+    """Strip <<<ACTION:{...}>>> from the reply, execute it, return (clean_text, action_result_or_None)."""
+    import json as _json
+    if not reply_text:
+        return reply_text, None
+    m = _ACTION_MARKER_RE.search(reply_text)
+    if not m:
+        return reply_text.strip(), None
+    raw_json = m.group(1)
+    cleaned = (reply_text[:m.start()] + reply_text[m.end():]).strip()
+    try:
+        action = _json.loads(raw_json)
+    except Exception as e:
+        logger.warning(f"Co-Pilot emitted malformed ACTION marker: {raw_json!r} ({e})")
+        return cleaned, {'executed': False, 'error': 'malformed_action_json'}
+    result = await _execute_copilot_action(action, user, driver)
+    return cleaned, result
 
 
 @api_router.post("/copilot/chat")
@@ -1286,19 +1703,24 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         logger.error(f"Copilot LLM error: {e}")
         raise HTTPException(502, "Co-Pilot is having trouble reaching the brain. Try again in a moment.")
 
-    # Persist assistant turn
+    # Parse and execute any ACTION marker emitted by the model
+    spoken_text, action_result = await _parse_and_execute_action(reply_text, user, driver)
+
+    # Persist assistant turn (clean spoken text only)
     await db.copilot_chats.insert_one({
         'id': str(uuid.uuid4()),
         'session_id': session_id,
         'user_id': user['id'],
         'role': 'assistant',
-        'content': reply_text,
+        'content': spoken_text,
+        'action': action_result,
         'model': f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
         'created_at': now_utc().isoformat(),
     })
 
     return {
-        'reply': reply_text,
+        'reply': spoken_text,
+        'action': action_result,
         'session_id': session_id,
         'model': f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
     }
