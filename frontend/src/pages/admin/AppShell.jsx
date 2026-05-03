@@ -1,7 +1,7 @@
 import React from 'react';
 import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
 import { Logo } from '@/components/Logo';
-import { LayoutDashboard, Users, Truck, Route, Wrench, Bell, Camera, Mail, LogOut, MapPin, User } from 'lucide-react';
+import { LayoutDashboard, Users, Truck, Route, Wrench, Bell, Camera, Mail, LogOut, MapPin, User, CreditCard } from 'lucide-react';
 import { auth, getUser } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 
@@ -14,6 +14,7 @@ const nav = [
   { to: '/app/alerts', icon: Bell, label: 'Alerts' },
   { to: '/app/dashcam', icon: Camera, label: 'Dashcam' },
   { to: '/app/ifta', icon: MapPin, label: 'IFTA' },
+  { to: '/app/billing', icon: CreditCard, label: 'Billing' },
   { to: '/app/waitlist', icon: Mail, label: 'Waitlist' },
 ];
 

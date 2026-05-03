@@ -18,6 +18,8 @@ import DashcamPage from '@/pages/admin/DashcamPage';
 import WaitlistAdmin from '@/pages/admin/WaitlistAdmin';
 import Profile from '@/pages/admin/Profile';
 import IFTA from '@/pages/admin/IFTA';
+import Billing from '@/pages/admin/Billing';
+import Pricing from '@/pages/Pricing';
 import DriverShell from '@/pages/driver/DriverShell';
 import DriverHome from '@/pages/driver/DriverHome';
 import DriverTrips from '@/pages/driver/DriverTrips';
@@ -43,6 +45,7 @@ function App() {
         <Toaster theme="dark" position="top-right" richColors closeButton />
         <Routes>
           <Route path="/" element={<Marketing />} />
+          <Route path="/pricing" element={<Pricing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
@@ -57,6 +60,7 @@ function App() {
             <Route path="alerts" element={<Alerts />} />
             <Route path="dashcam" element={<DashcamPage />} />
             <Route path="ifta" element={<IFTA />} />
+            <Route path="billing" element={<Billing />} />
             <Route path="waitlist" element={<WaitlistAdmin />} />
             <Route path="profile" element={<Profile />} />
           </Route>

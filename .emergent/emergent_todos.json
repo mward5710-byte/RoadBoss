@@ -1,18 +1,26 @@
 [
   {
-    "content": "Stage 2: All non-credential features built and tested (100% pass)",
+    "content": "Stripe: install package, add keys to .env",
     "status": "completed"
   },
   {
-    "content": "Stage 2: Stripe subscriptions (waiting on user keys)",
+    "content": "Stripe: backend (Products/Prices auto-create, checkout, portal, subscription status, webhook)",
+    "status": "completed"
+  },
+  {
+    "content": "Stripe: frontend (/pricing public page, /app/billing admin page, marketing link)",
+    "status": "completed"
+  },
+  {
+    "content": "Stripe: testing with test card 4242",
+    "status": "in_progress"
+  },
+  {
+    "content": "Google OAuth (still waiting on user keys)",
     "status": "pending"
   },
   {
-    "content": "Stage 2: Google OAuth (waiting on user keys)",
-    "status": "pending"
-  },
-  {
-    "content": "Stage 2: Push to GitHub (after user clicks Save to GitHub)",
+    "content": "Push to GitHub when ready",
     "status": "pending"
   }
 ]

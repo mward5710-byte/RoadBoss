@@ -58,6 +58,7 @@ export default function Marketing() {
           <nav className="hidden md:flex items-center gap-7 text-sm text-slate-400">
             <a href="#features" className="hover:text-white transition">Features</a>
             <a href="#roadmap" className="hover:text-white transition">Roadmap</a>
+            <Link to="/pricing" className="hover:text-white transition">Pricing</Link>
             <a href="#waitlist" className="hover:text-white transition">Waitlist</a>
           </nav>
           <div className="flex items-center gap-2">

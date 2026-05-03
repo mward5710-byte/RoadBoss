@@ -848,6 +848,147 @@ class HighwayPilotAPITester:
             data={"token": "any-token", "new_password": "short"}
         )
 
+    def test_stripe(self):
+        """Test Stripe subscription endpoints (Stage 3)"""
+        self.log("\n" + "="*60)
+        self.log("TESTING: Stripe Subscriptions (Stage 3)")
+        self.log("="*60)
+        
+        # Test 1: GET /stripe/config (no auth)
+        success, data = self.run_test(
+            "Get Stripe config (no auth)",
+            "GET",
+            "/stripe/config",
+            200
+        )
+        if success:
+            self.log(f"   Configured: {data.get('configured')}")
+            self.log(f"   Publishable key: {data.get('publishable_key', '')[:20]}...")
+            self.log(f"   Trial days: {data.get('trial_days')}")
+            self.log(f"   Plans: {len(data.get('plans', []))}")
+            
+            # Validate config structure
+            if not data.get('publishable_key', '').startswith('pk_test_'):
+                self.log("   ⚠️  Publishable key should start with pk_test_", "WARN")
+            if data.get('configured') != True:
+                self.log("   ⚠️  Expected configured: true", "WARN")
+            if data.get('trial_days') != 14:
+                self.log("   ⚠️  Expected trial_days: 14", "WARN")
+            if len(data.get('plans', [])) != 3:
+                self.log("   ⚠️  Expected 3 plans", "WARN")
+        
+        # Test 4: POST /stripe/checkout no auth → 401
+        success, data = self.run_test(
+            "Create checkout without auth (should fail)",
+            "POST",
+            "/stripe/checkout",
+            401,
+            data={"plan_key": "owner_op"}
+        )
+        
+        if not self.fleet_token:
+            self.log("⚠️  Skipping authenticated Stripe tests - no fleet token", "WARN")
+            return
+        
+        # Test 2: POST /stripe/checkout with valid plan (owner_op)
+        success, data = self.run_test(
+            "Create checkout session (owner_op)",
+            "POST",
+            "/stripe/checkout",
+            200,
+            data={"plan_key": "owner_op"},
+            token=self.fleet_token
+        )
+        if success:
+            url = data.get('url', '')
+            session_id = data.get('session_id', '')
+            self.log(f"   Checkout URL: {url[:50]}...")
+            self.log(f"   Session ID: {session_id[:20]}...")
+            
+            # Validate response structure
+            if not url.startswith('https://checkout.stripe.com/'):
+                self.log("   ⚠️  Checkout URL should start with https://checkout.stripe.com/", "WARN")
+            if not session_id.startswith('cs_test_'):
+                self.log("   ⚠️  Session ID should start with cs_test_", "WARN")
+        
+        # Test 7: Try all 3 plans
+        for plan_key in ['small_fleet', 'mid_fleet']:
+            success, data = self.run_test(
+                f"Create checkout session ({plan_key})",
+                "POST",
+                "/stripe/checkout",
+                200,
+                data={"plan_key": plan_key},
+                token=self.fleet_token
+            )
+            if success:
+                self.log(f"   Session ID: {data.get('session_id', '')[:20]}...")
+        
+        # Test 3: POST /stripe/checkout with bad plan_key → 400
+        success, data = self.run_test(
+            "Create checkout with invalid plan (should fail)",
+            "POST",
+            "/stripe/checkout",
+            400,
+            data={"plan_key": "invalid_plan_xyz"},
+            token=self.fleet_token
+        )
+        
+        # Test 5: GET /stripe/subscription (auth)
+        success, data = self.run_test(
+            "Get subscription status",
+            "GET",
+            "/stripe/subscription",
+            200,
+            token=self.fleet_token
+        )
+        if success:
+            self.log(f"   Status: {data.get('status')}")
+            if data.get('subscription'):
+                sub = data['subscription']
+                self.log(f"   Plan: {sub.get('plan_name')}")
+                self.log(f"   Subscription status: {sub.get('status')}")
+            else:
+                self.log(f"   No active subscription")
+        
+        # Test 6: POST /stripe/portal without active customer → 400
+        # Note: fleet_admin might have a customer_id from checkout above, so this might not fail
+        # We'll test with driver token who hasn't subscribed
+        if self.driver_token:
+            success, data = self.run_test(
+                "Open billing portal without customer (should fail)",
+                "POST",
+                "/stripe/portal",
+                400,
+                token=self.driver_token
+            )
+        
+        # Test 8: POST /stripe/webhook with raw JSON
+        webhook_payload = {
+            "id": "evt_test_webhook",
+            "type": "customer.subscription.created",
+            "data": {
+                "object": {
+                    "id": "sub_test_123",
+                    "status": "active",
+                    "metadata": {"user_id": "test-user-id", "plan_key": "owner_op"}
+                }
+            }
+        }
+        
+        # Webhook endpoint doesn't require auth
+        success, data = self.run_test(
+            "Stripe webhook (no signature verification in dev)",
+            "POST",
+            "/stripe/webhook",
+            200,
+            data=webhook_payload
+        )
+        if success:
+            self.log(f"   Received: {data.get('received')}")
+            if data.get('received') != True:
+                self.log("   ⚠️  Expected received: true", "WARN")
+
     def print_summary(self):
         """Print test summary"""
         self.log("\n" + "="*60)
@@ -907,6 +1048,9 @@ def main():
     tester.test_csv_exports()
     tester.test_profile_update()
     tester.test_forgot_reset_password()
+    
+    # Stage 3 tests (Stripe)
+    tester.test_stripe()
     
     return tester.print_summary()
 

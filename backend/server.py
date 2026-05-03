@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -678,6 +678,198 @@ async def maintenance_reminders(user=Depends(get_current_user)):
         if is_due_time or is_due_miles:
             out.append({**m, 'vehicle_name': v.get('name', ''), 'days_remaining': days_remaining, 'miles_remaining': miles_remaining})
     return out
+
+# ============================================================
+# Stripe subscriptions
+# ============================================================
+
+import stripe as _stripe
+
+STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '').strip()
+STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY', '').strip()
+STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '').strip()
+PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip()
+STRIPE_TRIAL_DAYS = 14
+if STRIPE_SECRET_KEY:
+    _stripe.api_key = STRIPE_SECRET_KEY
+
+PLAN_CATALOG = [
+    {'key': 'owner_op', 'name': 'Owner-Operator', 'description': 'For solo owner-operators on the road.',
+     'amount_cents': 2900, 'interval': 'month',
+     'features': ['1 driver seat', 'Hands-free voice OS', 'HOS countdown + IFTA mileage', 'Maintenance reminders', 'Driver PWA + personal dashboard']},
+    {'key': 'small_fleet', 'name': 'Small Fleet', 'description': 'For fleets of up to 10 trucks.',
+     'amount_cents': 9900, 'interval': 'month',
+     'features': ['Up to 10 driver seats', 'Everything in Owner-Op', 'Fleet command center', 'Dashcam events feed', 'Roadside assistance dispatch']},
+    {'key': 'mid_fleet', 'name': 'Mid Fleet', 'description': 'For fleets of 11-50 trucks.',
+     'amount_cents': 29900, 'interval': 'month',
+     'features': ['Up to 50 driver seats', 'Everything in Small Fleet', 'AI Copilot for dispatch', 'CB Talker network access', 'Priority support']},
+]
+
+async def _ensure_stripe_prices():
+    if not STRIPE_SECRET_KEY:
+        return
+    for p in PLAN_CATALOG:
+        existing = await db.stripe_plans.find_one({'key': p['key']})
+        if existing and existing.get('price_id'):
+            continue
+        try:
+            product = _stripe.Product.create(
+                name=f"Highway Pilot \u2014 {p['name']}",
+                description=p['description'],
+                metadata={'plan_key': p['key']},
+            )
+            price = _stripe.Price.create(
+                product=product.id,
+                unit_amount=p['amount_cents'],
+                currency='usd',
+                recurring={'interval': p['interval']},
+                metadata={'plan_key': p['key']},
+            )
+            await db.stripe_plans.update_one(
+                {'key': p['key']},
+                {'$set': {
+                    'key': p['key'], 'product_id': product.id, 'price_id': price.id,
+                    'amount_cents': p['amount_cents'], 'interval': p['interval'],
+                    'created_at': now_utc().isoformat(),
+                }},
+                upsert=True,
+            )
+            logger.info(f"Created Stripe price for {p['key']}: {price.id}")
+        except Exception as e:
+            logger.error(f"Stripe price creation failed for {p['key']}: {e}")
+
+@api_router.get("/stripe/config")
+async def stripe_config():
+    plans = []
+    for p in PLAN_CATALOG:
+        rec = await db.stripe_plans.find_one({'key': p['key']}, {'_id': 0})
+        plans.append({**p, 'price_id': (rec or {}).get('price_id'), 'price_dollars': p['amount_cents'] / 100})
+    return {
+        'publishable_key': STRIPE_PUBLISHABLE_KEY,
+        'configured': bool(STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY),
+        'trial_days': STRIPE_TRIAL_DAYS,
+        'plans': plans,
+    }
+
+class CheckoutIn(BaseModel):
+    plan_key: str
+    success_url: Optional[str] = None
+    cancel_url: Optional[str] = None
+
+@api_router.post("/stripe/checkout")
+async def create_checkout(body: CheckoutIn, user=Depends(get_current_user)):
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(400, "Stripe is not configured")
+    plan = next((p for p in PLAN_CATALOG if p['key'] == body.plan_key), None)
+    if not plan:
+        raise HTTPException(400, "Unknown plan")
+    rec = await db.stripe_plans.find_one({'key': body.plan_key})
+    if not rec or not rec.get('price_id'):
+        await _ensure_stripe_prices()
+        rec = await db.stripe_plans.find_one({'key': body.plan_key})
+    if not rec or not rec.get('price_id'):
+        raise HTTPException(500, "Could not initialize Stripe price")
+    u = await db.users.find_one({'id': user['id']})
+    customer_id = (u or {}).get('stripe_customer_id')
+    if not customer_id:
+        try:
+            cus = _stripe.Customer.create(email=user['email'], name=user.get('name'), metadata={'user_id': user['id']})
+            customer_id = cus.id
+            await db.users.update_one({'id': user['id']}, {'$set': {'stripe_customer_id': customer_id}})
+        except Exception as e:
+            raise HTTPException(500, f"Could not create Stripe customer: {e}")
+    base = PUBLIC_BASE_URL.rstrip('/')
+    success = body.success_url or f"{base}/app/billing?session_id={{CHECKOUT_SESSION_ID}}&status=success"
+    cancel = body.cancel_url or f"{base}/pricing?status=cancel"
+    try:
+        session = _stripe.checkout.Session.create(
+            mode='subscription',
+            customer=customer_id,
+            line_items=[{'price': rec['price_id'], 'quantity': 1}],
+            subscription_data={'trial_period_days': STRIPE_TRIAL_DAYS, 'metadata': {'user_id': user['id'], 'plan_key': body.plan_key}},
+            success_url=success,
+            cancel_url=cancel,
+            allow_promotion_codes=True,
+            metadata={'user_id': user['id'], 'plan_key': body.plan_key},
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Checkout creation failed: {e}")
+    return {'url': session.url, 'session_id': session.id}
+
+@api_router.post("/stripe/portal")
+async def billing_portal(user=Depends(get_current_user)):
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(400, "Stripe is not configured")
+    u = await db.users.find_one({'id': user['id']})
+    if not u or not u.get('stripe_customer_id'):
+        raise HTTPException(400, "No Stripe customer record. Subscribe first.")
+    base = PUBLIC_BASE_URL.rstrip('/')
+    try:
+        sess = _stripe.billing_portal.Session.create(customer=u['stripe_customer_id'], return_url=f"{base}/app/billing")
+    except Exception as e:
+        raise HTTPException(500, f"Portal session failed: {e}")
+    return {'url': sess.url}
+
+@api_router.get("/stripe/subscription")
+async def get_subscription(user=Depends(get_current_user)):
+    if not STRIPE_SECRET_KEY:
+        return {'status': 'unconfigured', 'subscription': None}
+    u = await db.users.find_one({'id': user['id']})
+    if not u or not u.get('stripe_customer_id'):
+        return {'status': 'none', 'subscription': None}
+    try:
+        subs = _stripe.Subscription.list(customer=u['stripe_customer_id'], status='all', limit=5)
+        if not subs.data:
+            return {'status': 'none', 'subscription': None}
+        s = subs.data[0]
+        meta = s.metadata or {}
+        plan_key = meta.get('plan_key', '')
+        plan_name = next((p['name'] for p in PLAN_CATALOG if p['key'] == plan_key), plan_key or '\u2014')
+        return {
+            'status': s.status,
+            'subscription': {
+                'id': s.id, 'status': s.status,
+                'current_period_end': s.current_period_end,
+                'cancel_at_period_end': s.cancel_at_period_end,
+                'trial_end': s.trial_end,
+                'plan_key': plan_key, 'plan_name': plan_name,
+            }
+        }
+    except Exception as e:
+        logger.error(f"Sub fetch failed: {e}")
+        return {'status': 'error', 'error': str(e), 'subscription': None}
+
+@api_router.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    sig = request.headers.get('stripe-signature', '')
+    event = None
+    if STRIPE_WEBHOOK_SECRET:
+        try:
+            event = _stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+        except Exception as e:
+            raise HTTPException(400, f"Webhook signature verification failed: {e}")
+    else:
+        import json as _json
+        try:
+            event = _json.loads(payload)
+        except Exception:
+            raise HTTPException(400, "Invalid payload")
+    etype = event.get('type') if isinstance(event, dict) else event['type']
+    raw_data = event.get('data', {}) if isinstance(event, dict) else event['data']
+    obj = raw_data.get('object', {}) if isinstance(raw_data, dict) else {}
+    await db.stripe_events.insert_one({'id': str(uuid.uuid4()), 'type': etype, 'data': obj if isinstance(obj, dict) else {}, 'created_at': now_utc().isoformat()})
+    if etype in ('customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted'):
+        meta = (obj.get('metadata') or {}) if isinstance(obj, dict) else {}
+        user_id = meta.get('user_id')
+        if user_id:
+            await db.users.update_one({'id': user_id}, {'$set': {
+                'subscription_status': obj.get('status') if isinstance(obj, dict) else None,
+                'subscription_id': obj.get('id') if isinstance(obj, dict) else None,
+                'subscription_updated_at': now_utc().isoformat(),
+            }})
+    return {'received': True}
+
 
 # ============================================================
 # Voice command (expanded intent router)
