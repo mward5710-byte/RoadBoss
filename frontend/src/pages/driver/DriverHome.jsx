@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, getUser } from '@/lib/api';
-import { Mic, MicOff, Volume2, Bell, Route as RouteIcon, BellRing, Bot, Play, Square, Wrench, ArrowRight, ClipboardCheck, ClipboardX } from 'lucide-react';
+import { Mic, MicOff, Volume2, Bell, Route as RouteIcon, BellRing, Bot, Play, Square, Wrench, ArrowRight, ClipboardCheck, ClipboardX, ExternalLink, AlertTriangle } from 'lucide-react';
 import { dutyColor, formatMinutes, severityColor, timeAgo } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
+import { isInIframe, supportsSTT } from '@/hooks/useWakeWord';
 
 function speak(text) {
   try {
@@ -42,7 +43,7 @@ export default function DriverHome() {
   const [response, setResponse] = useState('');
   const [busyDvir, setBusyDvir] = useState('');
   const recogRef = useRef(null);
-  const supportsSTT = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+  const sttSupported = supportsSTT();
 
   const refresh = async () => {
     const drivers = (await api.get('/drivers')).data;
@@ -87,16 +88,36 @@ export default function DriverHome() {
   };
 
   const startListening = () => {
-    if (!supportsSTT) {
-      const t = window.prompt('Type a command (e.g., "check HOS", "start trip", "on duty", "help"):');
+    if (!sttSupported) {
+      const t = window.prompt('Type a command (e.g., "switch me to sleeper", "start my pre-trip", "check HOS"):');
       if (t) handleVoice(t);
+      return;
+    }
+    if (isInIframe()) {
+      toast.error('Mic blocked in preview. Open in a real Safari tab.', {
+        action: { label: 'Open', onClick: () => window.open(window.location.href, '_blank') },
+        duration: 8000,
+      });
       return;
     }
     const Recog = window.SpeechRecognition || window.webkitSpeechRecognition;
     const r = new Recog();
     r.lang = 'en-US'; r.interimResults = false; r.maxAlternatives = 1;
     r.onstart = () => setListening(true);
-    r.onerror = () => { setListening(false); toast.error('Could not capture audio.'); };
+    r.onerror = (ev) => {
+      setListening(false);
+      const errCode = ev?.error || 'unknown';
+      if (errCode === 'not-allowed' || errCode === 'service-not-allowed') {
+        toast.error('Mic permission denied. Tap the address-bar lock → Microphone → Allow, then reload.', { duration: 8000 });
+      } else if (errCode === 'audio-capture') {
+        toast.error('Could not capture audio. If you are in the Emergent preview, open the app in a real Safari tab to use the mic.', {
+          action: { label: 'Open in tab', onClick: () => window.open(window.location.href, '_blank') },
+          duration: 10000,
+        });
+      } else if (errCode !== 'no-speech' && errCode !== 'aborted') {
+        toast.error(`Mic error: ${errCode}`);
+      }
+    };
     r.onend = () => setListening(false);
     r.onresult = (e) => handleVoice(e.results[0][0].transcript);
     r.start();

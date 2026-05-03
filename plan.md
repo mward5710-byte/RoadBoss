@@ -6,11 +6,12 @@
 
 ---
 
-## Status: STAGE 3 — PHASE 1.5 COMPLETE ✅
+## Status: STAGE 3 — PHASE 1.6 COMPLETE ✅
 - Stage 1 (Foundation): ✅ Done
 - Stage 2 (Workflows + Stripe + Google OAuth): ✅ Done
 - Stage 3 Phase 1 (Pricing alignment + AI Copilot): ✅ Done
-- **Stage 3 Phase 1.5 (Co-Pilot action execution + FMCSA DVIR): ✅ Done** ← latest
+- Stage 3 Phase 1.5 (Co-Pilot action execution + FMCSA DVIR): ✅ Done
+- **Stage 3 Phase 1.6 (Wake-word "Hey Co-Pilot" + iframe-aware mic UX): ✅ Done** ← latest
 - Stage 3 Phase 2 (Mapbox / Twilio / SendGrid / Dashcam adapters / QuickBooks): 🔜 Next
 - Stage 4 / 5: Backlog
 
@@ -83,6 +84,33 @@
   - Co-Pilot integration: saying "Hey, start my pre-trip" creates the inspection AND auto-navigates the driver to the walkthrough — fully hands-free.
   - Admin frontend: `/app/inspections` list page with stats (total, certified, defects), filters (type / status / search), table view + `/app/inspections/:id` detail page with full item-by-item review and signature.
   - Test result: **64/64 backend tests passed (100%)** — including 31 new tests for actions + DVIR.
+
+### Phase 1.6 (DONE — May 3) ✅ — Wake-Word "Hey Co-Pilot" + iframe-aware mic UX
+**Bug investigated**: Founder reported that even after Phase 1.5, tapping the mic in the Emergent preview showed "Could not capture audio". Root cause: **iOS Safari blocks microphone access inside cross-origin iframes** — this is the Emergent preview wrapper's security sandbox, NOT a code bug. App works fine in a standalone Safari/Chrome tab.
+
+**1. Wake-Word Listener (browser-based "Hey Co-Pilot")**
+  - `useWakeWord` React hook (`/app/frontend/src/hooks/useWakeWord.js`):
+    - Continuous SpeechRecognition with auto-restart on `onend` (browsers tend to auto-stop after silence)
+    - Watches interim + final transcripts for any of the configured wake phrases
+    - When wake phrase + command in same breath → fires command immediately
+    - When wake phrase alone → "armed" state, captures next utterance as command
+    - Cooldown to avoid double-fires
+    - Honest about limitations: requires page open & unlocked; iOS suspends mic ~30s after screen lock (true 24/7 wake word needs the Stage 6 native iOS shell)
+  - `WakeWordBar` component (`/app/frontend/src/components/WakeWordBar.jsx`):
+    - Floating pill above the bottom nav, always visible while in driver pages
+    - Three states: off / listening for wake word / armed (waiting for command)
+    - Settings popover with 4 wake-phrase presets: **"Hey Co-Pilot"** (default), **"Highway Pilot"**, **"Hey Boss"**, **"Hey RoadBoss"**
+    - Preference persisted to `localStorage` under `roadboss.wakeword.v1`
+    - WebAudio chime + voice spoken reply when wake word fires
+    - Routes detected commands through `/api/copilot/chat` → executes actions exactly like a tap
+  - Mounted at `DriverShell` so wake word survives navigation across all driver pages.
+
+**2. iframe-aware mic error UX**
+  - `isInIframe()` helper exported from the wake-word hook
+  - Driver Home + Co-Pilot voice buttons now detect iframe context BEFORE attempting mic access; show actionable toast: *"Mic blocked in preview. Open in real Safari tab"* with one-tap "Open" button (`window.open(href, '_blank')`)
+  - Co-Pilot page also shows a persistent amber banner at top when in iframe
+  - Wake-Word settings modal includes the same warning + "Open in a new tab" button
+  - Error codes (`not-allowed`, `service-not-allowed`, `audio-capture`) get distinct, helpful toast messages
 
 ### Phase 2 (NEXT — pending Mike's approval and any required keys)
 - **Mapbox** — truck-restriction routing (height/weight/hazmat). Needs free Mapbox token.

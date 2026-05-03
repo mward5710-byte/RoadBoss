@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, Volume2, VolumeX, Loader2, RotateCcw, ArrowLeft, Sparkles, Radio } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Loader2, RotateCcw, ArrowLeft, Sparkles, Radio, ExternalLink, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
+import { isInIframe } from '@/hooks/useWakeWord';
 
 // Modes: idle | listening | thinking | speaking
 function speak(text, onEnd) {
@@ -126,6 +127,13 @@ export default function Copilot() {
       if (t) sendToCopilot(t);
       return;
     }
+    if (isInIframe()) {
+      toast.error('Mic blocked in preview. Open the app in a real Safari tab.', {
+        action: { label: 'Open', onClick: () => window.open(window.location.href, '_blank') },
+        duration: 8000,
+      });
+      return;
+    }
     try {
       const Recog = window.SpeechRecognition || window.webkitSpeechRecognition;
       const r = new Recog();
@@ -136,8 +144,16 @@ export default function Copilot() {
       r.onstart = () => { setMode('listening'); setPartial(''); };
       r.onerror = (ev) => {
         setMode('idle');
-        if (ev.error !== 'aborted' && ev.error !== 'no-speech') {
-          toast.error(`Mic error: ${ev.error}`);
+        const errCode = ev?.error || 'unknown';
+        if (errCode === 'not-allowed' || errCode === 'service-not-allowed') {
+          toast.error('Mic permission denied. Tap the address-bar lock → Microphone → Allow, then reload.', { duration: 8000 });
+        } else if (errCode === 'audio-capture') {
+          toast.error('Could not capture audio. If you are in the Emergent preview, open the app in a real Safari tab.', {
+            action: { label: 'Open in tab', onClick: () => window.open(window.location.href, '_blank') },
+            duration: 10000,
+          });
+        } else if (errCode !== 'aborted' && errCode !== 'no-speech') {
+          toast.error(`Mic error: ${errCode}`);
         }
       };
       r.onend = () => {
@@ -224,6 +240,21 @@ export default function Copilot() {
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-4rem)] text-slate-200" data-testid="copilot-page">
+      {/* Iframe warning banner */}
+      {isInIframe() && (
+        <div className="px-4 py-2.5 bg-amber-500/15 border-b border-amber-500/30 text-amber-200 text-xs flex items-center gap-2" data-testid="iframe-warning-banner">
+          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="flex-1">Microphone is blocked in preview iframes. Open in a real tab to use voice.</span>
+          <button
+            onClick={() => window.open(window.location.href, '_blank')}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-500 text-slate-950 font-semibold text-[10px] uppercase tracking-wider"
+            data-testid="copilot-open-tab-btn"
+          >
+            <ExternalLink className="w-3 h-3" /> Open
+          </button>
+        </div>
+      )}
+
       {/* Top bar */}
       <div className="px-5 py-3 border-b border-white/5 bg-[#07090d]/80 backdrop-blur sticky top-[57px] z-20">
         <div className="flex items-center justify-between gap-3">

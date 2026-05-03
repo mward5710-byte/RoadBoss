@@ -1,46 +1,38 @@
 [
   {
-    "content": "P0: Add action execution to Co-Pilot (parse <<<ACTION:json>>> markers in LLM reply, execute safely, strip from text)",
+    "content": "Diagnose: iframe mic block (NOT a code bug — iOS Safari security)",
     "status": "completed"
   },
   {
-    "content": "P0: Wire all Driver Home voice into Co-Pilot (replace old /voice/command call) + show action toast",
+    "content": "Add iframe detection + 'Open in browser' CTA when mic fails",
     "status": "completed"
   },
   {
-    "content": "P1: Backend DVIR — model, FMCSA-standard template, endpoints (create/list/get/certify)",
+    "content": "Build WakeWord listener hook — continuous STT watching for trigger phrases",
     "status": "completed"
   },
   {
-    "content": "P1: Frontend DVIR — full-screen page, voice walkthrough mode + tap mode toggle",
+    "content": "Add 'Always Listening' toggle to Driver Home (and persist preference)",
     "status": "completed"
   },
   {
-    "content": "P1: Add 'pre-trip' & 'post-trip' as Co-Pilot actions so 'Hey, start my pre-trip' works hands-free",
+    "content": "Visual + audio confirmation when wake word fires",
     "status": "completed"
   },
   {
-    "content": "P1: Add DVIR launcher to Driver Home (so it appears when needed)",
+    "content": "Settings page — let driver choose wake phrase ('Hey Co-Pilot' / 'Highway Pilot' / 'Hey Boss')",
     "status": "completed"
   },
   {
-    "content": "P1: Add Inspections list page to admin dashboard",
+    "content": "Update DriverHome voice button to show better error UI when mic fails",
     "status": "completed"
   },
   {
-    "content": "P1: Auto-redirect to inspection page when Copilot returns redirect URL",
+    "content": "Visual verify with screenshot",
     "status": "completed"
   },
   {
-    "content": "P2: Run testing agent for new endpoints + regression",
-    "status": "completed"
-  },
-  {
-    "content": "P2: Visual verify with screenshots (driver flow + DVIR + admin DVIR list)",
-    "status": "completed"
-  },
-  {
-    "content": "P2: Update plan.md with Phase 1.5 (action exec + DVIR)",
+    "content": "Update plan.md",
     "status": "completed"
   }
 ]
