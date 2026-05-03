@@ -6,13 +6,14 @@
 
 ---
 
-## Status: STAGE 3 — PHASE 1.6 COMPLETE ✅
+## Status: STAGE 3 — PHASE 2A COMPLETE ✅
 - Stage 1 (Foundation): ✅ Done
 - Stage 2 (Workflows + Stripe + Google OAuth): ✅ Done
 - Stage 3 Phase 1 (Pricing alignment + AI Copilot): ✅ Done
 - Stage 3 Phase 1.5 (Co-Pilot action execution + FMCSA DVIR): ✅ Done
-- **Stage 3 Phase 1.6 (Wake-word "Hey Co-Pilot" + iframe-aware mic UX): ✅ Done** ← latest
-- Stage 3 Phase 2 (Mapbox / Twilio / SendGrid / Dashcam adapters / QuickBooks): 🔜 Next
+- Stage 3 Phase 1.6 (Wake-word + iframe-aware mic UX): ✅ Done
+- **Stage 3 Phase 2A (Crash Detection + Roadside Assistance): ✅ Done** ← latest
+- Stage 3 Phase 2B (Mapbox / Twilio / SendGrid / Dashcam / QuickBooks): 🔜 Next (needs free Mapbox token from founder)
 - Stage 4 / 5: Backlog
 
 ---
@@ -113,6 +114,43 @@
   - Error codes (`not-allowed`, `service-not-allowed`, `audio-capture`) get distinct, helpful toast messages
 
 ### Phase 2 (NEXT — pending Mike's approval and any required keys)
+- **Mapbox** — truck-restriction routing (height/weight/hazmat). Needs free Mapbox token (founder).
+- **Twilio** — SMS dispatch alerts. Needs Account SID / Auth Token / from-number.
+- **SendGrid** — transactional email (password resets, billing receipts, fleet invitations). Needs API key.
+- **Samsara / Lytx / Verizon Connect** — dashcam adapters (mock interfaces ready to swap to real APIs).
+- **QuickBooks Online** — OAuth flow for IFTA mileage export. Needs Intuit dev keys.
+
+### Phase 2A (DONE — May 3) ✅ — Crash Detection + Roadside Assistance
+**1. Crash Detection & Auto-Alert** (the OnStar-for-every-truck promise from Slide 3)
+  - Backend: `POST /api/crash-events`, `GET /api/crash-events`, `PUT /api/crash-events/{id}/status` (admin-only)
+  - When `confirmed=true`, auto-creates a critical alert in the alerts feed for fleet admin
+  - Driver-scoped reads (drivers see only their own); admin endpoints require fleet_admin / dispatcher / super_admin
+  - Frontend: `CrashGuardian` component mounted at DriverShell — runs across ALL driver pages
+    - Listens to `DeviceMotionEvent` (browser accelerometer) — flags impacts above 3.5g threshold
+    - When triggered, shows full-screen blocking modal with 15-second "I'm OK" countdown + alarm tone + Co-Pilot voice prompt
+    - If driver doesn't respond → captures geolocation, files confirmed crash event with severity
+    - Manual SOS triangle button (visible whenever Guardian is armed)
+    - Permission flow handles iOS 13+ explicit `DeviceMotionEvent.requestPermission()` requirement
+    - Preference persisted in `localStorage` so it auto-rearms on page reload
+    - Floating "Guardian: ON/OFF" pill in bottom-right corner so driver always knows status
+  - Admin: `/app/crash-events` page polls every 12 seconds, shows unack counter prominently, action buttons (Acknowledge / Resolve / Dismiss), Google Maps link from saved coordinates
+
+**2. Roadside Assistance** (one-tap breakdown help from Slide 3)
+  - Backend models: `RoadsideProviders` (vetted directory) + `RoadsideDispatch` (lifecycle: requested → confirmed → en_route → arrived → completed/cancelled)
+  - Endpoints: `GET /api/roadside/providers` (with `?service_type=` filter), `POST /api/roadside/dispatch` (auto-picks fastest provider for service if not specified), `GET /api/roadside/dispatch` (driver-scoped), `GET /api/roadside/dispatch/{id}`, `PUT /api/roadside/dispatch/{id}/status` (drivers can only cancel; admins can transition all states)
+  - Seeded with 6 vetted demo providers (Heartland 24/7, BigRig Roadside, Pilot Towing Network, Speedy Diesel Mechanics, Lockout Pros, Trucker Tire Express) — each has services list, ETA average, rating, region, typical cost, logo
+  - **Co-Pilot integration**: new `dispatch_roadside` action — driver says *"Hey Co-Pilot, I blew a tire"* → AI auto-picks fastest tire provider (Trucker Tire Express @ 25min) → creates dispatch → speaks confirmation → optional auto-redirect to detail page
+  - Driver UI: `/driver/roadside` service picker (7 service types with icons), provider list with ETA/rating/region, optional note, history of recent dispatches, prominent active-dispatch banner
+  - Driver UI: `/driver/roadside/:id` real-time status timeline (5 steps), provider phone tap-to-call, status auto-polls every 8 seconds, cancel button
+  - Admin UI: `/app/roadside` shows live dispatches table (search + status filter) plus the full vetted provider network grid
+  - Auto-creates a `roadside_dispatch` alert visible in the fleet admin's alerts feed
+
+**3. Wake-word discoverability**
+  - First-run "Try saying 'Hey Co-Pilot'" hint card on Driver Home (dismissible, persists in localStorage)
+  - Driver Home reorganized: HOS → Co-Pilot → DVIR → **Roadside** → Duty Status → Voice Command (priority order matches use frequency)
+  - Tested: **94/94 backend tests passed (100%)**
+
+### Phase 2B (NEXT — pending Mike's approval and any required keys)
 - **Mapbox** — truck-restriction routing (height/weight/hazmat). Needs free Mapbox token.
 - **Twilio** — SMS dispatch alerts. Needs Account SID / Auth Token / from-number.
 - **SendGrid** — transactional email (password resets, billing receipts, fleet invitations). Needs API key.

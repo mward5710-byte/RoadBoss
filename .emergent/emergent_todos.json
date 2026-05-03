@@ -5,15 +5,15 @@
   },
   {
     "content": "P0: Frontend Crash Detection hook — DeviceMotion G-force monitoring with 'I'm OK' countdown modal",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "content": "P0: Add crash detection to DriverShell so it runs across all driver pages",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "content": "P0: Admin Crash Events page — surface critical alerts with location/replay",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "content": "P1: Backend Roadside — RoadsideProvider, RoadsideDispatch models, provider directory, dispatch endpoints",
@@ -25,11 +25,11 @@
   },
   {
     "content": "P1: Driver Roadside page with one-tap dispatch + status tracking",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "content": "P1: Admin Roadside dispatch list page",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "content": "P1: Seed roadside provider directory (vetted mock data)",
@@ -37,18 +37,18 @@
   },
   {
     "content": "P2: Wake-word first-run tooltip + clearer default copy ('Say Hey Co-Pilot')",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "content": "P2: Driver Home reorganization — prioritize hands-free actions, demote screen-only",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "content": "P3: Run testing agent (backend) + visual verify",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "content": "P3: Update plan.md",
-    "status": "pending"
+    "status": "completed"
   }
 ]
