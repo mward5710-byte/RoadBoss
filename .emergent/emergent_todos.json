@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Stage 1: Plan & Design Guidelines",
+    "status": "completed"
+  },
+  {
+    "content": "Stage 1: Backend foundation (auth, drivers, vehicles, trips, HOS, maintenance models)",
+    "status": "completed"
+  },
+  {
+    "content": "Stage 1: Marketing site (Highway Pilot stealth brand, hero, problem, solution, roadmap, waitlist)",
+    "status": "completed"
+  },
+  {
+    "content": "Stage 1: Fleet Command Center dashboard (login, live map mock, HOS cards, alerts feed, dashcam events)",
+    "status": "completed"
+  },
+  {
+    "content": "Stage 1: Driver PWA skeleton (login, voice command demo, HOS countdown, trip log, message read-aloud)",
+    "status": "completed"
+  },
+  {
+    "content": "Stage 1: End-to-end testing with testing agent",
+    "status": "in_progress"
+  }
+]

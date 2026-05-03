@@ -1,0 +1,57 @@
+import React from 'react';
+import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
+import { Logo } from '@/components/Logo';
+import { LayoutDashboard, Users, Truck, Route, Wrench, Bell, Camera, Mail, LogOut } from 'lucide-react';
+import { auth, getUser } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+
+const nav = [
+  { to: '/app', icon: LayoutDashboard, label: 'Overview', end: true },
+  { to: '/app/drivers', icon: Users, label: 'Drivers' },
+  { to: '/app/vehicles', icon: Truck, label: 'Vehicles' },
+  { to: '/app/trips', icon: Route, label: 'Trips' },
+  { to: '/app/maintenance', icon: Wrench, label: 'Maintenance' },
+  { to: '/app/alerts', icon: Bell, label: 'Alerts' },
+  { to: '/app/dashcam', icon: Camera, label: 'Dashcam' },
+  { to: '/app/waitlist', icon: Mail, label: 'Waitlist' },
+];
+
+export default function AppShell() {
+  const navigate = useNavigate();
+  const user = getUser();
+  const logout = () => { auth.logout(); navigate('/login'); };
+
+  return (
+    <div className="min-h-screen flex bg-[#07090d]">
+      {/* Sidebar */}
+      <aside className="w-60 border-r border-white/5 bg-[#0a0e14] flex flex-col">
+        <div className="p-4 border-b border-white/5"><Link to="/app"><Logo size={28} /></Link></div>
+        <nav className="flex-1 p-3 space-y-1">
+          {nav.map((n) => (
+            <NavLink data-testid={`nav-${n.label.toLowerCase()}`} key={n.to} to={n.to} end={n.end}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition ${isActive ? 'bg-sky-500/15 text-sky-200 border border-sky-500/25' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>
+              <n.icon className="w-4 h-4" /> {n.label}
+            </NavLink>
+          ))}
+        </nav>
+        <div className="p-3 border-t border-white/5">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-9 h-9 rounded-full bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-300 text-sm font-semibold">
+              {(user?.name || '?').split(' ').map((s) => s[0]).slice(0, 2).join('')}
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm text-white truncate">{user?.name}</div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">{user?.role?.replace('_', ' ')}</div>
+            </div>
+          </div>
+          <Button data-testid="logout" onClick={logout} variant="ghost" size="sm" className="w-full justify-start text-slate-400 hover:text-white"><LogOut className="w-4 h-4 mr-2" /> Sign out</Button>
+        </div>
+      </aside>
+      {/* Main */}
+      <main className="flex-1 overflow-x-hidden">
+        <Outlet />
+      </main>
+    </div>
+  );
+}
