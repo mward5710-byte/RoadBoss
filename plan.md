@@ -6,15 +6,16 @@
 
 ---
 
-## Status: STAGE 3 — PHASE 2B COMPLETE ✅
+## Status: STAGE 3 — PHASE 2D COMPLETE ✅
 - Stage 1 (Foundation): ✅ Done
 - Stage 2 (Workflows + Stripe + Google OAuth): ✅ Done
 - Stage 3 Phase 1 (Pricing alignment + AI Copilot): ✅ Done
 - Stage 3 Phase 1.5 (Co-Pilot action execution + FMCSA DVIR): ✅ Done
 - Stage 3 Phase 1.6 (Wake-word + iframe-aware mic UX): ✅ Done
 - Stage 3 Phase 2A (Crash Detection + Roadside Assistance): ✅ Done
-- **Stage 3 Phase 2B (Mapbox truck-aware GPS): ✅ Done** ← latest
-- Stage 3 Phase 2C (Twilio / SendGrid / Dashcam adapters / QuickBooks): 🔜 Next (founder needs to provide Twilio/SendGrid keys)
+- Stage 3 Phase 2B (Mapbox truck-aware GPS): ✅ Done
+- **Stage 3 Phase 2D (Driver Home Surgery — shift-flow state machine): ✅ Done** ← latest
+- Stage 3 Phase 2C (Twilio / SendGrid / Dashcam adapters / QuickBooks): 🔜 Next (founder is fetching Twilio + SendGrid keys)
 - Stage 4 / 5: Backlog
 
 ---
@@ -171,6 +172,26 @@
   2. **Driver Trip Detail** (`/driver/trips/:id`) — geocodes origin + destination, plots truck-aware route line, displays calculated miles + ETA. Visible upgrade for trip-planning.
   3. **Driver Roadside Detail** (`/driver/roadside/:id`) — pin showing driver's saved location when geolocation was captured at dispatch.
 - **Truck dimension routing note**: Mapbox's standard `driving-traffic` profile is used. Strict truck-dimension routing (avoid bridges < height, weight-restricted roads, hazmat-restricted) is in their **Optimization v2 / Truck Routing tier** — flagged as an upgrade path. UI labels routes as "truck-aware" with a disclaimer about this current limitation.
+
+### Phase 2D (DONE — May 4) ✅ — Driver Home Surgery (shift-flow state machine)
+**Why this phase**: Founder rated app usability 7.5/10 and called the Driver Home a "wall of cards" — drivers had to scan 6 buttons to figure out what to do next. Truckers don't think in features; they think in shift stages.
+
+**What changed**:
+- New `useDriverShift` hook (`/app/frontend/src/hooks/useDriverShift.js`) computes the driver's actual shift state from live data (trips, certified inspections today, duty status, maintenance reminders).
+- 6 explicit shift states modeling a real trucker's day:
+  1. `start_of_shift` — no pre-trip today → primary card = **PRE-TRIP**
+  2. `waiting_dispatch` — pre-trip done, no load assigned → primary = **Watching for dispatch**
+  3. `ready_to_roll` — planned trip exists → primary = **START THIS TRIP**
+  4. `driving` — active trip → primary = **HOS countdown + active trip card** (everything else collapses)
+  5. `needs_post_trip` — trip just ended, no post-trip yet → primary = **POST-TRIP**
+  6. `off_duty` — day complete → primary = **rest screen**
+- DriverHome.jsx rewritten (453 lines): renders ONE primary action card front and center based on state, plus a small set of relevant secondary cards. Cards that don't belong to the current state (e.g. roadside while parked off-duty) are hidden — not just deprioritized.
+- Driving state collapses everything except the active trip, voice button, roadside, and HOS — eliminates eye-distraction while moving.
+- Maintenance criticals surface as a small inline warning in the start-of-shift card (not a separate card competing for attention).
+- Wake-word bar + Crash Guardian remain mounted at DriverShell so they're untouched by the state machine.
+- Voice flows still work identically — Co-Pilot actions still emit the right side-effects regardless of which Driver Home state is showing.
+
+**Outcome**: Driver Home now answers the only question a trucker has: *"What do I do next?"* Pending live user verification — founder will eyeball it after he finishes setting up Twilio + SendGrid accounts.
 
 ### Phase 2C (NEXT — pending Mike's keys)
 - **Mapbox** — truck-restriction routing (height/weight/hazmat). Needs free Mapbox token.
