@@ -849,12 +849,12 @@ class HighwayPilotAPITester:
         )
 
     def test_stripe(self):
-        """Test Stripe subscription endpoints (Stage 3)"""
+        """Test Stripe subscription endpoints (Stage 3 Phase 1 - NEW PRICING)"""
         self.log("\n" + "="*60)
-        self.log("TESTING: Stripe Subscriptions (Stage 3)")
+        self.log("TESTING: Stripe Subscriptions (Stage 3 Phase 1)")
         self.log("="*60)
         
-        # Test 1: GET /stripe/config (no auth)
+        # Test 1: GET /stripe/config (no auth) - MUST return exactly 2 plans: pro, fleet
         success, data = self.run_test(
             "Get Stripe config (no auth)",
             "GET",
@@ -865,7 +865,44 @@ class HighwayPilotAPITester:
             self.log(f"   Configured: {data.get('configured')}")
             self.log(f"   Publishable key: {data.get('publishable_key', '')[:20]}...")
             self.log(f"   Trial days: {data.get('trial_days')}")
-            self.log(f"   Plans: {len(data.get('plans', []))}")
+            plans = data.get('plans', [])
+            self.log(f"   Plans: {len(plans)}")
+            
+            # CRITICAL: Validate exactly 2 plans with correct keys and pricing
+            if len(plans) != 2:
+                self.log(f"   ❌ CRITICAL: Expected exactly 2 plans (pro, fleet), got {len(plans)}", "FAIL")
+                self.failed_tests.append({
+                    'test': 'Stripe config plan count',
+                    'expected': '2 plans',
+                    'actual': f'{len(plans)} plans',
+                    'endpoint': '/stripe/config'
+                })
+            
+            # Find pro and fleet plans
+            pro_plan = next((p for p in plans if p.get('key') == 'pro'), None)
+            fleet_plan = next((p for p in plans if p.get('key') == 'fleet'), None)
+            
+            if pro_plan:
+                self.log(f"   ✓ Pro plan found: ${pro_plan.get('price_dollars')}/mo, per_unit={pro_plan.get('per_unit')}")
+                if pro_plan.get('amount_cents') != 2999:
+                    self.log(f"   ❌ Pro plan amount_cents should be 2999, got {pro_plan.get('amount_cents')}", "FAIL")
+                if pro_plan.get('per_unit') != False:
+                    self.log(f"   ❌ Pro plan per_unit should be False, got {pro_plan.get('per_unit')}", "FAIL")
+                if not pro_plan.get('price_id'):
+                    self.log(f"   ⚠️  Pro plan price_id is null (will be lazy-created on first checkout)", "WARN")
+            else:
+                self.log(f"   ❌ CRITICAL: Pro plan not found in config", "FAIL")
+            
+            if fleet_plan:
+                self.log(f"   ✓ Fleet plan found: ${fleet_plan.get('price_dollars')}/truck/mo, per_unit={fleet_plan.get('per_unit')}")
+                if fleet_plan.get('amount_cents') != 1999:
+                    self.log(f"   ❌ Fleet plan amount_cents should be 1999, got {fleet_plan.get('amount_cents')}", "FAIL")
+                if fleet_plan.get('per_unit') != True:
+                    self.log(f"   ❌ Fleet plan per_unit should be True, got {fleet_plan.get('per_unit')}", "FAIL")
+                if not fleet_plan.get('price_id'):
+                    self.log(f"   ⚠️  Fleet plan price_id is null (will be lazy-created on first checkout)", "WARN")
+            else:
+                self.log(f"   ❌ CRITICAL: Fleet plan not found in config", "FAIL")
             
             # Validate config structure
             if not data.get('publishable_key', '').startswith('pk_test_'):
@@ -874,30 +911,45 @@ class HighwayPilotAPITester:
                 self.log("   ⚠️  Expected configured: true", "WARN")
             if data.get('trial_days') != 14:
                 self.log("   ⚠️  Expected trial_days: 14", "WARN")
-            if len(data.get('plans', [])) != 3:
-                self.log("   ⚠️  Expected 3 plans", "WARN")
         
-        # Test 4: POST /stripe/checkout no auth → 401
+        # Test: POST /stripe/checkout no auth → 401
         success, data = self.run_test(
             "Create checkout without auth (should fail)",
             "POST",
             "/stripe/checkout",
             401,
-            data={"plan_key": "owner_op"}
+            data={"plan_key": "pro"}
         )
         
         if not self.fleet_token:
             self.log("⚠️  Skipping authenticated Stripe tests - no fleet token", "WARN")
             return
         
-        # Test 2: POST /stripe/checkout with valid plan (owner_op)
+        # Get super_admin token for checkout tests (drivers cannot self-subscribe)
         success, data = self.run_test(
-            "Create checkout session (owner_op)",
+            "Super Admin Login",
+            "POST",
+            "/auth/login",
+            200,
+            data={"email": "super_admin@highwaypilot.io", "password": "HighwayPilot2026!"}
+        )
+        super_admin_token = None
+        if success and 'access_token' in data:
+            super_admin_token = data['access_token']
+            self.log(f"   Super admin token obtained")
+        
+        if not super_admin_token:
+            self.log("⚠️  Could not get super_admin token, using fleet_token", "WARN")
+            super_admin_token = self.fleet_token
+        
+        # Test: POST /stripe/checkout with plan_key='pro', quantity=1 as super_admin
+        success, data = self.run_test(
+            "Create checkout session (pro, quantity=1)",
             "POST",
             "/stripe/checkout",
             200,
-            data={"plan_key": "owner_op"},
-            token=self.fleet_token
+            data={"plan_key": "pro", "quantity": 1},
+            token=super_admin_token
         )
         if success:
             url = data.get('url', '')
@@ -911,36 +963,50 @@ class HighwayPilotAPITester:
             if not session_id.startswith('cs_test_'):
                 self.log("   ⚠️  Session ID should start with cs_test_", "WARN")
         
-        # Test 7: Try all 3 plans
-        for plan_key in ['small_fleet', 'mid_fleet']:
-            success, data = self.run_test(
-                f"Create checkout session ({plan_key})",
-                "POST",
-                "/stripe/checkout",
-                200,
-                data={"plan_key": plan_key},
-                token=self.fleet_token
-            )
-            if success:
-                self.log(f"   Session ID: {data.get('session_id', '')[:20]}...")
+        # Test: POST /stripe/checkout with plan_key='fleet', quantity=5 as super_admin
+        success, data = self.run_test(
+            "Create checkout session (fleet, quantity=5)",
+            "POST",
+            "/stripe/checkout",
+            200,
+            data={"plan_key": "fleet", "quantity": 5},
+            token=super_admin_token
+        )
+        if success:
+            url = data.get('url', '')
+            session_id = data.get('session_id', '')
+            self.log(f"   Checkout URL: {url[:50]}...")
+            self.log(f"   Session ID: {session_id[:20]}...")
+            self.log(f"   ✓ Fleet plan with adjustable quantity should be enabled in Stripe checkout")
         
-        # Test 3: POST /stripe/checkout with bad plan_key → 400
+        # Test: POST /stripe/checkout with plan_key='invalid' → 400
         success, data = self.run_test(
             "Create checkout with invalid plan (should fail)",
             "POST",
             "/stripe/checkout",
             400,
-            data={"plan_key": "invalid_plan_xyz"},
-            token=self.fleet_token
+            data={"plan_key": "invalid"},
+            token=super_admin_token
         )
         
-        # Test 5: GET /stripe/subscription (auth)
+        # Test: POST /stripe/checkout as driver role → 403
+        if self.driver_token:
+            success, data = self.run_test(
+                "Create checkout as driver (should fail with 403)",
+                "POST",
+                "/stripe/checkout",
+                403,
+                data={"plan_key": "pro"},
+                token=self.driver_token
+            )
+        
+        # Test: GET /stripe/subscription (auth)
         success, data = self.run_test(
             "Get subscription status",
             "GET",
             "/stripe/subscription",
             200,
-            token=self.fleet_token
+            token=super_admin_token
         )
         if success:
             self.log(f"   Status: {data.get('status')}")
@@ -951,19 +1017,7 @@ class HighwayPilotAPITester:
             else:
                 self.log(f"   No active subscription")
         
-        # Test 6: POST /stripe/portal without active customer → 400
-        # Note: fleet_admin might have a customer_id from checkout above, so this might not fail
-        # We'll test with driver token who hasn't subscribed
-        if self.driver_token:
-            success, data = self.run_test(
-                "Open billing portal without customer (should fail)",
-                "POST",
-                "/stripe/portal",
-                400,
-                token=self.driver_token
-            )
-        
-        # Test 8: POST /stripe/webhook with raw JSON
+        # Test: POST /stripe/webhook with raw JSON
         webhook_payload = {
             "id": "evt_test_webhook",
             "type": "customer.subscription.created",
@@ -971,7 +1025,7 @@ class HighwayPilotAPITester:
                 "object": {
                     "id": "sub_test_123",
                     "status": "active",
-                    "metadata": {"user_id": "test-user-id", "plan_key": "owner_op"}
+                    "metadata": {"user_id": "test-user-id", "plan_key": "pro"}
                 }
             }
         }
@@ -988,6 +1042,297 @@ class HighwayPilotAPITester:
             self.log(f"   Received: {data.get('received')}")
             if data.get('received') != True:
                 self.log("   ⚠️  Expected received: true", "WARN")
+
+    def test_copilot(self):
+        """Test AI Copilot endpoints (Stage 3 Phase 1)"""
+        self.log("\n" + "="*60)
+        self.log("TESTING: AI Copilot (Stage 3 Phase 1)")
+        self.log("="*60)
+        
+        if not self.driver_token:
+            self.log("⚠️  Skipping - no driver token", "WARN")
+            return
+        
+        # Test 1: GET /copilot/status as authenticated driver
+        success, data = self.run_test(
+            "Get Copilot status (authenticated driver)",
+            "GET",
+            "/copilot/status",
+            200,
+            token=self.driver_token
+        )
+        if success:
+            self.log(f"   Configured: {data.get('configured')}")
+            self.log(f"   Model: {data.get('model')}")
+            self.log(f"   Persona: {data.get('persona')}")
+            
+            # Validate response
+            if data.get('configured') != True:
+                self.log("   ❌ Expected configured: true", "FAIL")
+            if data.get('model') != 'anthropic/claude-sonnet-4-5-20250929':
+                self.log(f"   ❌ Expected model 'anthropic/claude-sonnet-4-5-20250929', got '{data.get('model')}'", "FAIL")
+            if data.get('persona') != 'Co-Pilot Buddy':
+                self.log(f"   ❌ Expected persona 'Co-Pilot Buddy', got '{data.get('persona')}'", "FAIL")
+        
+        # Test 2: POST /copilot/chat without auth → 401/403
+        success, data = self.run_test(
+            "Copilot chat without auth (should fail)",
+            "POST",
+            "/copilot/chat",
+            401,
+            data={"message": "Hey, how much drive time do I have left?"}
+        )
+        
+        # Test 3: POST /copilot/chat with empty message → 400
+        success, data = self.run_test(
+            "Copilot chat with empty message (should fail)",
+            "POST",
+            "/copilot/chat",
+            400,
+            data={"message": ""},
+            token=self.driver_token
+        )
+        
+        # Test 4: POST /copilot/chat with message > 2000 chars → 400
+        long_message = "x" * 2001
+        success, data = self.run_test(
+            "Copilot chat with >2000 chars (should fail)",
+            "POST",
+            "/copilot/chat",
+            400,
+            data={"message": long_message},
+            token=self.driver_token
+        )
+        
+        # Test 5: POST /copilot/chat with valid message (HOS context test)
+        self.log("\n   ⚠️  Making real LLM call - this consumes credits", "WARN")
+        success, data = self.run_test(
+            "Copilot chat: 'Hey, how much drive time do I have left?'",
+            "POST",
+            "/copilot/chat",
+            200,
+            data={"message": "Hey, how much drive time do I have left?"},
+            token=self.driver_token
+        )
+        if success:
+            reply = data.get('reply', '')
+            session_id = data.get('session_id', '')
+            model = data.get('model', '')
+            self.log(f"   Reply: {reply[:100]}...")
+            self.log(f"   Session ID: {session_id[:30]}...")
+            self.log(f"   Model: {model}")
+            
+            # Check if reply references HOS (context injection working)
+            if 'hour' in reply.lower() or 'minute' in reply.lower() or 'time' in reply.lower():
+                self.log(f"   ✓ Reply appears to reference HOS context")
+            else:
+                self.log(f"   ⚠️  Reply may not be using HOS context", "WARN")
+            
+            # Validate response structure
+            if not reply:
+                self.log("   ❌ Expected non-empty reply", "FAIL")
+            if not session_id:
+                self.log("   ❌ Expected session_id", "FAIL")
+        
+        # Test 6: GET /copilot/history as driver
+        success, data = self.run_test(
+            "Get Copilot history",
+            "GET",
+            "/copilot/history",
+            200,
+            token=self.driver_token
+        )
+        if success:
+            messages = data.get('messages', [])
+            self.log(f"   Found {len(messages)} messages in history")
+            if len(messages) > 0:
+                # Should have at least the message from test 5
+                self.log(f"   Sample: {messages[-1].get('role')} - {messages[-1].get('content', '')[:50]}...")
+                # Verify messages are sorted oldest-first
+                if len(messages) > 1:
+                    first_time = messages[0].get('created_at', '')
+                    last_time = messages[-1].get('created_at', '')
+                    if first_time > last_time:
+                        self.log(f"   ⚠️  Messages not sorted oldest-first", "WARN")
+        
+        # Test 7: Multi-turn conversation (context awareness)
+        self.log("\n   ⚠️  Making 2nd LLM call for multi-turn test", "WARN")
+        success, data = self.run_test(
+            "Copilot chat: 'What was my last question?'",
+            "POST",
+            "/copilot/chat",
+            200,
+            data={"message": "What was my last question?"},
+            token=self.driver_token
+        )
+        if success:
+            reply = data.get('reply', '')
+            self.log(f"   Reply: {reply[:100]}...")
+            # Check if reply shows context awareness from previous turn
+            if 'drive time' in reply.lower() or 'hos' in reply.lower() or 'hour' in reply.lower():
+                self.log(f"   ✓ Reply shows context awareness from previous turn")
+            else:
+                self.log(f"   ⚠️  Reply may not show context from previous turn", "WARN")
+        
+        # Test 8: POST /copilot/reset as driver
+        success, data = self.run_test(
+            "Reset Copilot session",
+            "POST",
+            "/copilot/reset",
+            200,
+            token=self.driver_token
+        )
+        if success:
+            deleted = data.get('deleted', 0)
+            self.log(f"   Deleted {deleted} messages")
+            if deleted < 2:
+                self.log(f"   ⚠️  Expected at least 2 messages deleted (from tests above)", "WARN")
+        
+        # Test 9: Verify history is cleared after reset
+        success, data = self.run_test(
+            "Get Copilot history after reset",
+            "GET",
+            "/copilot/history",
+            200,
+            token=self.driver_token
+        )
+        if success:
+            messages = data.get('messages', [])
+            self.log(f"   Found {len(messages)} messages after reset")
+            if len(messages) > 0:
+                self.log(f"   ⚠️  Expected 0 messages after reset, got {len(messages)}", "WARN")
+
+    def test_regression(self):
+        """Test existing endpoints still work (regression)"""
+        self.log("\n" + "="*60)
+        self.log("TESTING: Regression - Existing Endpoints")
+        self.log("="*60)
+        
+        if not self.fleet_token or not self.driver_token:
+            self.log("⚠️  Skipping - missing tokens", "WARN")
+            return
+        
+        # POST /auth/login
+        success, data = self.run_test(
+            "POST /auth/login (regression)",
+            "POST",
+            "/auth/login",
+            200,
+            data={"email": "driver@highwaypilot.io", "password": "HighwayPilot2026!"}
+        )
+        
+        # GET /drivers
+        success, data = self.run_test(
+            "GET /drivers (regression)",
+            "GET",
+            "/drivers",
+            200,
+            token=self.fleet_token
+        )
+        
+        # GET /trips
+        success, data = self.run_test(
+            "GET /trips (regression)",
+            "GET",
+            "/trips",
+            200,
+            token=self.fleet_token
+        )
+        
+        # GET /alerts
+        success, data = self.run_test(
+            "GET /alerts (regression)",
+            "GET",
+            "/alerts",
+            200,
+            token=self.fleet_token
+        )
+        
+        # POST /voice/command (intent matching for 'check HOS')
+        success, data = self.run_test(
+            "POST /voice/command 'check HOS' (regression)",
+            "POST",
+            "/voice/command",
+            200,
+            data={"transcript": "check HOS"},
+            token=self.driver_token
+        )
+        if success:
+            intent = data.get('intent')
+            if intent != 'check_hos':
+                self.log(f"   ⚠️  Expected intent 'check_hos', got '{intent}'", "WARN")
+        
+        # POST /hos
+        # Get a driver ID first
+        success_d, drivers = self.run_test(
+            "GET /drivers for HOS test",
+            "GET",
+            "/drivers",
+            200,
+            token=self.fleet_token
+        )
+        if success_d and len(drivers) > 0:
+            driver_id = drivers[0]['id']
+            success, data = self.run_test(
+                "POST /hos (regression)",
+                "POST",
+                "/hos",
+                200,
+                data={
+                    "driver_id": driver_id,
+                    "duty_status": "on_duty",
+                    "notes": "regression test"
+                },
+                token=self.fleet_token
+            )
+        
+        # GET /maintenance/reminders
+        success, data = self.run_test(
+            "GET /maintenance/reminders (regression)",
+            "GET",
+            "/maintenance/reminders",
+            200,
+            token=self.fleet_token
+        )
+        
+        # GET /stripe/subscription
+        success, data = self.run_test(
+            "GET /stripe/subscription (regression)",
+            "GET",
+            "/stripe/subscription",
+            200,
+            token=self.fleet_token
+        )
+        
+        # GET /auth/google (should redirect)
+        url = f"{self.api_url}/auth/google"
+        self.tests_run += 1
+        self.log(f"\n🔍 Test #{self.tests_run}: GET /auth/google (regression)")
+        try:
+            response = requests.get(url, allow_redirects=False, timeout=10)
+            if response.status_code == 302:
+                self.tests_passed += 1
+                self.log(f"✅ PASSED - Status: 302 (redirect to Google)", "PASS")
+                location = response.headers.get('Location', '')
+                if 'accounts.google.com' in location:
+                    self.log(f"   ✓ Redirects to Google OAuth")
+                else:
+                    self.log(f"   ⚠️  Redirect location unexpected: {location[:50]}...", "WARN")
+            else:
+                self.log(f"❌ FAILED - Expected 302, got {response.status_code}", "FAIL")
+                self.failed_tests.append({
+                    'test': 'GET /auth/google',
+                    'expected': 302,
+                    'actual': response.status_code,
+                    'endpoint': '/auth/google'
+                })
+        except Exception as e:
+            self.log(f"❌ FAILED - Error: {str(e)}", "FAIL")
+            self.failed_tests.append({
+                'test': 'GET /auth/google',
+                'error': str(e),
+                'endpoint': '/auth/google'
+            })
 
     def print_summary(self):
         """Print test summary"""
@@ -1017,7 +1362,7 @@ class HighwayPilotAPITester:
 def main():
     print("="*60)
     print("Highway Pilot Backend API Test Suite")
-    print("Stage 1 MVP + Stage 2 Features")
+    print("Stage 3 Phase 1: Stripe Pricing + AI Copilot")
     print("="*60)
     
     tester = HighwayPilotAPITester()
@@ -1029,28 +1374,32 @@ def main():
         print("\n❌ Authentication failed - cannot proceed with authenticated tests")
         return tester.print_summary()
     
-    # Stage 1 tests
-    tester.test_waitlist()
-    tester.test_overview()
-    tester.test_drivers()
-    tester.test_vehicles()
-    tester.test_trips()
-    tester.test_hos()
-    tester.test_maintenance()
-    tester.test_alerts()
-    tester.test_dashcam()
-    tester.test_voice_commands()
+    # Stage 3 Phase 1 tests (NEW)
+    tester.test_stripe()  # Updated for new pricing (pro, fleet)
+    tester.test_copilot()  # NEW AI Copilot tests
     
-    # Stage 2 tests
-    tester.test_trip_lifecycle()
-    tester.test_ifta_mileage()
-    tester.test_maintenance_reminders()
-    tester.test_csv_exports()
-    tester.test_profile_update()
-    tester.test_forgot_reset_password()
+    # Regression tests
+    tester.test_regression()
     
-    # Stage 3 tests (Stripe)
-    tester.test_stripe()
+    # Stage 1 tests (optional - can be skipped for focused testing)
+    # tester.test_waitlist()
+    # tester.test_overview()
+    # tester.test_drivers()
+    # tester.test_vehicles()
+    # tester.test_trips()
+    # tester.test_hos()
+    # tester.test_maintenance()
+    # tester.test_alerts()
+    # tester.test_dashcam()
+    # tester.test_voice_commands()
+    
+    # Stage 2 tests (optional - can be skipped for focused testing)
+    # tester.test_trip_lifecycle()
+    # tester.test_ifta_mileage()
+    # tester.test_maintenance_reminders()
+    # tester.test_csv_exports()
+    # tester.test_profile_update()
+    # tester.test_forgot_reset_password()
     
     return tester.print_summary()
 

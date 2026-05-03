@@ -135,6 +135,25 @@ export default function DriverHome() {
         <div className="flex justify-between text-[10px] text-slate-500 mt-1.5"><span>0h</span><span>11h cap</span></div>
       </div>
 
+      {/* AI Copilot launcher (Stage 3) */}
+      <Link to="/driver/copilot" data-testid="open-copilot-card" className="block">
+        <div className="rounded-2xl p-5 bg-gradient-to-br from-sky-500/15 via-sky-500/5 to-transparent border border-sky-500/30 hover:border-sky-400/50 transition-colors hp-glow">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-full bg-sky-500/20 border border-sky-500/40 flex items-center justify-center flex-shrink-0">
+              <Bot className="w-7 h-7 text-sky-300" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] uppercase tracking-widest text-sky-400/80 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" /> Co-Pilot AI · Online
+              </div>
+              <div className="text-base font-semibold text-white mt-0.5">Talk to Co-Pilot</div>
+              <div className="text-xs text-slate-400 mt-0.5 truncate">Hands-free voice partner. Ask anything.</div>
+            </div>
+            <ArrowRight className="w-5 h-5 text-sky-400 flex-shrink-0" />
+          </div>
+        </div>
+      </Link>
+
       {/* Duty quick-change */}
       <div className="hp-panel rounded-2xl p-5">
         <div className="text-xs uppercase tracking-widest text-sky-400/80 mb-3">Change duty status</div>

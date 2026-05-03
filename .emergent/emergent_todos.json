@@ -1,10 +1,42 @@
 [
   {
-    "content": "Google OAuth: ✅ backend + frontend wired, redirects correctly to Google consent",
+    "content": "Phase A: Fix Stripe pricing to match Pitch Deck exactly (Pro $29.99, Fleet $19.99/truck, Free, Enterprise)",
     "status": "completed"
   },
   {
-    "content": "Push to GitHub when ready",
+    "content": "Phase A: Update Pricing.jsx UI with deck tagline + accurate tier copy",
+    "status": "completed"
+  },
+  {
+    "content": "Phase A: Smoke-test Stripe checkout flow still works",
+    "status": "completed"
+  },
+  {
+    "content": "Phase B: Get integration playbook for Emergent LLM (AI Copilot)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase B: Build /api/copilot/chat endpoint with Co-Pilot Buddy persona",
+    "status": "completed"
+  },
+  {
+    "content": "Phase B: Build voice interface in Driver PWA (STT in, TTS out)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase B: Wire context awareness (current trip, HOS, vehicle) into Copilot",
+    "status": "completed"
+  },
+  {
+    "content": "Phase C: Run backend testing agent for new endpoints + regression",
+    "status": "in_progress"
+  },
+  {
+    "content": "Phase C: Visual verify Pricing page + Copilot UI with screenshot tool",
+    "status": "completed"
+  },
+  {
+    "content": "Phase D: Update plan.md with Stage 3 progress for Mike's morning review",
     "status": "pending"
   }
 ]

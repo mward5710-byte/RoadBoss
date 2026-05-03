@@ -28,6 +28,7 @@ import DriverTripDetail from '@/pages/driver/DriverTripDetail';
 import DriverVehicle from '@/pages/driver/DriverVehicle';
 import DriverSettings from '@/pages/driver/DriverSettings';
 import DriverProfile from '@/pages/driver/DriverProfile';
+import Copilot from '@/pages/driver/Copilot';
 import { getUser } from '@/lib/api';
 
 function RequireAuth({ roles, children }) {
@@ -69,6 +70,7 @@ function App() {
 
           <Route path="/driver" element={<RequireAuth roles={['driver']}><DriverShell /></RequireAuth>}>
             <Route index element={<DriverHome />} />
+            <Route path="copilot" element={<Copilot />} />
             <Route path="trips" element={<DriverTrips />} />
             <Route path="trips/:id" element={<DriverTripDetail />} />
             <Route path="vehicle" element={<DriverVehicle />} />

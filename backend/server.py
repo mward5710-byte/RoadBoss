@@ -815,15 +815,33 @@ if STRIPE_SECRET_KEY:
     _stripe.api_key = STRIPE_SECRET_KEY
 
 PLAN_CATALOG = [
-    {'key': 'owner_op', 'name': 'Owner-Operator', 'description': 'For solo owner-operators on the road.',
-     'amount_cents': 2900, 'interval': 'month',
-     'features': ['1 driver seat', 'Hands-free voice OS', 'HOS countdown + IFTA mileage', 'Maintenance reminders', 'Driver PWA + personal dashboard']},
-    {'key': 'small_fleet', 'name': 'Small Fleet', 'description': 'For fleets of up to 10 trucks.',
-     'amount_cents': 9900, 'interval': 'month',
-     'features': ['Up to 10 driver seats', 'Everything in Owner-Op', 'Fleet command center', 'Dashcam events feed', 'Roadside assistance dispatch']},
-    {'key': 'mid_fleet', 'name': 'Mid Fleet', 'description': 'For fleets of 11-50 trucks.',
-     'amount_cents': 29900, 'interval': 'month',
-     'features': ['Up to 50 driver seats', 'Everything in Small Fleet', 'AI Copilot for dispatch', 'CB Talker network access', 'Priority support']},
+    {'key': 'pro', 'name': 'Pro', 'tagline': 'For solo owner-operators on the road.',
+     'description': 'Everything: ELD, dash cam, crash detection, mile tracking, maintenance, roadside assistance.',
+     'amount_cents': 2999, 'interval': 'month', 'per_unit': False, 'unit_label': 'driver',
+     'features': [
+         '1 driver seat',
+         'Hands-free voice Copilot AI',
+         'TTS messaging + voice replies',
+         'Truck-specific GPS (weight / height / hazmat)',
+         'FMCSA-compliant ELD logs',
+         'Crash detection + auto-alert',
+         'IFTA-ready mileage by state',
+         'Maintenance + DVIR tracker',
+         'Roadside assistance dispatch',
+     ]},
+    {'key': 'fleet', 'name': 'Fleet', 'tagline': 'For small fleets that want full visibility.',
+     'description': 'Pro features + fleet management dashboard, driver analytics, compliance reporting.',
+     'amount_cents': 1999, 'interval': 'month', 'per_unit': True, 'unit_label': 'truck',
+     'features': [
+         'Everything in Pro for every driver',
+         'Fleet command center + live map',
+         'Real-time HOS + violation alerts',
+         'Driver scorecards + analytics',
+         'Dashcam events feed (Samsara / Lytx)',
+         'IFTA quarterly reports + CSV exports',
+         'Compliance reporting',
+         'Priority email + chat support',
+     ]},
 ]
 
 async def _ensure_stripe_prices():
@@ -874,6 +892,7 @@ async def stripe_config():
 
 class CheckoutIn(BaseModel):
     plan_key: str
+    quantity: Optional[int] = 1
     success_url: Optional[str] = None
     cancel_url: Optional[str] = None
 
@@ -881,6 +900,9 @@ class CheckoutIn(BaseModel):
 async def create_checkout(body: CheckoutIn, user=Depends(get_current_user)):
     if not STRIPE_SECRET_KEY:
         raise HTTPException(400, "Stripe is not configured")
+    # Drivers cannot self-subscribe (only fleet_admin, super_admin can subscribe)
+    if user.get('role') == 'driver':
+        raise HTTPException(403, "Drivers cannot self-subscribe. Contact your fleet admin.")
     plan = next((p for p in PLAN_CATALOG if p['key'] == body.plan_key), None)
     if not plan:
         raise HTTPException(400, "Unknown plan")
@@ -890,6 +912,13 @@ async def create_checkout(body: CheckoutIn, user=Depends(get_current_user)):
         rec = await db.stripe_plans.find_one({'key': body.plan_key})
     if not rec or not rec.get('price_id'):
         raise HTTPException(500, "Could not initialize Stripe price")
+    # Quantity: only honored for per_unit plans (Fleet). Pro is always 1.
+    qty = 1
+    if plan.get('per_unit'):
+        try:
+            qty = max(1, int(body.quantity or 1))
+        except Exception:
+            qty = 1
     u = await db.users.find_one({'id': user['id']})
     customer_id = (u or {}).get('stripe_customer_id')
     if not customer_id:
@@ -903,15 +932,19 @@ async def create_checkout(body: CheckoutIn, user=Depends(get_current_user)):
     success = body.success_url or f"{base}/app/billing?session_id={{CHECKOUT_SESSION_ID}}&status=success"
     cancel = body.cancel_url or f"{base}/pricing?status=cancel"
     try:
+        line_item = {'price': rec['price_id'], 'quantity': qty}
+        # Allow customers to adjust truck count from Stripe checkout for per_unit plans
+        if plan.get('per_unit'):
+            line_item['adjustable_quantity'] = {'enabled': True, 'minimum': 1, 'maximum': 500}
         session = _stripe.checkout.Session.create(
             mode='subscription',
             customer=customer_id,
-            line_items=[{'price': rec['price_id'], 'quantity': 1}],
+            line_items=[line_item],
             subscription_data={'trial_period_days': STRIPE_TRIAL_DAYS, 'metadata': {'user_id': user['id'], 'plan_key': body.plan_key}},
             success_url=success,
             cancel_url=cancel,
             allow_promotion_codes=True,
-            metadata={'user_id': user['id'], 'plan_key': body.plan_key},
+            metadata={'user_id': user['id'], 'plan_key': body.plan_key, 'quantity': str(qty)},
         )
     except Exception as e:
         raise HTTPException(500, f"Checkout creation failed: {e}")
@@ -1091,6 +1124,211 @@ async def voice_command(body: VoiceCmdIn, user=Depends(get_current_user)):
         'created_at': now_utc().isoformat(),
     })
     return {'intent': intent, 'response': response, 'side_effect': side_effect}
+
+# ============================================================
+# AI Copilot — RoadBoss "Co-Pilot Buddy" (Stage 3)
+# Natural-language voice assistant powered by Emergent LLM key.
+# Context-aware: knows driver name, HOS remaining, current trip, vehicle, alerts.
+# ============================================================
+
+EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '').strip()
+COPILOT_MODEL_PROVIDER = 'anthropic'
+COPILOT_MODEL_NAME = 'claude-sonnet-4-5-20250929'
+
+COPILOT_SYSTEM_BASE = """You are RoadBoss Co-Pilot Buddy — a hands-free AI assistant riding shotgun with a professional truck driver.
+
+PERSONA
+- Warm, plainspoken trucker tone. Like a trusted partner riding with them.
+- Use phrases like: "Got it, boss." "Copy that." "On it." "You bet." "Pulling that up now."
+- Never corporate. Never robotic. Never preachy.
+- Address the driver by first name when known.
+
+SAFETY RULES (NON-NEGOTIABLE)
+- NEVER tell the driver to look at, tap, or read the screen while driving.
+- All answers must be designed to be HEARD, not seen.
+- If something requires the screen (e.g., signing a document), say so but suggest doing it at the next safe stop.
+- If the driver sounds tired, stressed, or reports a serious problem (crash, breakdown, medical), prioritize their safety above all else.
+
+RESPONSE STYLE
+- Keep replies SHORT — 1 to 2 sentences, 50 words MAX. These will be spoken out loud.
+- No markdown, no bullet points, no lists. Plain spoken English only.
+- No emojis. No special characters. No SSML.
+- Numbers spoken naturally ("eight hours and twenty minutes", not "8h 20m").
+- If the driver asks about something you don't know yet (Mapbox, dispatch SMS, dashcam events), say it's coming soon and offer what you CAN help with right now.
+
+WHAT YOU CAN HELP WITH RIGHT NOW
+- Hours of Service (HOS) status, time remaining, duty changes (on duty, off duty, sleeper berth, driving)
+- Trip status — start a trip, end a trip, what's the next destination
+- Fleet alerts and dispatch messages
+- Maintenance reminders
+- General trucking questions (weigh stations, weather thinking, route planning advice)
+- Conversation, encouragement, keeping the driver alert and safe
+
+SIGN-OFF
+- End assertive actions with a brief confirmation ("Logged it." "Done.").
+- For safety-critical replies, end with "Stay safe out there.\""""
+
+
+def _build_driver_context(user: Dict[str, Any], driver: Optional[Dict[str, Any]],
+                          active_trip: Optional[Dict[str, Any]],
+                          vehicle: Optional[Dict[str, Any]],
+                          recent_alerts: List[Dict[str, Any]]) -> str:
+    lines = ["", "=== LIVE DRIVER CONTEXT (for this turn) ==="]
+    name = (driver or {}).get('name') or user.get('name') or 'Driver'
+    lines.append(f"Driver name: {name}")
+    lines.append(f"Role: {user.get('role', 'driver')}")
+    if driver:
+        status = driver.get('status', 'unknown').replace('_', ' ')
+        lines.append(f"Current duty status: {status}")
+        mins = int(driver.get('hos_remaining_minutes') or 0)
+        h, m = divmod(mins, 60)
+        lines.append(f"HOS drive time remaining: {h} hours {m} minutes")
+        if driver.get('home_terminal'):
+            lines.append(f"Home terminal: {driver['home_terminal']}")
+    if active_trip:
+        lines.append(f"ACTIVE TRIP: {active_trip.get('origin', '?')} -> {active_trip.get('destination', '?')} ({active_trip.get('miles', '?')} miles, status: {active_trip.get('status')})")
+    else:
+        lines.append("Active trip: none right now.")
+    if vehicle:
+        lines.append(f"Truck: {vehicle.get('name', '')} ({vehicle.get('make', '')} {vehicle.get('model', '')} {vehicle.get('year', '')})")
+    if recent_alerts:
+        alert_lines = []
+        for a in recent_alerts[:3]:
+            sev = a.get('severity', 'info')
+            msg = a.get('message', '')
+            alert_lines.append(f"[{sev}] {msg}")
+        lines.append("Recent alerts: " + " | ".join(alert_lines))
+    else:
+        lines.append("Recent alerts: none.")
+    lines.append("=== END CONTEXT ===")
+    return "\n".join(lines)
+
+
+class CopilotChatIn(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+
+
+@api_router.post("/copilot/chat")
+async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(503, "Co-Pilot AI is not configured yet. Add EMERGENT_LLM_KEY to enable.")
+    msg_text = (body.message or '').strip()
+    if not msg_text:
+        raise HTTPException(400, "Empty message")
+    if len(msg_text) > 2000:
+        raise HTTPException(400, "Message too long. Keep it under 2000 characters.")
+
+    # Stable session id keyed to user (one running convo per user is fine for v1)
+    session_id = body.session_id or f"copilot-{user['id']}"
+
+    # Build live context
+    driver = await _get_my_driver(user['email']) if user.get('role') == 'driver' else None
+    active_trip = None
+    vehicle = None
+    if driver:
+        active_trip = await db.trips.find_one(
+            {'driver_id': driver['id'], 'status': {'$in': ['active', 'planned']}},
+            {'_id': 0},
+            sort=[('status', 1), ('created_at', -1)]
+        )
+        if driver.get('vehicle_id'):
+            vehicle = await db.vehicles.find_one({'id': driver['vehicle_id']}, {'_id': 0})
+    recent_alerts = await db.alerts.find({}, {'_id': 0}).sort('created_at', -1).to_list(5)
+
+    # Persist user turn first
+    user_doc = {
+        'id': str(uuid.uuid4()),
+        'session_id': session_id,
+        'user_id': user['id'],
+        'role': 'user',
+        'content': msg_text,
+        'created_at': now_utc().isoformat(),
+    }
+    await db.copilot_chats.insert_one(user_doc)
+
+    # Lazy import so server still boots if package missing
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+    except Exception as e:
+        logger.error(f"emergentintegrations import failed: {e}")
+        raise HTTPException(500, "Co-Pilot AI library not available.")
+
+    system_prompt = COPILOT_SYSTEM_BASE + _build_driver_context(user, driver, active_trip, vehicle, recent_alerts)
+
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=session_id,
+            system_message=system_prompt,
+        ).with_model(COPILOT_MODEL_PROVIDER, COPILOT_MODEL_NAME)
+
+        # Replay short conversational history (last 6 turns) so context survives across calls
+        history = await db.copilot_chats.find(
+            {'session_id': session_id, 'user_id': user['id'], 'id': {'$ne': user_doc['id']}},
+            {'_id': 0},
+        ).sort('created_at', -1).to_list(6)
+        history.reverse()
+        prior_text = ""
+        if history:
+            transcript_lines = []
+            for h in history:
+                speaker = "Driver" if h.get('role') == 'user' else "You"
+                transcript_lines.append(f"{speaker}: {h.get('content', '')}")
+            prior_text = "\n\nRecent conversation so far (oldest first):\n" + "\n".join(transcript_lines) + "\n\n"
+
+        composed = prior_text + f"Driver just said: {msg_text}"
+        reply = await chat.send_message(UserMessage(text=composed))
+        reply_text = (reply or '').strip()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Copilot LLM error: {e}")
+        raise HTTPException(502, "Co-Pilot is having trouble reaching the brain. Try again in a moment.")
+
+    # Persist assistant turn
+    await db.copilot_chats.insert_one({
+        'id': str(uuid.uuid4()),
+        'session_id': session_id,
+        'user_id': user['id'],
+        'role': 'assistant',
+        'content': reply_text,
+        'model': f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
+        'created_at': now_utc().isoformat(),
+    })
+
+    return {
+        'reply': reply_text,
+        'session_id': session_id,
+        'model': f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
+    }
+
+
+@api_router.get("/copilot/history")
+async def copilot_history(session_id: Optional[str] = None, limit: int = 30, user=Depends(get_current_user)):
+    sid = session_id or f"copilot-{user['id']}"
+    msgs = await db.copilot_chats.find(
+        {'session_id': sid, 'user_id': user['id']},
+        {'_id': 0},
+    ).sort('created_at', -1).to_list(max(1, min(limit, 200)))
+    msgs.reverse()
+    return {'session_id': sid, 'messages': msgs}
+
+
+@api_router.post("/copilot/reset")
+async def copilot_reset(user=Depends(get_current_user)):
+    sid = f"copilot-{user['id']}"
+    res = await db.copilot_chats.delete_many({'session_id': sid, 'user_id': user['id']})
+    return {'deleted': res.deleted_count, 'session_id': sid}
+
+
+@api_router.get("/copilot/status")
+async def copilot_status(user=Depends(get_current_user)):
+    return {
+        'configured': bool(EMERGENT_LLM_KEY),
+        'model': f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
+        'persona': 'Co-Pilot Buddy',
+    }
 
 # ============================================================
 # Seed (idempotent) - run via GET /api/seed
