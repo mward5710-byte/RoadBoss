@@ -6,7 +6,7 @@
 
 ---
 
-## Status: STAGE 3 — PHASE 2E COMPLETE ✅
+## Status: STAGE 3 — PHASE 2F (PARTIAL) IN PROGRESS 🔧
 - Stage 1 (Foundation): ✅ Done
 - Stage 2 (Workflows + Stripe + Google OAuth): ✅ Done
 - Stage 3 Phase 1 (Pricing alignment + AI Copilot): ✅ Done
@@ -15,8 +15,9 @@
 - Stage 3 Phase 2A (Crash Detection + Roadside Assistance): ✅ Done
 - Stage 3 Phase 2B (Mapbox truck-aware GPS): ✅ Done
 - Stage 3 Phase 2D (Driver Home Surgery — shift-flow state machine): ✅ Done
-- **Stage 3 Phase 2E (Investor-grade demo data seeding): ✅ Done** ← latest
-- Stage 3 Phase 2F (Refactor server.py into routers): 🔜 Next
+- Stage 3 Phase 2E (Investor-grade demo data seeding): ✅ Done
+- **Stage 3 Phase 2F.1 (Refactor: extract seed module): ✅ Done** ← latest
+- Stage 3 Phase 2F.2+ (Refactor: extract Copilot/DVIR/Crash/Roadside routers): backlog (will happen incrementally as Twilio/SendGrid land alongside)
 - Stage 3 Phase 2C (Twilio / SendGrid / Dashcam adapters / QuickBooks): ⏸ Waiting on Mike's API keys
 - Stage 4 / 5: Backlog
 
@@ -200,10 +201,25 @@
 3. Log out → log in as `tyler@highwaypilot.io` → state = sleeper, sees rest screen.
 4. Log out → log in as `marcus@highwaypilot.io` → state = on_duty, has a planned trip Memphis→St. Louis to start.
 
-### Phase 2F (NEXT — backend refactor)
-- Break `server.py` (2,500+ lines) into modular routers: `/routers/auth.py`, `/routers/copilot.py`, `/routers/dvir.py`, `/routers/crash.py`, `/routers/roadside.py`, `/routers/stripe.py`, `/routers/mapbox.py`, `/routers/seed.py`.
-- Preserve every existing endpoint URL and behavior. Run backend testing agent immediately after split to guarantee zero regressions.
-- Lays clean ground to drop in Twilio + SendGrid handlers as their own routers when keys arrive.
+### Phase 2F.1 (DONE — May 4) ✅ — Server.py refactor: extract seed module
+**Why this phase**: `server.py` had grown to 2,549 lines — a fragile monolith that would make landing Twilio + SendGrid risky once Mike's keys arrive. Big-bang refactors mid-flight are dangerous, so we're peeling modules off incrementally.
+
+**What changed**:
+- New file `/app/backend/seed_data.py` (~430 lines) — pure module, zero `server.py` imports. Holds the rich investor-grade seed function (`seed_demo`) and the wipe helper (`wipe_demo_collections`).
+- Dependency injection pattern: `seed_demo(db, now_utc, hash_password, build_blank_items, logger)` — shared utilities are passed in as kwargs, eliminating circular-import risk.
+- `server.py` now contains only thin wrapper functions (`_seed_demo`, `_wipe_demo_collections`) and the `/api/seed` route handler — total ~30 lines for the seed surface.
+- **server.py shrunk from 2,549 → 2,076 lines (−467, −18%)**.
+- Identical behavior verified: force-reseed via `/api/seed?force=true` produces the exact same 22 trips, 17 DVIRs, 13-state IFTA, 3 crash events, 5 roadside dispatches, 12 alerts, 15 dashcam, 12 waitlist as before. Zero regressions.
+
+### Phase 2F.2+ (BACKLOG — refactor remaining modules incrementally)
+Remaining bloat in `server.py` (in priority order for future extraction):
+- **routers/copilot.py** (~430 lines) — system prompt + chat endpoints + action parser. Will extract when we add the Twilio "speak SMS replies aloud" feature.
+- **routers/dvir.py** (~235 lines) — DVIR templates + lifecycle endpoints. Extract when SendGrid ships the email-the-signed-DVIR feature.
+- **routers/roadside.py** (~130 lines) — providers + dispatch lifecycle. Extract when Twilio sends provider SMS.
+- **routers/crash.py** (~70 lines) — small footprint, lower priority.
+- **routers/stripe.py** + **routers/google_oauth.py** — leave for now; both are stable and will rarely change.
+
+**Refactoring discipline**: Each future extraction follows the same pattern as 2F.1 (own module file, dependency injection, thin server.py wrappers, zero behavior change verified by re-running backend testing agent).
 
 ### Phase 2D (DONE — May 4) ✅ — Driver Home Surgery (shift-flow state machine)
 **Why this phase**: Founder rated app usability 7.5/10 and called the Driver Home a "wall of cards" — drivers had to scan 6 buttons to figure out what to do next. Truckers don't think in features; they think in shift stages.

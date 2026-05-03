@@ -1,34 +1,14 @@
 [
   {
     "content": "Phase 2E (B): Realistic demo data seeding - investor-demo-ready",
-    "status": "in_progress"
-  },
-  {
-    "content": "Read existing seed_demo_data function to map current state",
     "status": "completed"
   },
   {
-    "content": "Design seed plan: trips, HOS logs, DVIRs, crash, roadside, maint, alerts, fuel/IFTA, dashcam, waitlist",
+    "content": "Phase 2F.1 (C, partial): Extract seed module - server.py shrunk 18%",
     "status": "completed"
   },
   {
-    "content": "Implement extended seed function preserving existing accounts",
-    "status": "completed"
-  },
-  {
-    "content": "Restart backend, verify seed runs clean, spot-check via curl",
-    "status": "completed"
-  },
-  {
-    "content": "Run backend testing agent on seeded data + existing endpoints (regression)",
-    "status": "in_progress"
-  },
-  {
-    "content": "Update plan.md + test_credentials.md with Phase 2E completion",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 2F (C): Refactor server.py into routers",
+    "content": "Phase 2F.2+ (C, deferred): Extract Copilot/DVIR/Crash/Roadside routers - will happen incrementally as Twilio/SendGrid land",
     "status": "pending"
   }
 ]
