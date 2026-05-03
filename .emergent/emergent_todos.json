@@ -1,26 +1,46 @@
 [
   {
-    "content": "Stage 1: Plan & Design Guidelines",
+    "content": "Stage 2: Backend - Trip lifecycle (start/end, mileage by state, IFTA summary)",
     "status": "completed"
   },
   {
-    "content": "Stage 1: Backend foundation (auth, drivers, vehicles, trips, HOS, maintenance models)",
+    "content": "Stage 2: Backend - CSV exports (trips, HOS, maintenance, mileage)",
     "status": "completed"
   },
   {
-    "content": "Stage 1: Marketing site (Highway Pilot stealth brand, hero, problem, solution, roadmap, waitlist)",
+    "content": "Stage 2: Backend - Profile update + forgot/reset password",
     "status": "completed"
   },
   {
-    "content": "Stage 1: Fleet Command Center dashboard (login, live map mock, HOS cards, alerts feed, dashcam events)",
+    "content": "Stage 2: Backend - Maintenance reminders + expanded voice command intents",
     "status": "completed"
   },
   {
-    "content": "Stage 1: Driver PWA skeleton (login, voice command demo, HOS countdown, trip log, message read-aloud)",
+    "content": "Stage 2: Frontend - Driver HOS quick-change + Start/End trip + mileage entry",
     "status": "completed"
   },
   {
-    "content": "Stage 1: End-to-end testing with testing agent + bug fixes",
+    "content": "Stage 2: Frontend - Forgot/Reset password pages + Profile page",
     "status": "completed"
+  },
+  {
+    "content": "Stage 2: Frontend - CSV export buttons + IFTA admin page",
+    "status": "completed"
+  },
+  {
+    "content": "Stage 2: Stripe subscriptions (waiting on user keys)",
+    "status": "pending"
+  },
+  {
+    "content": "Stage 2: Google OAuth (waiting on user keys)",
+    "status": "pending"
+  },
+  {
+    "content": "Stage 2: Push to GitHub once code is built",
+    "status": "pending"
+  },
+  {
+    "content": "Stage 2: End-to-end testing with testing agent",
+    "status": "in_progress"
   }
 ]

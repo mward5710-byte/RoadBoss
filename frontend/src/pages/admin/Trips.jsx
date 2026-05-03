@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Plus, Route as RouteIcon } from 'lucide-react';
+import { Plus, Route as RouteIcon, Download } from 'lucide-react';
+
+function download(url, filename) {
+  const token = localStorage.getItem('hp_token');
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    .then((r) => r.blob()).then((b) => { const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = filename; a.click(); URL.revokeObjectURL(u); });
+}
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
@@ -40,6 +46,8 @@ export default function Trips() {
     <div className="p-6 lg:p-8 space-y-5">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div><div className="text-xs uppercase tracking-widest text-sky-400/80">Operations</div><h1 className="text-3xl font-bold text-white mt-1">Trips</h1></div>
+        <div className="flex gap-2">
+        <Button data-testid="export-trips-btn" onClick={() => download(`${process.env.REACT_APP_BACKEND_URL}/api/exports/trips.csv`, 'trips.csv')} variant="outline" className="border-white/15 text-slate-200"><Download className="w-4 h-4 mr-1" /> Export CSV</Button>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button data-testid="add-trip-btn" className="bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold"><Plus className="w-4 h-4 mr-1" /> New trip</Button></DialogTrigger>
           <DialogContent className="bg-[#0e131a] border-white/10">
@@ -63,6 +71,7 @@ export default function Trips() {
             <DialogFooter><Button data-testid="trip-save" onClick={create} className="bg-sky-500 hover:bg-sky-400 text-slate-950">Create</Button></DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="hp-panel rounded-xl overflow-hidden">

@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Wrench, CheckCircle2 } from 'lucide-react';
+import { Wrench, CheckCircle2, Download } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+
+function download(url, filename) {
+  const token = localStorage.getItem('hp_token');
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    .then((r) => r.blob()).then((b) => { const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = filename; a.click(); URL.revokeObjectURL(u); });
+}
 
 export default function Maintenance() {
   const [rows, setRows] = useState([]);
@@ -12,7 +19,10 @@ export default function Maintenance() {
   const vName = (id) => vehicles.find((v) => v.id === id)?.name || '—';
   return (
     <div className="p-6 lg:p-8 space-y-5">
-      <div><div className="text-xs uppercase tracking-widest text-sky-400/80">Service</div><h1 className="text-3xl font-bold text-white mt-1">Maintenance</h1></div>
+      <div className="flex items-end justify-between flex-wrap gap-3">
+        <div><div className="text-xs uppercase tracking-widest text-sky-400/80">Service</div><h1 className="text-3xl font-bold text-white mt-1">Maintenance</h1></div>
+        <Button data-testid="export-maintenance-btn" onClick={() => download(`${process.env.REACT_APP_BACKEND_URL}/api/exports/maintenance.csv`, 'maintenance.csv')} variant="outline" className="border-white/15 text-slate-200"><Download className="w-4 h-4 mr-1" /> Export CSV</Button>
+      </div>
       <div className="hp-panel rounded-xl overflow-hidden">
         <div className="grid grid-cols-12 px-4 py-3 text-xs uppercase tracking-wider text-slate-500 border-b border-white/5">
           <div className="col-span-4">Service</div><div className="col-span-3">Vehicle</div><div className="col-span-2">Due</div><div className="col-span-2">Cost</div><div className="col-span-1">Status</div>

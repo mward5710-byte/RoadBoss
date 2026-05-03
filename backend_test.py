@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
 Highway Pilot Backend API Test Suite
-Tests all endpoints for Stage 1 MVP
+Tests all endpoints for Stage 1 MVP + Stage 2 features
 """
 import requests
 import sys
 from datetime import datetime
 import json
+import time
 
 class HighwayPilotAPITester:
     def __init__(self, base_url="https://build-forge-49.preview.emergentagent.com"):
@@ -475,6 +476,11 @@ class HighwayPilotAPITester:
             ("read alerts", "read_alerts"),
             ("help", "help"),
             ("start trip", "start_trip"),
+            ("end trip", "end_trip"),
+            ("on duty", "duty_on_duty"),
+            ("off duty", "duty_off_duty"),
+            ("sleeper", "duty_sleeper"),
+            ("log fuel", "log_fuel"),
             ("random gibberish xyz", "unknown"),
         ]
         
@@ -493,6 +499,354 @@ class HighwayPilotAPITester:
                 self.log(f"   Intent: {intent}, Response: {response[:60]}...")
                 if intent != expected_intent:
                     self.log(f"   ⚠️  Expected intent '{expected_intent}', got '{intent}'", "WARN")
+
+    def test_trip_lifecycle(self):
+        """Test trip start/end endpoints (Stage 2)"""
+        self.log("\n" + "="*60)
+        self.log("TESTING: Trip Lifecycle (Stage 2)")
+        self.log("="*60)
+        
+        if not self.fleet_token:
+            self.log("⚠️  Skipping - no fleet token", "WARN")
+            return
+        
+        # Get drivers and create a test trip
+        success_d, drivers = self.run_test(
+            "Get drivers for trip test",
+            "GET",
+            "/drivers",
+            200,
+            token=self.fleet_token
+        )
+        
+        if not success_d or len(drivers) == 0:
+            self.log("⚠️  No drivers found, skipping trip lifecycle", "WARN")
+            return
+        
+        driver_id = drivers[0]['id']
+        
+        # Create a planned trip
+        success, trip = self.run_test(
+            "Create planned trip",
+            "POST",
+            "/trips",
+            200,
+            data={
+                "driver_id": driver_id,
+                "origin": "Test Origin",
+                "destination": "Test Destination",
+                "miles": 100,
+                "status": "planned"
+            },
+            token=self.fleet_token
+        )
+        
+        if not success or 'id' not in trip:
+            self.log("⚠️  Failed to create trip, skipping lifecycle", "WARN")
+            return
+        
+        trip_id = trip['id']
+        self.log(f"   Created trip ID: {trip_id}")
+        
+        # Start the trip
+        success, started = self.run_test(
+            "Start trip",
+            "POST",
+            f"/trips/{trip_id}/start",
+            200,
+            token=self.fleet_token
+        )
+        if success:
+            self.log(f"   Trip status: {started.get('status')}")
+            if started.get('status') != 'active':
+                self.log(f"   ⚠️  Expected status 'active', got '{started.get('status')}'", "WARN")
+        
+        # End the trip
+        success, ended = self.run_test(
+            "End trip",
+            "POST",
+            f"/trips/{trip_id}/end",
+            200,
+            data={"miles": 150, "notes": "Test completed"},
+            token=self.fleet_token
+        )
+        if success:
+            self.log(f"   Trip status: {ended.get('status')}")
+            if ended.get('status') != 'completed':
+                self.log(f"   ⚠️  Expected status 'completed', got '{ended.get('status')}'", "WARN")
+
+    def test_ifta_mileage(self):
+        """Test IFTA mileage tracking (Stage 2)"""
+        self.log("\n" + "="*60)
+        self.log("TESTING: IFTA Mileage (Stage 2)")
+        self.log("="*60)
+        
+        if not self.fleet_token:
+            self.log("⚠️  Skipping - no fleet token", "WARN")
+            return
+        
+        # Get a trip to add mileage to
+        success, trips = self.run_test(
+            "Get trips for mileage test",
+            "GET",
+            "/trips",
+            200,
+            token=self.fleet_token
+        )
+        
+        if not success or len(trips) == 0:
+            self.log("⚠️  No trips found, skipping mileage test", "WARN")
+            return
+        
+        trip_id = trips[0]['id']
+        
+        # Add mileage entry
+        success, mileage = self.run_test(
+            "Add mileage entry",
+            "POST",
+            f"/trips/{trip_id}/mileage",
+            200,
+            data={"state": "TX", "miles": 100.5, "notes": "Test mileage"},
+            token=self.fleet_token
+        )
+        
+        if success and 'id' in mileage:
+            mileage_id = mileage['id']
+            self.log(f"   Created mileage ID: {mileage_id}")
+            
+            # Get mileage for trip
+            success, entries = self.run_test(
+                "Get trip mileage",
+                "GET",
+                f"/trips/{trip_id}/mileage",
+                200,
+                token=self.fleet_token
+            )
+            if success:
+                self.log(f"   Found {len(entries)} mileage entries")
+            
+            # Delete mileage entry
+            success, _ = self.run_test(
+                "Delete mileage entry",
+                "DELETE",
+                f"/trips/{trip_id}/mileage/{mileage_id}",
+                200,
+                token=self.fleet_token
+            )
+        
+        # Get IFTA summary
+        success, summary = self.run_test(
+            "Get IFTA summary",
+            "GET",
+            "/ifta/summary",
+            200,
+            token=self.fleet_token
+        )
+        if success:
+            self.log(f"   Total miles: {summary.get('total')}")
+            self.log(f"   States: {summary.get('state_count')}")
+            self.log(f"   By state entries: {len(summary.get('by_state', []))}")
+
+    def test_maintenance_reminders(self):
+        """Test maintenance reminders (Stage 2)"""
+        self.log("\n" + "="*60)
+        self.log("TESTING: Maintenance Reminders (Stage 2)")
+        self.log("="*60)
+        
+        if not self.fleet_token:
+            self.log("⚠️  Skipping - no fleet token", "WARN")
+            return
+        
+        success, reminders = self.run_test(
+            "Get maintenance reminders",
+            "GET",
+            "/maintenance/reminders",
+            200,
+            token=self.fleet_token
+        )
+        
+        if success:
+            self.log(f"   Found {len(reminders)} reminders")
+            if len(reminders) > 0:
+                r = reminders[0]
+                self.log(f"   Sample: {r.get('service_type')} - {r.get('vehicle_name')}")
+                if r.get('days_remaining') is not None:
+                    self.log(f"     Days remaining: {r.get('days_remaining')}")
+                if r.get('miles_remaining') is not None:
+                    self.log(f"     Miles remaining: {r.get('miles_remaining')}")
+
+    def test_csv_exports(self):
+        """Test CSV export endpoints (Stage 2)"""
+        self.log("\n" + "="*60)
+        self.log("TESTING: CSV Exports (Stage 2)")
+        self.log("="*60)
+        
+        if not self.fleet_token:
+            self.log("⚠️  Skipping - no fleet token", "WARN")
+            return
+        
+        exports = [
+            ("trips.csv", "/exports/trips.csv"),
+            ("hos.csv", "/exports/hos.csv"),
+            ("maintenance.csv", "/exports/maintenance.csv"),
+            ("mileage.csv", "/exports/mileage.csv"),
+        ]
+        
+        for filename, endpoint in exports:
+            url = f"{self.api_url}{endpoint}"
+            headers = {'Authorization': f'Bearer {self.fleet_token}'}
+            
+            self.tests_run += 1
+            self.log(f"\n🔍 Test #{self.tests_run}: Export {filename}")
+            
+            try:
+                response = requests.get(url, headers=headers, timeout=10)
+                if response.status_code == 200 and 'text/csv' in response.headers.get('Content-Type', ''):
+                    self.tests_passed += 1
+                    self.log(f"✅ PASSED - CSV export working, size: {len(response.content)} bytes", "PASS")
+                else:
+                    self.log(f"❌ FAILED - Expected 200 text/csv, got {response.status_code} {response.headers.get('Content-Type')}", "FAIL")
+                    self.failed_tests.append({
+                        'test': f'Export {filename}',
+                        'expected': '200 text/csv',
+                        'actual': f"{response.status_code} {response.headers.get('Content-Type')}",
+                        'endpoint': endpoint
+                    })
+            except Exception as e:
+                self.log(f"❌ FAILED - Error: {str(e)}", "FAIL")
+                self.failed_tests.append({
+                    'test': f'Export {filename}',
+                    'error': str(e),
+                    'endpoint': endpoint
+                })
+
+    def test_profile_update(self):
+        """Test profile update endpoint (Stage 2)"""
+        self.log("\n" + "="*60)
+        self.log("TESTING: Profile Update (Stage 2)")
+        self.log("="*60)
+        
+        if not self.fleet_token:
+            self.log("⚠️  Skipping - no fleet token", "WARN")
+            return
+        
+        # Update name only
+        success, data = self.run_test(
+            "Update profile name",
+            "PUT",
+            "/auth/profile",
+            200,
+            data={"name": "Sarah Chen (Fleet Admin) - Test"},
+            token=self.fleet_token
+        )
+        if success:
+            self.log(f"   Updated name: {data.get('name')}")
+        
+        # Revert name
+        success, data = self.run_test(
+            "Revert profile name",
+            "PUT",
+            "/auth/profile",
+            200,
+            data={"name": "Sarah Chen (Fleet Admin)"},
+            token=self.fleet_token
+        )
+        
+        # Test password change with wrong current password
+        success, data = self.run_test(
+            "Change password with wrong current (should fail)",
+            "PUT",
+            "/auth/profile",
+            400,
+            data={
+                "current_password": "WrongPassword123!",
+                "new_password": "NewPassword123!"
+            },
+            token=self.fleet_token
+        )
+        
+        # Test password change with short password
+        success, data = self.run_test(
+            "Change password with short password (should fail)",
+            "PUT",
+            "/auth/profile",
+            400,
+            data={
+                "current_password": "HighwayPilot2026!",
+                "new_password": "short"
+            },
+            token=self.fleet_token
+        )
+
+    def test_forgot_reset_password(self):
+        """Test forgot/reset password flow (Stage 2)"""
+        self.log("\n" + "="*60)
+        self.log("TESTING: Forgot/Reset Password (Stage 2)")
+        self.log("="*60)
+        
+        # Test forgot password
+        success, data = self.run_test(
+            "Forgot password request",
+            "POST",
+            "/auth/forgot",
+            200,
+            data={"email": "fleet_admin@highwaypilot.io"}
+        )
+        
+        reset_token = None
+        if success:
+            self.log(f"   Message: {data.get('message')}")
+            if 'dev_token' in data:
+                reset_token = data['dev_token']
+                self.log(f"   Dev token: {reset_token[:20]}...")
+        
+        # Test forgot with non-existent email (should still return 200 for security)
+        success, data = self.run_test(
+            "Forgot password with non-existent email",
+            "POST",
+            "/auth/forgot",
+            200,
+            data={"email": "nonexistent@example.com"}
+        )
+        
+        if reset_token:
+            # Test reset with valid token
+            success, data = self.run_test(
+                "Reset password with valid token",
+                "POST",
+                "/auth/reset",
+                200,
+                data={"token": reset_token, "new_password": "HighwayPilot2026!"}
+            )
+            if success:
+                self.log(f"   Message: {data.get('message')}")
+            
+            # Test reset with same token again (should fail - already used)
+            success, data = self.run_test(
+                "Reset password with used token (should fail)",
+                "POST",
+                "/auth/reset",
+                400,
+                data={"token": reset_token, "new_password": "AnotherPassword123!"}
+            )
+        
+        # Test reset with invalid token
+        success, data = self.run_test(
+            "Reset password with invalid token (should fail)",
+            "POST",
+            "/auth/reset",
+            400,
+            data={"token": "invalid-token-12345", "new_password": "NewPassword123!"}
+        )
+        
+        # Test reset with short password
+        success, data = self.run_test(
+            "Reset password with short password (should fail)",
+            "POST",
+            "/auth/reset",
+            400,
+            data={"token": "any-token", "new_password": "short"}
+        )
 
     def print_summary(self):
         """Print test summary"""
@@ -522,7 +876,7 @@ class HighwayPilotAPITester:
 def main():
     print("="*60)
     print("Highway Pilot Backend API Test Suite")
-    print("Stage 1 MVP - Full Integration Test")
+    print("Stage 1 MVP + Stage 2 Features")
     print("="*60)
     
     tester = HighwayPilotAPITester()
@@ -534,6 +888,7 @@ def main():
         print("\n❌ Authentication failed - cannot proceed with authenticated tests")
         return tester.print_summary()
     
+    # Stage 1 tests
     tester.test_waitlist()
     tester.test_overview()
     tester.test_drivers()
@@ -544,6 +899,14 @@ def main():
     tester.test_alerts()
     tester.test_dashcam()
     tester.test_voice_commands()
+    
+    # Stage 2 tests
+    tester.test_trip_lifecycle()
+    tester.test_ifta_mileage()
+    tester.test_maintenance_reminders()
+    tester.test_csv_exports()
+    tester.test_profile_update()
+    tester.test_forgot_reset_password()
     
     return tester.print_summary()
 

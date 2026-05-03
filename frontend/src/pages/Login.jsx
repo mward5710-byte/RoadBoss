@@ -44,6 +44,7 @@ export default function Login() {
             <Button data-testid="login-submit" type="submit" disabled={submitting} className="w-full bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold">
               {submitting ? 'Signing in...' : <>Sign in <ArrowRight className="w-4 h-4 ml-1" /></>}
             </Button>
+            <div className="text-right"><Link to="/forgot-password" className="text-xs text-sky-400 hover:text-sky-300">Forgot password?</Link></div>
           </form>
           <div className="hp-divider my-6" />
           <div className="text-xs uppercase tracking-widest text-slate-500 mb-3">Demo accounts</div>

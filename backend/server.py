@@ -410,7 +410,7 @@ async def list_maintenance(vehicle_id: Optional[str] = None, user=Depends(get_cu
 async def create_maintenance(body: MaintenanceIn, user=Depends(require_role('fleet_admin', 'dispatcher'))):
     doc = _make_doc(body.model_dump())
     await db.maintenance.insert_one(doc)
-    return doc
+    return serialize_doc(doc)
 
 @api_router.put("/maintenance/{mid}")
 async def update_maintenance(mid: str, body: MaintenanceIn, user=Depends(require_role('fleet_admin', 'dispatcher'))):
@@ -471,43 +471,302 @@ async def overview(user=Depends(get_current_user)):
     }
 
 # ============================================================
-# Voice command (server echo / log)
+# Trip lifecycle + IFTA mileage
+# ============================================================
+
+class TripEndIn(BaseModel):
+    miles: Optional[float] = None
+    notes: Optional[str] = None
+
+@api_router.post("/trips/{tid}/start")
+async def start_trip(tid: str, user=Depends(get_current_user)):
+    return await _update('trips', tid, {'status': 'active', 'started_at': now_utc().isoformat()})
+
+@api_router.post("/trips/{tid}/end")
+async def end_trip(tid: str, body: TripEndIn = TripEndIn(), user=Depends(get_current_user)):
+    patch = {'status': 'completed', 'ended_at': now_utc().isoformat()}
+    if body.miles is not None:
+        patch['miles'] = float(body.miles)
+    if body.notes:
+        patch['notes'] = body.notes
+    return await _update('trips', tid, patch)
+
+class MileageEntryIn(BaseModel):
+    state: str
+    miles: float
+    notes: Optional[str] = None
+
+@api_router.get("/trips/{tid}/mileage")
+async def list_trip_mileage(tid: str, user=Depends(get_current_user)):
+    return await _list('trip_mileage', {'trip_id': tid})
+
+@api_router.post("/trips/{tid}/mileage")
+async def add_trip_mileage(tid: str, body: MileageEntryIn, user=Depends(get_current_user)):
+    doc = _make_doc({'trip_id': tid, 'state': body.state.upper(), 'miles': float(body.miles), 'notes': body.notes})
+    await db.trip_mileage.insert_one(doc)
+    return serialize_doc(doc)
+
+@api_router.delete("/trips/{tid}/mileage/{mid}")
+async def del_trip_mileage(tid: str, mid: str, user=Depends(get_current_user)):
+    return await _delete('trip_mileage', mid)
+
+@api_router.get("/ifta/summary")
+async def ifta_summary(user=Depends(get_current_user)):
+    rows = await db.trip_mileage.find({}, {'_id': 0}).to_list(10000)
+    by_state: Dict[str, float] = {}
+    for r in rows:
+        s = (r.get('state') or '').upper()
+        if not s:
+            continue
+        by_state[s] = by_state.get(s, 0) + (r.get('miles') or 0)
+    return {
+        'by_state': sorted([{'state': k, 'miles': round(v, 2)} for k, v in by_state.items()], key=lambda x: -x['miles']),
+        'total': round(sum(by_state.values()), 2),
+        'state_count': len(by_state),
+    }
+
+# ============================================================
+# CSV exports
+# ============================================================
+
+def _csv_response(filename: str, headers: List[str], rows: List[List[Any]]):
+    import csv as _csv, io as _io
+    from fastapi.responses import StreamingResponse
+    s = _io.StringIO()
+    w = _csv.writer(s)
+    w.writerow(headers)
+    for r in rows:
+        w.writerow(r)
+    s.seek(0)
+    return StreamingResponse(iter([s.getvalue()]), media_type='text/csv',
+        headers={'Content-Disposition': f'attachment; filename={filename}'})
+
+@api_router.get("/exports/trips.csv")
+async def export_trips(user=Depends(get_current_user)):
+    rows = await db.trips.find({}, {'_id': 0}).sort('created_at', -1).to_list(10000)
+    drivers = {d['id']: d['name'] for d in await db.drivers.find({}, {'_id': 0}).to_list(2000)}
+    vehicles = {v['id']: v['name'] for v in await db.vehicles.find({}, {'_id': 0}).to_list(2000)}
+    out = [[r.get('id'), drivers.get(r.get('driver_id'), ''), vehicles.get(r.get('vehicle_id'), ''),
+            r.get('origin'), r.get('destination'), r.get('miles', 0), r.get('status'),
+            r.get('started_at') or '', r.get('ended_at') or '', r.get('created_at') or ''] for r in rows]
+    return _csv_response('trips.csv',
+        ['id', 'driver', 'vehicle', 'origin', 'destination', 'miles', 'status', 'started_at', 'ended_at', 'created_at'], out)
+
+@api_router.get("/exports/hos.csv")
+async def export_hos(user=Depends(get_current_user)):
+    rows = await db.hos_logs.find({}, {'_id': 0}).sort('started_at', -1).to_list(10000)
+    drivers = {d['id']: d['name'] for d in await db.drivers.find({}, {'_id': 0}).to_list(2000)}
+    out = [[r.get('id'), drivers.get(r.get('driver_id'), ''), r.get('duty_status'),
+            r.get('started_at') or '', r.get('notes', '') or ''] for r in rows]
+    return _csv_response('hos.csv', ['id', 'driver', 'duty_status', 'started_at', 'notes'], out)
+
+@api_router.get("/exports/maintenance.csv")
+async def export_maintenance(user=Depends(get_current_user)):
+    rows = await db.maintenance.find({}, {'_id': 0}).sort('created_at', -1).to_list(10000)
+    vehicles = {v['id']: v['name'] for v in await db.vehicles.find({}, {'_id': 0}).to_list(2000)}
+    out = [[r.get('id'), vehicles.get(r.get('vehicle_id'), ''), r.get('service_type'),
+            r.get('due_at', '') or '', r.get('due_miles', '') or '', r.get('completed', False),
+            r.get('cost', 0) or 0, r.get('notes', '') or ''] for r in rows]
+    return _csv_response('maintenance.csv',
+        ['id', 'vehicle', 'service_type', 'due_at', 'due_miles', 'completed', 'cost', 'notes'], out)
+
+@api_router.get("/exports/mileage.csv")
+async def export_mileage(user=Depends(get_current_user)):
+    rows = await db.trip_mileage.find({}, {'_id': 0}).sort('created_at', -1).to_list(10000)
+    out = [[r.get('id'), r.get('trip_id'), r.get('state'), r.get('miles', 0),
+            r.get('notes', '') or '', r.get('created_at') or ''] for r in rows]
+    return _csv_response('mileage.csv', ['id', 'trip_id', 'state', 'miles', 'notes', 'created_at'], out)
+
+# ============================================================
+# Profile + forgot/reset password
+# ============================================================
+
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    current_password: Optional[str] = None
+    new_password: Optional[str] = None
+
+@api_router.put("/auth/profile")
+async def update_profile(body: ProfileUpdate, user=Depends(get_current_user)):
+    patch: Dict[str, Any] = {'updated_at': now_utc().isoformat()}
+    if body.name and body.name.strip():
+        patch['name'] = body.name.strip()
+    if body.new_password:
+        if not body.current_password:
+            raise HTTPException(400, "Current password required to change password")
+        u = await db.users.find_one({'id': user['id']})
+        if not verify_password(body.current_password, u.get('password_hash', '')):
+            raise HTTPException(400, "Current password is incorrect")
+        if len(body.new_password) < 8:
+            raise HTTPException(400, "New password must be at least 8 characters")
+        patch['password_hash'] = hash_password(body.new_password)
+    if len(patch) == 1:
+        raise HTTPException(400, "Nothing to update")
+    await db.users.update_one({'id': user['id']}, {'$set': patch})
+    fresh = await db.users.find_one({'id': user['id']}, {'_id': 0, 'password_hash': 0})
+    return serialize_doc(fresh)
+
+class ForgotIn(BaseModel):
+    email: EmailStr
+
+@api_router.post("/auth/forgot")
+async def forgot_password(body: ForgotIn):
+    user = await db.users.find_one({'email': body.email.lower()})
+    resp = {'ok': True, 'message': 'If that email is in our system, a reset link has been sent.'}
+    if not user:
+        return resp
+    token = str(uuid.uuid4())
+    await db.password_resets.insert_one({
+        'token': token,
+        'user_id': user['id'],
+        'expires_at': (now_utc() + timedelta(hours=1)).isoformat(),
+        'used': False,
+        'created_at': now_utc().isoformat(),
+    })
+    logger.info(f"Password reset token for {body.email}: {token}")
+    # Until email service is wired in Stage 3, return token in dev for testing.
+    resp['dev_token'] = token
+    return resp
+
+class ResetIn(BaseModel):
+    token: str
+    new_password: str
+
+@api_router.post("/auth/reset")
+async def reset_password(body: ResetIn):
+    if len(body.new_password) < 8:
+        raise HTTPException(400, "New password must be at least 8 characters")
+    rec = await db.password_resets.find_one({'token': body.token})
+    if not rec or rec.get('used'):
+        raise HTTPException(400, "Invalid or expired reset token")
+    try:
+        exp = datetime.fromisoformat(rec['expires_at'].replace('Z', '+00:00'))
+    except Exception:
+        exp = now_utc() - timedelta(seconds=1)
+    if exp < now_utc():
+        raise HTTPException(400, "Reset token expired")
+    await db.users.update_one({'id': rec['user_id']}, {'$set': {'password_hash': hash_password(body.new_password)}})
+    await db.password_resets.update_one({'token': body.token}, {'$set': {'used': True}})
+    return {'ok': True, 'message': 'Password reset complete. You can sign in with your new password.'}
+
+# ============================================================
+# Maintenance reminders
+# ============================================================
+
+@api_router.get("/maintenance/reminders")
+async def maintenance_reminders(user=Depends(get_current_user)):
+    rows = await db.maintenance.find({'completed': False}, {'_id': 0}).to_list(500)
+    vehicles = {v['id']: v for v in await db.vehicles.find({}, {'_id': 0}).to_list(2000)}
+    soon = now_utc() + timedelta(days=7)
+    out = []
+    for m in rows:
+        v = vehicles.get(m.get('vehicle_id'), {})
+        is_due_time = False
+        days_remaining = None
+        if m.get('due_at'):
+            try:
+                d = datetime.fromisoformat(m['due_at'].replace('Z', '+00:00'))
+                days_remaining = (d - now_utc()).days
+                is_due_time = d <= soon
+            except Exception:
+                pass
+        miles_remaining = None
+        is_due_miles = False
+        if m.get('due_miles') and v.get('odometer') is not None:
+            miles_remaining = m['due_miles'] - v['odometer']
+            is_due_miles = miles_remaining <= 2000
+        if is_due_time or is_due_miles:
+            out.append({**m, 'vehicle_name': v.get('name', ''), 'days_remaining': days_remaining, 'miles_remaining': miles_remaining})
+    return out
+
+# ============================================================
+# Voice command (expanded intent router)
 # ============================================================
 
 class VoiceCmdIn(BaseModel):
     transcript: str
 
+DUTY_KEYWORDS = {
+    'driving': ['driving', 'start driving', 'go driving'],
+    'on_duty': ['on duty', 'on-duty', 'go on duty'],
+    'off_duty': ['off duty', 'off-duty', 'go off', 'going off'],
+    'sleeper': ['sleeper', 'sleeper berth', 'going to bed', 'sleeping'],
+}
+
+async def _get_my_driver(email: str):
+    return await db.drivers.find_one({'email': email}, {'_id': 0})
+
 @api_router.post("/voice/command")
 async def voice_command(body: VoiceCmdIn, user=Depends(get_current_user)):
     text = (body.transcript or '').lower().strip()
-    response = "I didn't catch that. Try saying: check H O S, start trip, or read alerts."
+    response = "I didn't catch that. Try: check H O S, start trip, end trip, on duty, off duty, read alerts, or help."
     intent = 'unknown'
+    side_effect: Dict[str, Any] = {}
 
+    me = await _get_my_driver(user['email']) if user.get('role') == 'driver' else None
+
+    # Check HOS
     if any(k in text for k in ['hos', 'hours', 'hour of service', 'h o s']):
         intent = 'check_hos'
-        d = await db.drivers.find_one({'email': user['email']}, {'_id': 0})
-        mins = (d or {}).get('hos_remaining_minutes', 660)
+        mins = (me or {}).get('hos_remaining_minutes', 660)
         h, m = divmod(int(mins), 60)
         response = f"You have {h} hours and {m} minutes of drive time remaining today."
-    elif 'alert' in text or 'alerts' in text:
+    # Read alerts
+    elif 'alert' in text:
         intent = 'read_alerts'
         alerts = await db.alerts.find({}, {'_id': 0}).sort('created_at', -1).to_list(3)
-        if not alerts:
-            response = "No alerts. You're clear, captain."
-        else:
-            response = "Top alerts. " + ". ".join([a.get('message', '') for a in alerts])
-    elif 'start' in text and ('trip' in text or 'drive' in text):
+        response = "No alerts. You're clear, captain." if not alerts else "Top alerts. " + ". ".join([a.get('message', '') for a in alerts])
+    # Start trip
+    elif ('start' in text or 'begin' in text) and ('trip' in text or 'drive' in text or 'route' in text):
         intent = 'start_trip'
-        response = "Starting your trip. Drive safe out there."
-    elif 'off duty' in text or 'go off' in text:
-        intent = 'go_off_duty'
-        response = "Going off duty. Rest easy."
-    elif 'help' in text or 'commands' in text:
+        if me:
+            tr = await db.trips.find_one({'driver_id': me['id'], 'status': 'planned'}, {'_id': 0})
+            if tr:
+                await db.trips.update_one({'id': tr['id']}, {'$set': {'status': 'active', 'started_at': now_utc().isoformat()}})
+                side_effect = {'trip_id': tr['id']}
+                response = f"Trip started. {tr.get('origin')} to {tr.get('destination')}. Drive safe out there."
+            else:
+                response = "No planned trip ready to start. Add one from the dashboard first."
+        else:
+            response = "Trip starting noted."
+    # End trip
+    elif ('end' in text or 'complete' in text or 'finish' in text) and ('trip' in text or 'drive' in text):
+        intent = 'end_trip'
+        if me:
+            tr = await db.trips.find_one({'driver_id': me['id'], 'status': 'active'}, {'_id': 0})
+            if tr:
+                await db.trips.update_one({'id': tr['id']}, {'$set': {'status': 'completed', 'ended_at': now_utc().isoformat()}})
+                side_effect = {'trip_id': tr['id']}
+                response = f"Trip completed. Nice work."
+            else:
+                response = "No active trip to end."
+        else:
+            response = "Trip end noted."
+    # Duty status changes
+    elif any(any(k in text for k in kws) for kws in DUTY_KEYWORDS.values()):
+        new_status = next((s for s, kws in DUTY_KEYWORDS.items() if any(k in text for k in kws)), None)
+        if new_status and me:
+            await db.drivers.update_one({'id': me['id']}, {'$set': {'status': new_status, 'updated_at': now_utc().isoformat()}})
+            await db.hos_logs.insert_one(_make_doc({'driver_id': me['id'], 'duty_status': new_status, 'started_at': now_utc().isoformat(), 'notes': 'voice command'}))
+            intent = f'duty_{new_status}'
+            label = new_status.replace('_', ' ')
+            response = f"Status changed to {label}. Logged."
+        else:
+            intent = 'duty_unknown'
+            response = "I caught a duty change but couldn't apply it."
+    # Help
+    elif 'help' in text or 'commands' in text or 'what can' in text:
         intent = 'help'
-        response = "Try: check H O S, read alerts, start trip, go off duty, or read message."
-    elif 'message' in text or 'read' in text:
+        response = "Try: check H O S, read alerts, start trip, end trip, on duty, off duty, sleeper, read message, log fuel."
+    # Read message
+    elif 'message' in text or 'dispatch' in text or 'read' in text:
         intent = 'read_message'
         response = "Latest message from dispatch. Load 4 4 7 ready for pickup at 3 PM at the Memphis terminal. Reply with: confirm, or, push back."
+    # Log fuel (placeholder - real fuel tracking in Stage 3)
+    elif 'fuel' in text or 'gas' in text:
+        intent = 'log_fuel'
+        await db.alerts.insert_one(_make_doc({'type': 'fuel_log', 'severity': 'info', 'driver_id': (me or {}).get('id'), 'message': 'Driver logged a fuel stop via voice.'}))
+        response = "Fuel stop logged. Save the receipt for IFTA."
 
     await db.voice_log.insert_one({
         'id': str(uuid.uuid4()),
@@ -515,9 +774,10 @@ async def voice_command(body: VoiceCmdIn, user=Depends(get_current_user)):
         'transcript': body.transcript,
         'intent': intent,
         'response': response,
+        'side_effect': side_effect,
         'created_at': now_utc().isoformat(),
     })
-    return {'intent': intent, 'response': response}
+    return {'intent': intent, 'response': response, 'side_effect': side_effect}
 
 # ============================================================
 # Seed (idempotent) - run via GET /api/seed

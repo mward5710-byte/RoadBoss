@@ -1,7 +1,7 @@
 import React from 'react';
 import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
 import { Logo } from '@/components/Logo';
-import { Home, Route, Truck, Settings, LogOut } from 'lucide-react';
+import { Home, Route, Truck, Settings, LogOut, User } from 'lucide-react';
 import { auth, getUser } from '@/lib/api';
 
 const tabs = [
@@ -19,10 +19,10 @@ export default function DriverShell() {
     <div className="min-h-screen bg-[#07090d] flex flex-col max-w-md mx-auto relative">
       <header className="flex items-center justify-between px-5 py-4 border-b border-white/5 sticky top-0 bg-[#07090d]/95 backdrop-blur z-30">
         <Link to="/driver"><Logo size={24} withWordmark={false} /></Link>
-        <div className="flex-1 px-3">
+        <Link to="/driver/profile" className="flex-1 px-3 cursor-pointer">
           <div className="text-[10px] uppercase tracking-widest text-sky-400/80">Cab</div>
-          <div className="text-sm font-semibold text-white truncate">{user?.name?.split(' ')[0]}</div>
-        </div>
+          <div className="text-sm font-semibold text-white truncate flex items-center gap-1">{user?.name?.split(' ')[0]} <User className="w-3 h-3 text-slate-500" /></div>
+        </Link>
         <button data-testid="driver-logout" onClick={logout} className="text-slate-500 hover:text-white p-1"><LogOut className="w-4 h-4" /></button>
       </header>
       <main className="flex-1 pb-24"><Outlet /></main>
