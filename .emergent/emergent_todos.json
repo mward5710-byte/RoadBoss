@@ -1,19 +1,7 @@
 [
   {
-    "content": "Stripe: install package, add keys to .env",
+    "content": "Stripe subscriptions: ✅ live, tested 100%, ready for founder manual checkout test",
     "status": "completed"
-  },
-  {
-    "content": "Stripe: backend (Products/Prices auto-create, checkout, portal, subscription status, webhook)",
-    "status": "completed"
-  },
-  {
-    "content": "Stripe: frontend (/pricing public page, /app/billing admin page, marketing link)",
-    "status": "completed"
-  },
-  {
-    "content": "Stripe: testing with test card 4242",
-    "status": "in_progress"
   },
   {
     "content": "Google OAuth (still waiting on user keys)",
