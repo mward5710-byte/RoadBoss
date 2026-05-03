@@ -33,7 +33,7 @@
   },
   {
     "content": "P2: Run testing agent for new endpoints + regression",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "content": "P2: Visual verify with screenshots (driver flow + DVIR + admin DVIR list)",
@@ -41,6 +41,6 @@
   },
   {
     "content": "P2: Update plan.md with Phase 1.5 (action exec + DVIR)",
-    "status": "pending"
+    "status": "completed"
   }
 ]

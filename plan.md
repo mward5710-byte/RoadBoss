@@ -6,10 +6,11 @@
 
 ---
 
-## Status: STAGE 3 — PHASE 1 COMPLETE ✅
+## Status: STAGE 3 — PHASE 1.5 COMPLETE ✅
 - Stage 1 (Foundation): ✅ Done
 - Stage 2 (Workflows + Stripe + Google OAuth): ✅ Done
-- **Stage 3 Phase 1 (Pricing alignment + AI Copilot): ✅ Done** ← latest
+- Stage 3 Phase 1 (Pricing alignment + AI Copilot): ✅ Done
+- **Stage 3 Phase 1.5 (Co-Pilot action execution + FMCSA DVIR): ✅ Done** ← latest
 - Stage 3 Phase 2 (Mapbox / Twilio / SendGrid / Dashcam adapters / QuickBooks): 🔜 Next
 - Stage 4 / 5: Backlog
 
@@ -54,14 +55,34 @@
   - Safety rules baked into system prompt: NEVER tell driver to look at screen while driving; if drowsy/stressed/in trouble → safety advice first.
   - Live context injected each turn: driver name, duty status, HOS minutes remaining, active trip, vehicle, recent alerts.
   - Multi-turn: last 6 messages replayed via system prompt (history persisted in `copilot_chats` MongoDB collection).
-  - Frontend: dedicated `/driver/copilot` full-screen page with:
-    - Big mic orb (idle/listening/thinking/speaking states).
-    - Mute toggle (silences TTS replies).
-    - Hands-free toggle (continuous listen → reply → listen loop, no taps needed).
-    - Conversation history visible, "Repeat" button on every AI reply.
-    - 4 starter suggestion prompts for empty state.
-    - "CO-PILOT AI · ONLINE" launcher card pinned on driver home.
-  - Test result: 33/33 backend tests passed (100%). Visual UI verified via screenshot.
+  - Frontend: dedicated `/driver/copilot` full-screen page with mic orb, mute toggle, hands-free continuous mode, "Repeat" button on every reply.
+  - Test result: 33/33 backend tests passed (100%).
+
+### Phase 1.5 (DONE — May 3) ✅ — Co-Pilot ACTIONS + FMCSA DVIR
+**Bug fix that prompted this phase**: Founder reported the Driver Home voice button transcribed correctly but never actually changed duty status. Root cause: old `/voice/command` endpoint used brittle keyword matching. **Fix**: replaced with Co-Pilot AI + action execution layer.
+
+**1. Co-Pilot ACTION EXECUTION** — the AI now performs real side-effects, not just talks
+  - System prompt extended to instruct the model to emit `<<<ACTION:{json}>>>` markers when the driver clearly requests an action.
+  - Backend parser strips the marker, validates the JSON, executes the whitelisted action via existing helpers, and returns a clean spoken reply + action result.
+  - Whitelisted actions: `duty_change` (driving / on_duty / off_duty / sleeper), `start_trip`, `end_trip`, `log_fuel`, `start_inspection` (pre_trip / post_trip).
+  - For `start_inspection`, returns a redirect URL so the frontend auto-navigates to the inspection page.
+  - Driver Home voice button rewired: now calls `/api/copilot/chat` instead of legacy `/api/voice/command`. Toast feedback + state refresh on every executed action.
+  - Old `/api/voice/command` kept for backward-compatibility (regression coverage maintained).
+
+**2. FMCSA-compliant DVIR (Driver Vehicle Inspection Reports)** — required by 49 CFR § 396.11/396.13
+  - Standard 27-item template: 18 tractor items (service brakes, parking brake, steering, lights, tires, wheels, mirrors, windshield/wipers, horn, coupling/fifth wheel, fluid leaks, fluid levels, air brakes, suspension, exhaust, frame/body/doors, emergency equipment, seat belt) + 9 trailer items (brakes, lights, tires, wheels, coupling, doors, frame/body, suspension, load securement).
+  - Backend endpoints: `GET /api/inspections/template`, `GET /api/inspections` (role-scoped — drivers see only their own), `POST /api/inspections`, `GET /api/inspections/{id}`, `PUT /api/inspections/{id}/item`, `POST /api/inspections/{id}/certify`.
+  - Defect → auto-creates a MaintenanceRecord (`DVIR Defect: <item>`) AND an Alert for the fleet admin.
+  - Certify requires a typed signature; locks the record from further edits.
+  - Driver frontend: full-screen `/driver/inspection/:id` page with:
+    - **Voice walkthrough mode** (default) — Co-Pilot speaks each item ("Service brakes — say good, defect, or skip"), STT listens, parser maps free-form speech ("yep, looks good" → pass; "tire's busted" → defect; etc.), defect path asks for description and records it, advances automatically.
+    - **Tap mode** (toggle) — traditional checklist with Good / Defect / N/A buttons.
+    - Section grouping (Tractor / Trailer), live progress bar, current-item highlight, defect modal for typed notes.
+    - Certify-and-sign modal with FMCSA disclaimer and typed-signature input.
+  - Driver Home: new "DVIR Inspections" card with Pre-Trip + Post-Trip launch buttons + voice hint.
+  - Co-Pilot integration: saying "Hey, start my pre-trip" creates the inspection AND auto-navigates the driver to the walkthrough — fully hands-free.
+  - Admin frontend: `/app/inspections` list page with stats (total, certified, defects), filters (type / status / search), table view + `/app/inspections/:id` detail page with full item-by-item review and signature.
+  - Test result: **64/64 backend tests passed (100%)** — including 31 new tests for actions + DVIR.
 
 ### Phase 2 (NEXT — pending Mike's approval and any required keys)
 - **Mapbox** — truck-restriction routing (height/weight/hazmat). Needs free Mapbox token.
