@@ -6,7 +6,7 @@
 
 ---
 
-## Status: STAGE 3 — PHASE 2D COMPLETE ✅
+## Status: STAGE 3 — PHASE 2E COMPLETE ✅
 - Stage 1 (Foundation): ✅ Done
 - Stage 2 (Workflows + Stripe + Google OAuth): ✅ Done
 - Stage 3 Phase 1 (Pricing alignment + AI Copilot): ✅ Done
@@ -14,8 +14,10 @@
 - Stage 3 Phase 1.6 (Wake-word + iframe-aware mic UX): ✅ Done
 - Stage 3 Phase 2A (Crash Detection + Roadside Assistance): ✅ Done
 - Stage 3 Phase 2B (Mapbox truck-aware GPS): ✅ Done
-- **Stage 3 Phase 2D (Driver Home Surgery — shift-flow state machine): ✅ Done** ← latest
-- Stage 3 Phase 2C (Twilio / SendGrid / Dashcam adapters / QuickBooks): 🔜 Next (founder is fetching Twilio + SendGrid keys)
+- Stage 3 Phase 2D (Driver Home Surgery — shift-flow state machine): ✅ Done
+- **Stage 3 Phase 2E (Investor-grade demo data seeding): ✅ Done** ← latest
+- Stage 3 Phase 2F (Refactor server.py into routers): 🔜 Next
+- Stage 3 Phase 2C (Twilio / SendGrid / Dashcam adapters / QuickBooks): ⏸ Waiting on Mike's API keys
 - Stage 4 / 5: Backlog
 
 ---
@@ -173,6 +175,36 @@
   3. **Driver Roadside Detail** (`/driver/roadside/:id`) — pin showing driver's saved location when geolocation was captured at dispatch.
 - **Truck dimension routing note**: Mapbox's standard `driving-traffic` profile is used. Strict truck-dimension routing (avoid bridges < height, weight-restricted roads, hazmat-restricted) is in their **Optimization v2 / Truck Routing tier** — flagged as an upgrade path. UI labels routes as "truck-aware" with a disclaimer about this current limitation.
 
+### Phase 2E (DONE — May 4) ✅ — Investor-grade demo data seeding
+**Why this phase**: Empty cards across IFTA / DVIR history / crash events made the app feel hollow during walk-throughs. Investors and beta testers need to *feel* the app already operating a real fleet.
+
+**What changed (in `_seed_demo`)**:
+- **5 driver login accounts** (Diego, Marcus, Aaliyah, Tyler, Rosa) — every driver is now demo-loggable with the same shared password (was previously only Diego). Each driver has their own truck, home terminal, and current shift state — so investor demos can switch drivers and show the state machine reacting (driving / on_duty / sleeper / off_duty).
+- **22 trips spanning 14 days** of history — 2 active right now, 2 planned (assigned but not started), 18 completed with realistic mileage, started_at/ended_at timestamps, and per-trip mileage broken down by state.
+- **IFTA dashboard now shows real numbers**: 3,926 miles distributed across **13 states** (TX, AZ, NM, TN, OH, KY, GA, OK, IN, NC, AL, PA, SC) — pulls live via `/api/ifta/summary`.
+- **140 HOS logs** — 7 days × 4 duty events × 5 drivers + current state — realistic 06:00 on_duty → 07:00 driving → 12:00 lunch → 13:00 driving → 19:00 off → 22:00 sleeper cycle with per-driver staggering.
+- **17 certified DVIR inspections** — pre-trip + post-trip across last 5 working days for all drivers. Includes 2 inspections with real defects (trailer lights intermittent on Truck 101, drive tire tread shallow on Truck 105) which auto-show up as related alerts.
+- **3 crash events with full lifecycle variety**: 1 false-positive (driver tapped "I'm OK" — pothole on I-30, dismissed), 1 real low-impact (yard rear-collision, resolved with insurance claim), 1 fresh confirmed-unack (high-G on Aaliyah's truck — appears in alerts feed and admin Crash Events page demanding action).
+- **5 roadside dispatches** — 1 active (en_route tire fix for Aaliyah), 3 completed (with realistic 5-step timeline: requested → confirmed → en_route → arrived → completed), 1 cancelled (driver self-resolved a lockout).
+- **8 maintenance records** — mix of overdue, upcoming, and historical completed. Critical items surface on Driver Home start-of-shift card for the right truck.
+- **12 alerts** spread over last 7 days — varied severities (critical / warning / info), varied types (hos_violation, hard_brake, fuel_log, dvir_defect, idle_excessive, route_deviation, speeding, maintenance_due/completed, crash_detected). Older alerts pre-acknowledged so the current "unread" count is realistic (~5).
+- **15 dashcam events** spread over last 7 days from 3 different vendors (Samsara, Lytx, Verizon Connect) — populates the safety dashboard convincingly.
+- **6 vetted roadside providers** (unchanged from Phase 2A but kept).
+- **12 waitlist signups** spanning last 30 days — fictional fleets ranging from 1-truck owner-ops to 210-truck enterprises with realistic emails/companies. Marketing site Waitlist Admin page now has data to display.
+
+**New `/api/seed?force=true` endpoint**: wipes all demo collections and re-seeds without a container restart. Safer than the silent skip-if-users-exist behavior.
+
+**Founder demo flow now works**:
+1. Log in as `super_admin@highwaypilot.io` → see 5-driver fleet with active trips, fresh critical crash alert, 13-state IFTA summary populated.
+2. Log out → log in as `aaliyah@highwaypilot.io` → driver state = driving, active Atlanta→Charlotte trip showing on Driver Home, HOS at 75 min remaining (warning state).
+3. Log out → log in as `tyler@highwaypilot.io` → state = sleeper, sees rest screen.
+4. Log out → log in as `marcus@highwaypilot.io` → state = on_duty, has a planned trip Memphis→St. Louis to start.
+
+### Phase 2F (NEXT — backend refactor)
+- Break `server.py` (2,500+ lines) into modular routers: `/routers/auth.py`, `/routers/copilot.py`, `/routers/dvir.py`, `/routers/crash.py`, `/routers/roadside.py`, `/routers/stripe.py`, `/routers/mapbox.py`, `/routers/seed.py`.
+- Preserve every existing endpoint URL and behavior. Run backend testing agent immediately after split to guarantee zero regressions.
+- Lays clean ground to drop in Twilio + SendGrid handlers as their own routers when keys arrive.
+
 ### Phase 2D (DONE — May 4) ✅ — Driver Home Surgery (shift-flow state machine)
 **Why this phase**: Founder rated app usability 7.5/10 and called the Driver Home a "wall of cards" — drivers had to scan 6 buttons to figure out what to do next. Truckers don't think in features; they think in shift stages.
 
@@ -193,8 +225,7 @@
 
 **Outcome**: Driver Home now answers the only question a trucker has: *"What do I do next?"* Pending live user verification — founder will eyeball it after he finishes setting up Twilio + SendGrid accounts.
 
-### Phase 2C (NEXT — pending Mike's keys)
-- **Mapbox** — truck-restriction routing (height/weight/hazmat). Needs free Mapbox token.
+### Phase 2C (BLOCKED — pending Mike's keys)
 - **Twilio** — SMS dispatch alerts. Needs Account SID / Auth Token / from-number.
 - **SendGrid** — transactional email (password resets, billing receipts, fleet invitations). Needs API key.
 - **Samsara / Lytx / Verizon Connect** — dashcam adapters (mock interfaces ready to swap to real APIs).

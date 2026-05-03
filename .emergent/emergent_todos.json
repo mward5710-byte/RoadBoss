@@ -1,26 +1,34 @@
 [
   {
-    "content": "Build useDriverShift hook — detect shift state from HOS, inspection, trips data",
+    "content": "Phase 2E (B): Realistic demo data seeding - investor-demo-ready",
+    "status": "in_progress"
+  },
+  {
+    "content": "Read existing seed_demo_data function to map current state",
     "status": "completed"
   },
   {
-    "content": "Rewrite DriverHome with state-aware Primary Action card",
+    "content": "Design seed plan: trips, HOS logs, DVIRs, crash, roadside, maint, alerts, fuel/IFTA, dashcam, waitlist",
     "status": "completed"
   },
   {
-    "content": "Add 'More tools' collapsible drawer for secondary actions",
+    "content": "Implement extended seed function preserving existing accounts",
     "status": "completed"
   },
   {
-    "content": "Keep HOS countdown always visible (compliance-critical)",
+    "content": "Restart backend, verify seed runs clean, spot-check via curl",
     "status": "completed"
   },
   {
-    "content": "Visual verify driver home — confirmed rest state + more drawer",
+    "content": "Run backend testing agent on seeded data + existing endpoints (regression)",
+    "status": "in_progress"
+  },
+  {
+    "content": "Update plan.md + test_credentials.md with Phase 2E completion",
     "status": "completed"
   },
   {
-    "content": "Update plan.md",
-    "status": "completed"
+    "content": "Phase 2F (C): Refactor server.py into routers",
+    "status": "pending"
   }
 ]
