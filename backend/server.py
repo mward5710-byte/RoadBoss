@@ -1,4 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request
+from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -678,6 +679,126 @@ async def maintenance_reminders(user=Depends(get_current_user)):
         if is_due_time or is_due_miles:
             out.append({**m, 'vehicle_name': v.get('name', ''), 'days_remaining': days_remaining, 'miles_remaining': miles_remaining})
     return out
+# ============================================================
+# Google OAuth
+# ============================================================
+
+import httpx as _httpx
+from urllib.parse import urlencode as _urlencode
+import base64 as _b64
+import json as _json2
+
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
+GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '').strip()
+
+def _google_redirect_uri():
+    base = (os.environ.get('PUBLIC_BASE_URL') or '').rstrip('/')
+    return f"{base}/api/auth/google/callback"
+
+@api_router.get("/auth/google")
+async def google_auth_start(next: str = "/app"):
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(400, "Google OAuth not configured")
+    state = str(uuid.uuid4())
+    await db.oauth_states.insert_one({
+        'state': state,
+        'next': next,
+        'created_at': now_utc().isoformat(),
+        'expires_at': (now_utc() + timedelta(minutes=10)).isoformat(),
+    })
+    params = {
+        'client_id': GOOGLE_CLIENT_ID,
+        'redirect_uri': _google_redirect_uri(),
+        'response_type': 'code',
+        'scope': 'openid email profile',
+        'state': state,
+        'access_type': 'offline',
+        'prompt': 'select_account',
+        'include_granted_scopes': 'true',
+    }
+    url = f"https://accounts.google.com/o/oauth2/v2/auth?{_urlencode(params)}"
+    return RedirectResponse(url, status_code=302)
+
+@api_router.get("/auth/google/callback")
+async def google_auth_callback(code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
+    base = (os.environ.get('PUBLIC_BASE_URL') or '').rstrip('/')
+    front_login_err = lambda msg: RedirectResponse(f"{base}/login?google_error={msg}", status_code=302)
+
+    if error:
+        return front_login_err(error)
+    if not code or not state:
+        return front_login_err("missing_code")
+    rec = await db.oauth_states.find_one({'state': state})
+    if not rec:
+        return front_login_err("invalid_state")
+    await db.oauth_states.delete_one({'state': state})
+    next_url = rec.get('next') or '/app'
+
+    try:
+        async with _httpx.AsyncClient(timeout=15.0) as client:
+            tr = await client.post("https://oauth2.googleapis.com/token", data={
+                'code': code,
+                'client_id': GOOGLE_CLIENT_ID,
+                'client_secret': GOOGLE_CLIENT_SECRET,
+                'redirect_uri': _google_redirect_uri(),
+                'grant_type': 'authorization_code',
+            })
+            if tr.status_code != 200:
+                logger.error(f"Google token exchange failed: {tr.status_code} {tr.text}")
+                return front_login_err("token_exchange_failed")
+            tokens = tr.json()
+            ui = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {tokens.get('access_token','')}"},
+            )
+            if ui.status_code != 200:
+                logger.error(f"Google userinfo failed: {ui.status_code} {ui.text}")
+                return front_login_err("userinfo_failed")
+            info = ui.json()
+    except Exception as e:
+        logger.error(f"Google OAuth exception: {e}")
+        return front_login_err("oauth_exception")
+
+    email = (info.get('email') or '').lower().strip()
+    name = info.get('name') or (email.split('@')[0] if email else 'New User')
+    if not email:
+        return front_login_err("no_email")
+
+    user = await db.users.find_one({'email': email})
+    if not user:
+        # New users default to driver role; founder can promote via super_admin
+        user = {
+            'id': str(uuid.uuid4()),
+            'email': email,
+            'name': name,
+            'role': 'driver',
+            'password_hash': '',  # password-less, google-only
+            'google_id': info.get('sub'),
+            'avatar_url': info.get('picture'),
+            'created_at': now_utc().isoformat(),
+            'auth_provider': 'google',
+        }
+        await db.users.insert_one(user)
+        logger.info(f"Created Google OAuth user: {email} (role=driver)")
+    else:
+        await db.users.update_one({'id': user['id']}, {'$set': {
+            'google_id': info.get('sub'),
+            'avatar_url': info.get('picture'),
+            'updated_at': now_utc().isoformat(),
+        }})
+
+    token = create_token(user['id'], user['email'], user['role'])
+    safe_user = serialize_doc({k: v for k, v in user.items() if k != 'password_hash'})
+    user_b64 = _b64.urlsafe_b64encode(_json2.dumps(safe_user, default=str).encode()).decode()
+
+    # Driver users always go to /driver, regardless of next
+    final_next = '/driver' if user['role'] == 'driver' else (next_url if next_url.startswith('/') else '/app')
+    return RedirectResponse(
+        f"{base}/auth/google-callback?token={token}&user={user_b64}&next={final_next}",
+        status_code=302,
+    )
+
+
 
 # ============================================================
 # Stripe subscriptions

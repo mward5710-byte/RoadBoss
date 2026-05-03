@@ -1,11 +1,7 @@
 [
   {
-    "content": "Stripe subscriptions: ✅ live, tested 100%, ready for founder manual checkout test",
+    "content": "Google OAuth: ✅ backend + frontend wired, redirects correctly to Google consent",
     "status": "completed"
-  },
-  {
-    "content": "Google OAuth (still waiting on user keys)",
-    "status": "pending"
   },
   {
     "content": "Push to GitHub when ready",

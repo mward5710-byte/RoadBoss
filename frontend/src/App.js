@@ -6,6 +6,7 @@ import Marketing from '@/pages/Marketing';
 import Login from '@/pages/Login';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
+import GoogleCallback from '@/pages/GoogleCallback';
 import AppShell from '@/pages/admin/AppShell';
 import Overview from '@/pages/admin/Overview';
 import Drivers from '@/pages/admin/Drivers';
@@ -49,6 +50,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/auth/google-callback" element={<GoogleCallback />} />
 
           <Route path="/app" element={<RequireAuth roles={['fleet_admin', 'dispatcher', 'super_admin']}><AppShell /></RequireAuth>}>
             <Route index element={<Overview />} />
