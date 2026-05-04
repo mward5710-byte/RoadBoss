@@ -533,6 +533,7 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         async for u in db.users.find({'role': 'wrecker_operator'}, {'_id': 0, 'password_hash': 0}):
             d = serialize_doc(u)
             d['rotation_order'] = u.get('rotation_order', 99)
+            d['rotation_rank'] = u.get('rotation_rank') or u.get('rotation_order') or 99
             d['last_dispatched_at'] = u.get('last_dispatched_at')
             d['on_duty'] = u.get('on_duty', True)
             d['truck_number'] = u.get('truck_number')
@@ -569,6 +570,52 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
             if d.get('on_duty'):
                 return d
         return None
+
+    # ---------- Driver rotation rank + business hours config ----------
+    class RankIn(BaseModel):
+        rank: int  # 1 = first call, 2 = second call, etc.
+
+    @router.post('/drivers/{driver_id}/rank')
+    async def set_rank(driver_id: str, body: RankIn, user=Depends(require_dispatcher)):
+        if body.rank < 1 or body.rank > 99:
+            raise HTTPException(400, 'Rank must be between 1 and 99')
+        res = await db.users.update_one(
+            {'id': driver_id, 'role': 'wrecker_operator'},
+            {'$set': {'rotation_rank': body.rank}}
+        )
+        if res.matched_count == 0:
+            raise HTTPException(404, 'Driver not found')
+        return {'ok': True, 'rank': body.rank}
+
+    class BusinessHoursIn(BaseModel):
+        start_hour: int = 8
+        start_minute: int = 30
+        end_hour: int = 17
+        end_minute: int = 0
+        timezone: str = 'America/Indiana/Indianapolis'    # IANA tz
+        weekend_after_hours: bool = True                   # Saturdays/Sundays = after-hours all day
+        enabled: bool = True
+
+    @router.get('/business-hours')
+    async def get_business_hours(user=Depends(require_wrecker)):
+        rec = await db.fleet_business_hours.find_one({'fleet_id': 'default'}, {'_id': 0})
+        if not rec:
+            return BusinessHoursIn().model_dump()
+        return serialize_doc(rec)
+
+    @router.put('/business-hours')
+    async def update_business_hours(body: BusinessHoursIn, user=Depends(require_dispatcher)):
+        existing = await db.fleet_business_hours.find_one({'fleet_id': 'default'})
+        doc = {'fleet_id': 'default', **body.model_dump(), 'updated_at': _now()}
+        if existing:
+            await db.fleet_business_hours.update_one({'fleet_id': 'default'}, {'$set': doc})
+            doc['id'] = existing.get('id') or _new_id()
+            doc['created_at'] = existing.get('created_at') or _now()
+        else:
+            doc['id'] = _new_id()
+            doc['created_at'] = _now()
+            await db.fleet_business_hours.insert_one(doc)
+        return serialize_doc(doc)
 
     @router.post('/drivers/{driver_id}/duty')
     async def set_duty(driver_id: str, body: Dict[str, bool], user=Depends(require_dispatcher)):

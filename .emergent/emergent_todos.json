@@ -1,26 +1,26 @@
 [
   {
-    "content": "Backend: POST /api/wrecker/drivers/me/location endpoint + serialize lat/lng on driver list",
+    "content": "Backend: rotation_rank field on driver + endpoint to set rank",
     "status": "completed"
   },
   {
-    "content": "Frontend hook: useDriverLocation — watchPosition + throttled POST every 30s",
+    "content": "Backend: fleet business_hours config (start/end/timezone) + endpoints",
     "status": "completed"
   },
   {
-    "content": "Driver Home: location status pill (ON/OFF/Denied) + auto-start on mount",
+    "content": "Frontend: DriversPanel mode toggle + mode pill",
     "status": "completed"
   },
   {
-    "content": "Dispatcher Drivers Panel: show miles-to-pickup per driver when job selected",
+    "content": "Frontend: After-hours sort logic (rank, busy bumped, ON CALL badge)",
     "status": "completed"
   },
   {
-    "content": "Dispatch Board job cards: show closest driver distance always",
+    "content": "Frontend: Inline rank editor (hover → pencil → number input → save)",
     "status": "completed"
   },
   {
-    "content": "Test + screenshot — verified end-to-end (3 drivers pinged, dispatcher sees sorted by distance)",
+    "content": "Test + screenshot both modes — verified Steve (rank #2 free) bumps Jake (rank #1 busy)",
     "status": "completed"
   }
 ]
