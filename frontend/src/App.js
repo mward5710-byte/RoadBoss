@@ -24,6 +24,7 @@ import Inspections from '@/pages/admin/Inspections';
 import InspectionDetail from '@/pages/admin/InspectionDetail';
 import AdminRoadside from '@/pages/admin/AdminRoadside';
 import CrashEvents from '@/pages/admin/CrashEvents';
+import AdminNotifications from '@/pages/admin/AdminNotifications';
 import Pricing from '@/pages/Pricing';
 import DriverShell from '@/pages/driver/DriverShell';
 import DriverHome from '@/pages/driver/DriverHome';
@@ -75,6 +76,7 @@ function App() {
             <Route path="inspections/:id" element={<InspectionDetail />} />
             <Route path="roadside" element={<AdminRoadside />} />
             <Route path="crash-events" element={<CrashEvents />} />
+            <Route path="notifications" element={<AdminNotifications />} />
             <Route path="waitlist" element={<WaitlistAdmin />} />
             <Route path="profile" element={<Profile />} />
           </Route>

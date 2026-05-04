@@ -1,7 +1,7 @@
 import React from 'react';
 import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
 import { Logo } from '@/components/Logo';
-import { LayoutDashboard, Users, Truck, Route, Wrench, Bell, Camera, Mail, LogOut, MapPin, User, CreditCard, ClipboardCheck, AlertTriangle, LifeBuoy } from 'lucide-react';
+import { LayoutDashboard, Users, Truck, Route, Wrench, Bell, Camera, Mail, LogOut, MapPin, User, CreditCard, ClipboardCheck, AlertTriangle, LifeBuoy, MessageSquare } from 'lucide-react';
 import { auth, getUser } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 
@@ -15,6 +15,7 @@ const nav = [
   { to: '/app/roadside', icon: LifeBuoy, label: 'Roadside' },
   { to: '/app/crash-events', icon: AlertTriangle, label: 'Crash Events' },
   { to: '/app/alerts', icon: Bell, label: 'Alerts' },
+  { to: '/app/notifications', icon: MessageSquare, label: 'Notifications' },
   { to: '/app/dashcam', icon: Camera, label: 'Dashcam' },
   { to: '/app/ifta', icon: MapPin, label: 'IFTA' },
   { to: '/app/billing', icon: CreditCard, label: 'Billing' },

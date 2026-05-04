@@ -209,6 +209,11 @@ async def register(body: RegisterIn):
     await db.users.insert_one(user)
     token = create_token(user['id'], user['email'], user['role'])
     safe = {k: v for k, v in user.items() if k not in ('password_hash', '_id')}
+    # Phase 2C: send welcome email (best-effort)
+    base = os.environ.get('NOTIFY_BASE_URL', '')
+    login_url = f"{base}/login" if base else 'https://roadboss.app/login'
+    tpl = notify.build_welcome_email(name=user['name'], login_url=login_url)
+    await notify.send_email(db, user['email'], tpl['subject'], tpl['html'], tpl['plain'], event_type='welcome', user_id=user['id'])
     return {'access_token': token, 'token_type': 'bearer', 'user': safe}
 
 @api_router.post("/auth/login", response_model=TokenOut)
@@ -626,8 +631,14 @@ async def forgot_password(body: ForgotIn):
         'created_at': now_utc().isoformat(),
     })
     logger.info(f"Password reset token for {body.email}: {token}")
-    # Until email service is wired in Stage 3, return token in dev for testing.
-    resp['dev_token'] = token
+    # Phase 2C: send reset email via SendGrid (best-effort)
+    base = os.environ.get('NOTIFY_BASE_URL', '')
+    reset_url = f"{base}/reset-password?token={token}" if base else f"/reset-password?token={token}"
+    tpl = notify.build_password_reset_email(name=user.get('name', ''), reset_url=reset_url)
+    email_result = await notify.send_email(db, user['email'], tpl['subject'], tpl['html'], tpl['plain'], event_type='password_reset', user_id=user['id'])
+    # In dev (or if email failed) we still return the token so user can complete reset
+    if not email_result.get('ok'):
+        resp['dev_token'] = token
     return resp
 
 class ResetIn(BaseModel):
@@ -1360,12 +1371,23 @@ async def certify_inspection(insp_id: str, body: InspectionCertifyIn, user=Depen
             'message': f"DVIR defect: {d.get('label')} on {doc.get('vehicle_name', 'vehicle')}. {d.get('note') or ''}".strip(),
         }))
     doc.update(update)
+    # Phase 2C: email the signed DVIR copy to fleet admin(s) — FMCSA paper trail
+    fleet_admins = await db.users.find({'role': {'$in': ['fleet_admin', 'super_admin']}}, {'_id': 0, 'email': 1, 'name': 1}).to_list(20)
+    base = os.environ.get('NOTIFY_BASE_URL', '')
+    view_url = f"{base}/app/inspections" if base else '/app/inspections'
+    tpl = notify.build_dvir_signed_email(
+        driver_name=doc.get('driver_name', 'Driver'),
+        vehicle_name=doc.get('vehicle_name', 'Truck'),
+        inspection_type=doc.get('inspection_type', 'pre_trip'),
+        defects=defect_items,
+        signature=sig,
+        certified_at=now_iso,
+        view_url=view_url,
+    )
+    for admin in fleet_admins:
+        if admin.get('email'):
+            await notify.send_email(db, admin['email'], tpl['subject'], tpl['html'], tpl['plain'], event_type='dvir_signed', event_ref_id=insp_id, user_id=admin.get('id'))
     return doc
-
-
-# ============================================================
-# Crash Events (OnStar-for-every-truck) - Slide 3
-# ============================================================
 
 class CrashEventIn(BaseModel):
     severity: str = 'high'  # low | medium | high | critical
@@ -1406,6 +1428,23 @@ async def create_crash_event(body: CrashEventIn, user=Depends(get_current_user))
             'vehicle_id': (driver or {}).get('vehicle_id'),
             'message': f"CRASH DETECTED — {(driver or {}).get('name') or 'Driver'} — {sev} severity, {body.g_force or 'n/a'}g{f', {body.speed_mph} mph' if body.speed_mph else ''}.",
         }))
+        # Phase 2C: auto-SMS emergency contacts on confirmed crash
+        contacts_env = os.environ.get('NOTIFY_CRASH_CONTACTS', '').strip()
+        emergency_contacts = [c.strip() for c in contacts_env.split(',') if c.strip()] if contacts_env else []
+        # Also notify any fleet_admin / super_admin user with a phone in profile
+        admins = await db.users.find({'role': {'$in': ['fleet_admin', 'super_admin']}, 'phone': {'$exists': True, '$ne': None}}, {'_id': 0, 'phone': 1}).to_list(20)
+        emergency_contacts.extend([a['phone'] for a in admins if a.get('phone')])
+        if emergency_contacts:
+            loc_str = f" Location: https://maps.google.com/?q={body.latitude},{body.longitude}" if body.latitude and body.longitude else ''
+            sms_body = (
+                f"🚨 RoadBoss CRASH ALERT 🚨\n"
+                f"{(driver or {}).get('name') or 'Driver'} — {sev.upper()} severity"
+                f"{f' at {body.speed_mph} mph' if body.speed_mph else ''}"
+                f"{f', {body.g_force}g impact' if body.g_force else ''}.{loc_str}\n"
+                f"Driver did NOT respond to safety prompt. Verify status immediately."
+            )
+            for contact in emergency_contacts[:10]:  # cap at 10 to avoid SMS storms
+                await notify.send_sms(db, contact, sms_body, event_type='crash_alert', event_ref_id=doc['id'], driver_id=(driver or {}).get('id'))
     return doc
 
 
@@ -1504,6 +1543,18 @@ async def create_roadside_dispatch(body: RoadsideDispatchIn, user=Depends(get_cu
         'vehicle_id': (driver or {}).get('vehicle_id'),
         'message': f"Roadside requested: {body.service_type} for {(driver or {}).get('name') or 'driver'}. Provider: {(provider or {}).get('name', 'auto-assigning')}.",
     }))
+    # Phase 2C: auto-SMS the dispatched provider with driver's location + truck details
+    if provider and provider.get('phone'):
+        loc_str = f"https://maps.google.com/?q={body.latitude},{body.longitude}" if body.latitude and body.longitude else (body.location_text or 'location not provided')
+        sms_body = (
+            f"RoadBoss Dispatch — {body.service_type.upper()}\n"
+            f"Driver: {(driver or {}).get('name') or 'Customer'}\n"
+            f"Truck: {(driver or {}).get('vehicle_id', 'N/A')[:8]}\n"
+            f"Location: {loc_str}\n"
+            f"Issue: {body.description or 'see dispatch'}\n"
+            f"Reply with ETA. Quoted ${(provider or {}).get('typical_cost', '?')}."
+        )
+        await notify.send_sms(db, provider['phone'], sms_body, event_type='roadside_dispatch_provider', event_ref_id=doc['id'], driver_id=(driver or {}).get('id'))
     return doc
 
 
@@ -2014,10 +2065,152 @@ async def mapbox_config(user=Depends(get_current_user)):
     }
 
 # ============================================================
+# Notifications (Phase 2C) — SMS + Email surface
+# ============================================================
+
+class DispatchSMSIn(BaseModel):
+    driver_id: str
+    message: str
+
+@api_router.post("/dispatch/sms")
+async def send_dispatch_sms(body: DispatchSMSIn, user=Depends(require_role('fleet_admin', 'dispatcher', 'super_admin'))):
+    """Admin/dispatcher sends an SMS to a specific driver."""
+    if not body.message.strip():
+        raise HTTPException(400, "Message cannot be empty.")
+    driver = await db.drivers.find_one({'id': body.driver_id}, {'_id': 0})
+    if not driver:
+        raise HTTPException(404, "Driver not found")
+    if not driver.get('phone'):
+        raise HTTPException(400, f"Driver {driver.get('name')} has no phone number on file.")
+    sender = user.get('name', 'Dispatch')
+    sms_body = f"📩 {sender}: {body.message.strip()}\n\n— RoadBoss"
+    result = await notify.send_sms(db, driver['phone'], sms_body, event_type='dispatch_sms', driver_id=driver['id'])
+    # Also drop an in-app alert for visibility
+    await db.alerts.insert_one(_make_doc({
+        'type': 'dispatch_sms',
+        'severity': 'info',
+        'driver_id': driver['id'],
+        'message': f"SMS to {driver.get('name', 'driver')}: {body.message.strip()[:160]}",
+    }))
+    return result
+
+
+class FleetInviteIn(BaseModel):
+    email: EmailStr
+    name: Optional[str] = None
+    role: str = 'driver'  # driver | dispatcher | fleet_admin
+    fleet_name: Optional[str] = None
+
+@api_router.post("/admin/invite")
+async def fleet_invite(body: FleetInviteIn, user=Depends(require_role('fleet_admin', 'super_admin'))):
+    """Send a fleet invitation email with a one-click signup link."""
+    if body.role not in ('driver', 'dispatcher', 'fleet_admin'):
+        raise HTTPException(400, "Invalid role. Must be driver, dispatcher, or fleet_admin.")
+    existing = await db.users.find_one({'email': body.email.lower()})
+    if existing:
+        raise HTTPException(400, f"{body.email} is already on the team.")
+    invite_token = str(uuid.uuid4())
+    invite_doc = _make_doc({
+        'token': invite_token,
+        'email': body.email.lower(),
+        'name': body.name,
+        'role': body.role,
+        'fleet_name': body.fleet_name or 'RoadBoss Fleet',
+        'invited_by_user_id': user['id'],
+        'invited_by_name': user.get('name', 'A team member'),
+        'expires_at': (now_utc() + timedelta(days=7)).isoformat(),
+        'accepted': False,
+    })
+    await db.fleet_invites.insert_one(dict(invite_doc))
+    base = os.environ.get('NOTIFY_BASE_URL', '')
+    accept_url = f"{base}/accept-invite?token={invite_token}" if base else f"/accept-invite?token={invite_token}"
+    tpl = notify.build_fleet_invite_email(
+        inviter_name=user.get('name', 'A team member'),
+        fleet_name=body.fleet_name or 'RoadBoss Fleet',
+        accept_url=accept_url,
+        role=body.role,
+    )
+    result = await notify.send_email(db, body.email.lower(), tpl['subject'], tpl['html'], tpl['plain'], event_type='fleet_invite', event_ref_id=invite_token)
+    return {'ok': result.get('ok', False), 'invite_token': invite_token, 'expires_at': invite_doc['expires_at'], 'email_result': result}
+
+
+@api_router.get("/admin/invites")
+async def list_invites(user=Depends(require_role('fleet_admin', 'super_admin'))):
+    rows = await db.fleet_invites.find({}, {'_id': 0}).sort('created_at', -1).to_list(200)
+    return rows
+
+
+@api_router.get("/notifications/logs")
+async def list_notification_logs(
+    channel: Optional[str] = None,  # 'sms' | 'email' | None
+    limit: int = 200,
+    user=Depends(require_role('fleet_admin', 'dispatcher', 'super_admin')),
+):
+    q: Dict[str, Any] = {}
+    if channel in ('sms', 'email'):
+        q['channel'] = channel
+    rows = await db.notification_logs.find(q, {'_id': 0}).sort('created_at', -1).to_list(max(1, min(limit, 1000)))
+    return rows
+
+
+@api_router.get("/notifications/status")
+async def notifications_status(user=Depends(get_current_user)):
+    """Configuration status for SMS + Email providers. Used by Settings page + reminders."""
+    twilio_ok = notify.is_twilio_configured()
+    sendgrid_ok = notify.is_sendgrid_configured()
+    twilio_phone = os.environ.get('TWILIO_FROM_NUMBER', '')
+    is_toll_free = twilio_phone.startswith('+1800') or twilio_phone.startswith('+1888') or twilio_phone.startswith('+1877') or twilio_phone.startswith('+1866') or twilio_phone.startswith('+1855') or twilio_phone.startswith('+1844') or twilio_phone.startswith('+1833')
+    return {
+        'twilio': {
+            'configured': twilio_ok,
+            'from_number': twilio_phone if twilio_ok else None,
+            'is_toll_free': is_toll_free if twilio_ok else False,
+            'verification_required': is_toll_free if twilio_ok else False,
+            'verification_url': 'https://console.twilio.com/us1/develop/sms/regulatory-compliance/toll-free-verification',
+        },
+        'sendgrid': {
+            'configured': sendgrid_ok,
+            'from_email': os.environ.get('SENDGRID_FROM_EMAIL') if sendgrid_ok else None,
+            'from_name': os.environ.get('SENDGRID_FROM_NAME') if sendgrid_ok else None,
+        },
+    }
+
+
+class HOSWarningTriggerIn(BaseModel):
+    driver_id: str
+    minutes_remaining: int
+
+@api_router.post("/notifications/hos-warning")
+async def trigger_hos_warning(body: HOSWarningTriggerIn, user=Depends(require_role('fleet_admin', 'dispatcher', 'super_admin'))):
+    """Manual or automated trigger to warn driver+admin when HOS is running low."""
+    driver = await db.drivers.find_one({'id': body.driver_id}, {'_id': 0})
+    if not driver:
+        raise HTTPException(404, "Driver not found")
+    sms_body = (
+        f"⏰ HOS WARNING — {driver.get('name', 'Driver')}\n"
+        f"You have {body.minutes_remaining} minutes of drive time remaining.\n"
+        f"Plan your next safe parking spot now."
+    )
+    results = []
+    if driver.get('phone'):
+        r = await notify.send_sms(db, driver['phone'], sms_body, event_type='hos_warning', driver_id=driver['id'])
+        results.append({'recipient': 'driver', 'phone': driver['phone'], 'result': r})
+    # Also alert fleet admins
+    admins = await db.users.find({'role': {'$in': ['fleet_admin', 'super_admin']}, 'phone': {'$exists': True, '$ne': None}}, {'_id': 0, 'phone': 1, 'email': 1}).to_list(20)
+    admin_msg = f"⏰ {driver.get('name', 'Driver')} has only {body.minutes_remaining} min HOS remaining. Coordinate next stop."
+    for a in admins:
+        if a.get('phone'):
+            r = await notify.send_sms(db, a['phone'], admin_msg, event_type='hos_warning', driver_id=driver['id'])
+            results.append({'recipient': 'admin', 'phone': a['phone'], 'result': r})
+    return {'ok': True, 'sent': len(results), 'details': results}
+
+
+# ============================================================
 # Seed — implementations live in seed_data.py (Phase 2F refactor step 1)
 # ============================================================
 
 from seed_data import seed_demo as _seed_demo_impl, wipe_demo_collections as _wipe_demo_impl
+import notifications as notify  # Phase 2C: SMS + Email dispatch
 
 
 async def _seed_demo():
