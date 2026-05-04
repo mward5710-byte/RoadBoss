@@ -61,6 +61,7 @@ export default function Marketing() {
             <Link to="/pricing" className="hover:text-white transition">Pricing</Link>
             <a href="#waitlist" className="hover:text-white transition">Waitlist</a>
             <Link to="/try" className="hover:text-white transition">Try it</Link>
+            <Link to="/roi" className="hover:text-white transition hidden md:inline">Fleet ROI</Link>
             <Link to="/guide" className="hover:text-white transition hidden md:inline">Manual</Link>
             <Link to="/deck" className="hover:text-white transition hidden md:inline">Investors</Link>
           </nav>

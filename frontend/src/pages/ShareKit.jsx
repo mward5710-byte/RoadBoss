@@ -182,6 +182,124 @@ Mike Ward
 Founder, RoadBoss (DBA of Apex Epoxy Flooring LLC)
 mward5710@gmail.com · +1 (765) 480-8889`;
 
+  // ---- Fleet Owner (B2B) templates — Phase 2H.4 ----
+  const fleetLinkedInDM = `Hi [First Name] — I'm a trucker from Indiana who built an app that replaces most of what fleets currently pay Motive / Samsara for, at a third of the cost.
+
+It's called RoadBoss. Voice-first, so your drivers never have to touch a phone on the road (huge insurance win). FMCSA DVIR compliant, unified dashcam feed across Samsara/Lytx/Verizon, integrated dispatch, and automatic crash alerts to your dispatcher + driver's family.
+
+We have a 60-second ROI calculator that shows what you'd save on [X] trucks: ${origin}/roi
+
+Happy to do a live 10-minute demo — no deck, just the dashboard running on my screen.
+
+Mike Ward · (765) 480-8889`;
+
+  const fleetColdEmail = `Subject: Cut your trucking app stack by 60% — built by a trucker
+
+Hi [First Name],
+
+I'm Mike Ward — a truck driver and small-business owner from Kokomo, Indiana. For the past month I've been building what I wish my friends had been using when they lost their lives looking at phones.
+
+It's called RoadBoss. Voice-first, always-on, runs in the background behind Spotify and Apple Maps. It replaces most of what a fleet currently subscribes to:
+
+ - ELD / HOS compliance  (vs Motive/Samsara at ~$33/truck/mo)
+ - FMCSA DVIR inspections  (signed PDFs, DOT-audit ready)
+ - Truck-aware GPS with weight/height/hazmat routing
+ - Integrated SMS dispatch — no separate messaging platform
+ - Auto crash detection + driver/family notification
+ - Unified dashcam feed across Samsara, Lytx, Verizon, RoadBoss native
+ - Roadside assistance dispatch with vendor network
+
+RoadBoss Fleet is $19.99 per truck per month — and your app-stack savings alone usually pay for it 3x over in the first year.
+
+See the math for your exact truck count: ${origin}/roi
+Try the fleet admin dashboard live (no signup, no card): ${tryLink}
+Full pitch deck: ${deckLink}
+
+Would you have 15 minutes this week for a no-pressure demo? If it's not a fit, I'll take 5 minutes of your feedback instead — it's more valuable to me than another slide.
+
+Mike Ward
+Founder, RoadBoss (DBA of Apex Epoxy Flooring LLC)
+mward5710@gmail.com | +1 (765) 480-8889
+Kokomo, Indiana`;
+
+  const fleetIndustryChannels = `WHERE FLEET OWNERS HANG OUT — A SIMPLE HIT-LIST
+
+🏛  Associations to join / post in
+  • ATA (American Trucking Associations) — trucking.org — 2,300+ member fleets
+  • NASTC (Nat'l Assoc. of Small Trucking Companies) — nastc.com — 8,500+ small fleets (your sweet spot)
+  • TCA (Truckload Carriers Association) — truckload.org
+  • OOIDA (Owner-Operator Independent Drivers Assoc.) — ooida.com — 150K+ members
+  • National Private Truck Council (NPTC) — nptc.org
+
+📰  Trade publications — pitch to editors or buy low-cost banner ads
+  • Overdrive Magazine — overdriveonline.com
+  • Commercial Carrier Journal (CCJ) — ccjdigital.com
+  • FleetOwner — fleetowner.com
+  • Land Line Magazine (OOIDA's) — landline.media
+  • Transport Topics — ttnews.com
+  • Heavy Duty Trucking (HDT) — truckinginfo.com
+
+🎪  Conferences to attend — where deals close
+  • MATS (Mid-America Trucking Show) — Louisville, KY · March — 70K+ attendees · drive from Kokomo
+  • ATA Management Conference & Exhibition — October
+  • Truckload Carriers Association Annual Convention — March
+  • Great American Trucking Show (GATS) — Dallas, August
+  • CCJ Innovator Summit — invite-only but worth applying
+
+🎙  Podcasts fleet owners actually listen to (pitch yourself as a guest)
+  • Over The Road (OOIDA)
+  • Haulin' Assets
+  • The Trucker Podcast
+  • Trucking Business Podcast
+  • Freight 360
+
+💼  LinkedIn search queries (copy-paste into LinkedIn search)
+  • "Fleet Manager" + "trucking"
+  • "Director of Operations" + "motor carrier"
+  • "VP Transportation" + "logistics"
+  • "Owner" + "trucking company"
+  • Filter by: Indiana, Ohio, Illinois, Michigan, Kentucky (start regional)
+
+📋  FREE public database — FMCSA SAFER
+  • saferweb.fmcsa.dot.gov — search every DOT-registered carrier in the US
+  • Filter by state, fleet size, operation type
+  • Export CSV; cold-call or mail your local targets
+
+🎯  Midwest target fleets (good first calls — under 100 trucks, Indiana/Ohio/Illinois)
+  • Kokomo Motor Freight (local to you)
+  • Duncan Family Farms Transport (IN)
+  • Interstate Distributor Co (IN)
+  • Indiana Express Trucking
+  • HSI Logistics (Indianapolis)
+  • DCT Trucking (Ohio border)
+  • Find more via SAFER with a 1-minute search`;
+
+  const fleetConfPrep = `MATS (Mid-America Trucking Show) — Launch Plan for First-Time Founder
+
+Where: Kentucky Exposition Center, Louisville (5-hour drive from Kokomo)
+When: Late March annually · 2027 dates: tba
+Attendance: ~70,000 fleet owners, drivers, vendors
+
+Before you go:
+  ✓ Print 500 business cards with your name, phone, roadboss.app/try + QR code
+  ✓ Print 100 one-page flyers with "Try the live app" QR code — hand to drivers
+  ✓ Wear a polo with the RoadBoss logo (Vistaprint, $30)
+  ✓ Rent a 10x10 vendor booth if budget allows (~$2-5K) — OR walk the floor free with an attendee badge
+
+At the show:
+  ✓ Hit every OEM booth (Kenworth, Freightliner, Volvo) and ask for the tech integrations team
+  ✓ Stake out the Samsara and Motive booths — their customers walk by, leave a card with "Cheaper alternative: roadboss.app"
+  ✓ Attend at least one OOIDA panel and ask a question from the mic — free mindshare
+  ✓ Crash the vendor-networking nights (usually held at nearby hotels)
+
+After:
+  ✓ Email every scanned business card within 24 hours with subject "Great meeting you at MATS"
+  ✓ Connect with everyone on LinkedIn
+
+Budget: $500-2,000 depending on booth or just attending. Either way, it's the #1 ROI event for fleet-founder networking.`;
+
+  // ---- Fleet Owner (B2B) templates — Phase 2H.4 ----
+
   const videoScript = `RoadBoss TikTok / Reels / Shorts Script — 60 seconds
 (100% animated — no founder face needed)
 
@@ -348,6 +466,31 @@ Total time: ~20 minutes. Cost: $0.`;
             <h2 className="text-xl font-bold text-white">Angel investor cold email</h2>
           </div>
           <CopyBlock label="Email body" text={angelEmail} tone="amber" testId="share-angel" />
+        </section>
+
+        {/* Fleet Owner B2B Outreach Kit */}
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-emerald-300" />
+            <h2 className="text-xl font-bold text-white">Fleet owner outreach kit (B2B)</h2>
+            <span className="text-xs text-slate-500 ml-2">Different playbook — LinkedIn, cold email, conferences, ROI math</span>
+          </div>
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 mb-3">
+            <div className="flex items-center gap-2 text-emerald-300 text-sm font-semibold">
+              <Sparkles className="h-4 w-4" /> Your #1 weapon for fleet outreach
+            </div>
+            <p className="text-sm text-slate-200 mt-2">
+              Send fleet owners to <a className="text-emerald-300 font-semibold" href="/roi" target="_blank" rel="noreferrer">roadboss.app/roi</a> — an
+              interactive ROI calculator. They plug in their truck count and instantly see what they&apos;d save.
+              Nothing converts a B2B prospect faster than seeing their own numbers.
+            </p>
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            <CopyBlock label="LinkedIn DM to a fleet owner" text={fleetLinkedInDM} tone="sky"     testId="share-fleet-linkedin" />
+            <CopyBlock label="Cold email to Ops Director / CEO" text={fleetColdEmail} tone="emerald" testId="share-fleet-email" />
+          </div>
+          <CopyBlock label="Fleet industry channel hit-list (copy & keep)" text={fleetIndustryChannels} tone="violet" testId="share-fleet-channels" />
+          <CopyBlock label="MATS conference launch plan" text={fleetConfPrep} tone="amber" testId="share-fleet-conf" />
         </section>
 
         {/* Video script */}

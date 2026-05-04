@@ -8,6 +8,7 @@ import PitchDeck from '@/pages/PitchDeck';
 import TryPage from '@/pages/TryPage';
 import ShareKit from '@/pages/ShareKit';
 import UserGuide from '@/pages/UserGuide';
+import RoiCalculator from '@/pages/RoiCalculator';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
 import GoogleCallback from '@/pages/GoogleCallback';
@@ -67,6 +68,9 @@ function App() {
           <Route path="/share-kit" element={<ShareKit />} />
           <Route path="/guide" element={<UserGuide />} />
           <Route path="/help" element={<UserGuide />} />
+          <Route path="/roi" element={<RoiCalculator />} />
+          <Route path="/savings" element={<RoiCalculator />} />
+          <Route path="/fleet" element={<RoiCalculator />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/auth/google-callback" element={<GoogleCallback />} />
