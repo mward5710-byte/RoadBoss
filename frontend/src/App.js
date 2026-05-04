@@ -43,13 +43,22 @@ import Copilot from '@/pages/driver/Copilot';
 import Inspection from '@/pages/driver/Inspection';
 import Roadside from '@/pages/driver/Roadside';
 import RoadsideDetail from '@/pages/driver/RoadsideDetail';
+import WreckerShell from '@/pages/wrecker/WreckerShell';
+import WreckerDashboard from '@/pages/wrecker/WreckerDashboard';
+import WreckerJobNew from '@/pages/wrecker/WreckerJobNew';
+import WreckerJobDetail from '@/pages/wrecker/WreckerJobDetail';
+import WreckerImpound from '@/pages/wrecker/WreckerImpound';
+import WreckerMotorClubs from '@/pages/wrecker/WreckerMotorClubs';
+import WreckerFuel from '@/pages/wrecker/WreckerFuel';
+import WreckerBilling from '@/pages/wrecker/WreckerBilling';
 import { getUser } from '@/lib/api';
 
 function RequireAuth({ roles, children }) {
   const user = getUser();
   if (!user) return <Navigate to="/login" replace />;
   if (roles && !roles.includes(user.role) && user.role !== 'super_admin') {
-    return <Navigate to={user.role === 'driver' ? '/driver' : '/app'} replace />;
+    const fallback = user.role === 'driver' ? '/driver' : user.role === 'wrecker_operator' ? '/wrecker' : '/app';
+    return <Navigate to={fallback} replace />;
   }
   return children;
 }
@@ -107,6 +116,16 @@ function App() {
             <Route path="vehicle" element={<DriverVehicle />} />
             <Route path="settings" element={<DriverSettings />} />
             <Route path="profile" element={<DriverProfile />} />
+          </Route>
+
+          <Route path="/wrecker" element={<RequireAuth roles={['wrecker_operator', 'fleet_admin', 'dispatcher']}><WreckerShell /></RequireAuth>}>
+            <Route index element={<WreckerDashboard />} />
+            <Route path="jobs/new" element={<WreckerJobNew />} />
+            <Route path="jobs/:id" element={<WreckerJobDetail />} />
+            <Route path="impound" element={<WreckerImpound />} />
+            <Route path="clubs" element={<WreckerMotorClubs />} />
+            <Route path="fuel" element={<WreckerFuel />} />
+            <Route path="billing" element={<WreckerBilling />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

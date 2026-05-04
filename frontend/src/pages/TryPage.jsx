@@ -197,7 +197,8 @@ export default function TryPage() {
       const { data } = await api.post('/auth/demo', { role, source: src });
       setSession(data.access_token, data.user);
       toast.success('Demo mode unlocked — welcome to RoadBoss');
-      navigate(role === 'admin' ? '/app' : '/driver');
+      const dest = role === 'admin' ? '/app' : role === 'wrecker' ? '/wrecker' : '/driver';
+      navigate(dest);
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Could not start demo. Try again.');
       setLaunching(false);
@@ -269,6 +270,16 @@ export default function TryPage() {
               className="border-white/15 bg-transparent text-slate-100 hover:bg-white/5 text-base h-12 px-5"
             >
               Try as a fleet admin
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+            <Button
+              onClick={() => launchDemo('wrecker')}
+              disabled={launching}
+              variant="outline"
+              data-testid="try-demo-wrecker"
+              className="border-amber-500/40 bg-amber-500/5 text-amber-200 hover:bg-amber-500/10 text-base h-12 px-5"
+            >
+              🚛 Wrecker Mode
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </div>

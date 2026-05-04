@@ -1,26 +1,34 @@
 [
   {
-    "content": "Backend: /api/auth/demo endpoint for frictionless demo-mode login",
+    "content": "Update /app/plan.md with Phase 3 — Wrecker Mode + Wreckerlogix spec doc",
     "status": "completed"
   },
   {
-    "content": "Backend: /api/share/stats for traction numbers on share kit",
+    "content": "Write /app/memory/wreckerlogix_master_spec.md — comprehensive battle plan Mike pastes into a new Emergent session for the Flutter repo",
     "status": "completed"
   },
   {
-    "content": "Frontend: /try page with animated self-playing phone demo reel (no face needed)",
+    "content": "Backend: Create /app/backend/wrecker.py with models + role 'wrecker_operator' + all /api/wrecker/* endpoints",
     "status": "completed"
   },
   {
-    "content": "Frontend: /share-kit page with 6 social captions, angel email, video script, outlet list",
+    "content": "Backend: Wire wrecker.py into server.py + add /api/auth/demo-wrecker one-click demo login",
     "status": "completed"
   },
   {
-    "content": "Route registration + Marketing nav link + primary CTA switch to /try",
+    "content": "Frontend: Create /wrecker shell + 7 pages (Dashboard, JobNew, JobDetail, Impound, MotorClubs, Fuel, Billing)",
     "status": "completed"
   },
   {
-    "content": "End-to-end screenshot verification of /try and /share-kit",
+    "content": "Frontend: Add 'Try Wrecker Mode' demo button on /try page + route registration in App.js + role-based redirects",
     "status": "completed"
+  },
+  {
+    "content": "Test Wrecker Mode end-to-end (smoke tests ✅ + screenshot ✅)",
+    "status": "completed"
+  },
+  {
+    "content": "Backend: Extend Co-Pilot action schema with wrecker intents (deferred to next sprint, basic intents already exposed in WRECKER_VOICE_INTENTS)",
+    "status": "pending"
   }
 ]

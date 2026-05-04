@@ -30,6 +30,9 @@ app = FastAPI(title="Highway Pilot API", version="0.1.0")
 api_router = APIRouter(prefix="/api")
 bearer = HTTPBearer(auto_error=False)
 
+# Wrecker Mode (tow operator surface) — see /app/backend/wrecker.py
+from wrecker import build_wrecker_router, seed_wrecker_demo, WRECKER_VOICE_INTENTS  # noqa: E402
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -243,8 +246,9 @@ class DemoLoginIn(BaseModel):
 @api_router.post("/auth/demo")
 async def demo_login(body: DemoLoginIn):
     role_map = {
-        'driver': 'driver@highwaypilot.io',
-        'admin':  'fleet_admin@highwaypilot.io',
+        'driver':  'driver@highwaypilot.io',
+        'admin':   'fleet_admin@highwaypilot.io',
+        'wrecker': 'wrecker@highwaypilot.io',
     }
     email = role_map.get((body.role or 'driver').lower(), role_map['driver'])
     user = await db.users.find_one({'email': email})
@@ -3063,6 +3067,10 @@ async def seed(force: bool = False):
 # Mount
 # ============================================================
 
+# Mount Wrecker Mode router under /api/wrecker
+_wrecker_router = build_wrecker_router(db, get_current_user, require_role, serialize_doc)
+api_router.include_router(_wrecker_router)
+
 app.include_router(api_router)
 
 app.add_middleware(
@@ -3083,6 +3091,12 @@ async def on_startup():
             logger.info('Auto-seeded demo data on startup')
         except Exception as e:
             logger.error(f'Seed failed: {e}')
+    # Always ensure Wrecker Mode demo data exists (idempotent)
+    try:
+        result = await seed_wrecker_demo(db, hash_password)
+        logger.info(f'Wrecker seed: {result}')
+    except Exception as e:
+        logger.error(f'Wrecker seed failed: {e}')
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

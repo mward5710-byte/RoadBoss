@@ -35,6 +35,7 @@ export default function Login() {
       setSession(r.access_token, r.user);
       toast.success(`Welcome, ${r.user.name.split(' ')[0]}.`);
       if (r.user.role === 'driver') navigate('/driver');
+      else if (r.user.role === 'wrecker_operator') navigate('/wrecker');
       else navigate('/app');
     } catch (err) {
       toast.error(err?.response?.data?.detail || 'Login failed');
