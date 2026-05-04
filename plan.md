@@ -6,7 +6,7 @@
 
 ---
 
-## Status: STAGE 3 — PHASE 2F (PARTIAL) IN PROGRESS 🔧
+## Status: STAGE 3 — PHASE 2C COMPLETE ✅
 - Stage 1 (Foundation): ✅ Done
 - Stage 2 (Workflows + Stripe + Google OAuth): ✅ Done
 - Stage 3 Phase 1 (Pricing alignment + AI Copilot): ✅ Done
@@ -16,10 +16,10 @@
 - Stage 3 Phase 2B (Mapbox truck-aware GPS): ✅ Done
 - Stage 3 Phase 2D (Driver Home Surgery — shift-flow state machine): ✅ Done
 - Stage 3 Phase 2E (Investor-grade demo data seeding): ✅ Done
-- **Stage 3 Phase 2F.1 (Refactor: extract seed module): ✅ Done** ← latest
-- Stage 3 Phase 2F.2+ (Refactor: extract Copilot/DVIR/Crash/Roadside routers): backlog (will happen incrementally as Twilio/SendGrid land alongside)
-- Stage 3 Phase 2C (Twilio / SendGrid / Dashcam adapters / QuickBooks): ⏸ Waiting on Mike's API keys
-- Stage 4 / 5: Backlog
+- Stage 3 Phase 2F.1 (Refactor: extract seed module): ✅ Done
+- **Stage 3 Phase 2C (Twilio SMS + SendGrid Email — full notification surface): ✅ Done** ← latest
+- Stage 3 Phase 2F.2+ (Refactor: extract Copilot/DVIR/Crash/Roadside routers): backlog
+- Stage 4 / 5: Backlog (CB Talker network, dashcam adapters, native iOS shell)
 
 ---
 
@@ -200,6 +200,39 @@
 2. Log out → log in as `aaliyah@highwaypilot.io` → driver state = driving, active Atlanta→Charlotte trip showing on Driver Home, HOS at 75 min remaining (warning state).
 3. Log out → log in as `tyler@highwaypilot.io` → state = sleeper, sees rest screen.
 4. Log out → log in as `marcus@highwaypilot.io` → state = on_duty, has a planned trip Memphis→St. Louis to start.
+
+### Phase 2C (DONE — May 4) ✅ — Twilio SMS + SendGrid Email — full notification surface
+**Why this phase**: Mike provided real Twilio + SendGrid credentials. The voice-first command center needed an SMS surface (drivers without smartphones, dispatch comms while moving, crash escalation) and a transactional email surface (auth flows, fleet onboarding, FMCSA paper trail).
+
+**Architecture**:
+- New module `/app/backend/notifications.py` — single source of truth for all outbound SMS + email. Both providers wrapped with the same pattern: best-effort, fully audit-logged to `notification_logs` MongoDB collection, never throws back to the caller.
+- E.164 phone normalization (`normalize_phone`) handles +1-prefixed, 10-digit US, and parenthesized formats.
+- Email templates are inline branded HTML f-strings (`build_password_reset_email`, `build_welcome_email`, `build_fleet_invite_email`, `build_dvir_signed_email`) + a shared `email_layout()` shell with RoadBoss dark-mode branding.
+- Lazy SDK init means missing creds don't crash startup — sends just log `status='skipped'`.
+
+**SMS surface (4 use cases — all wired live)**:
+1. **Crash auto-text** — `POST /api/crash-events` with `confirmed=true` now fires SMS to env-var `NOTIFY_CRASH_CONTACTS` plus any admin user with a `phone` on profile. Body includes severity, g-force, speed, and a Google Maps link to the crash GPS.
+2. **Admin dispatch SMS** — new `POST /api/dispatch/sms` endpoint (admin/dispatcher only). Looks up driver by id, validates phone, sends formatted message with sender's name, also drops an in-app alert.
+3. **Roadside provider auto-text** — `POST /api/roadside/dispatch` now SMS's the dispatched provider with driver name, truck id, location (Maps link), and quoted price.
+4. **HOS warning SMS** — new `POST /api/notifications/hos-warning` endpoint. Texts both the driver AND admin team when minutes-remaining gets low. Manual trigger today; automated wired-in next phase.
+
+**Email surface (4 use cases — all wired live)**:
+1. **Password reset** — `POST /api/auth/forgot` now sends a SendGrid email with a branded reset link. Falls back to `dev_token` in response only if email send fails.
+2. **Welcome email** — fires automatically on `POST /api/auth/register` with a quick-start guide ("say Hey Co-Pilot", run pre-trip, enable Crash Guardian).
+3. **Fleet invitation** — new `POST /api/admin/invite` endpoint creates a 7-day-expiring invite token + sends a branded invite email with one-click accept link. Also new `GET /api/admin/invites` for the admin UI list view.
+4. **DVIR signed copy** — `POST /api/inspections/{id}/certify` now auto-emails the certified inspection (with defect summary + signature + FMCSA citation) to all fleet_admin/super_admin users.
+
+**Admin UI**:
+- New page `/app/notifications` (sidebar entry "Notifications" with MessageSquare icon) — full audit log with stat cards (total/sms/email/failed), filter tabs (all/sms/email/failed), search across recipient/subject/body/event_type, and per-row metadata (status badge, message-id, error message, timestamp).
+
+**Configuration discovery**:
+- New `GET /api/notifications/status` exposes provider configuration so the UI can render "Toll-Free Verification Required" banners and provide a deep-link to Twilio's verification form.
+
+**Test results**: Backend testing agent — **27/27 PASS (100%)**. Real Twilio API queues SMS to fictional NANP 555-01XX numbers. Real SendGrid accepts emails (HTTP 202). Audit log captures every send with full structure (id, channel, event_type, status, to, subject/body, provider_message_id, http_status, error).
+
+**Known production caveats (NOT bugs — known constraints)**:
+- Toll-free number `+18889446859` is **unverified** — production-grade SMS to non-verified destinations may be carrier-filtered. Verification form deep-link surfaced in `/api/notifications/status` for Mike to submit.
+- `NOTIFY_CRASH_CONTACTS` env var is unset — crash SMS only fires to admin users with phone-on-profile. Mike should add his phone to his super_admin user record (or set the env var) to receive crash alerts.
 
 ### Phase 2F.1 (DONE — May 4) ✅ — Server.py refactor: extract seed module
 **Why this phase**: `server.py` had grown to 2,549 lines — a fragile monolith that would make landing Twilio + SendGrid risky once Mike's keys arrive. Big-bang refactors mid-flight are dangerous, so we're peeling modules off incrementally.

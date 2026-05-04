@@ -1,70 +1,26 @@
 [
   {
     "content": "Phase 2C: Twilio SMS + SendGrid Email integration",
-    "status": "in_progress"
-  },
-  {
-    "content": "Stash Twilio + SendGrid creds in backend/.env",
     "status": "completed"
   },
   {
-    "content": "Fetch Twilio + SendGrid integration playbooks",
+    "content": "Run backend testing agent on full notification surface (27/27 PASS)",
     "status": "completed"
-  },
-  {
-    "content": "Build /app/backend/notifications.py — central SMS+Email dispatch with audit logging",
-    "status": "completed"
-  },
-  {
-    "content": "Twilio SMS #1: Crash auto-text on CrashGuardian confirmed crash",
-    "status": "completed"
-  },
-  {
-    "content": "Twilio SMS #2: Dispatch SMS endpoint (admin -> driver)",
-    "status": "completed"
-  },
-  {
-    "content": "Twilio SMS #3: Roadside auto-text to provider on dispatch",
-    "status": "completed"
-  },
-  {
-    "content": "Twilio SMS #4: HOS warning SMS endpoint (manual + auto-trigger ready)",
-    "status": "completed"
-  },
-  {
-    "content": "SendGrid Email #1: Password reset (wired to /auth/forgot)",
-    "status": "completed"
-  },
-  {
-    "content": "SendGrid Email #2: Welcome email on /auth/register",
-    "status": "completed"
-  },
-  {
-    "content": "SendGrid Email #3: Fleet invite emails (POST /api/admin/invite)",
-    "status": "completed"
-  },
-  {
-    "content": "SendGrid Email #4: DVIR signed copy auto-emailed to admin",
-    "status": "completed"
-  },
-  {
-    "content": "Admin /app/notifications page — audit log UI w/ filters",
-    "status": "completed"
-  },
-  {
-    "content": "Fix seed phones to valid E.164 + force re-seed",
-    "status": "completed"
-  },
-  {
-    "content": "Toll-free verification status endpoint (/api/notifications/status)",
-    "status": "completed"
-  },
-  {
-    "content": "Run backend testing agent on full notification surface",
-    "status": "in_progress"
   },
   {
     "content": "Update plan.md + test_credentials.md",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 2F.2+ (deferred): Extract Copilot/DVIR/Crash/Roadside routers - incremental as needed",
+    "status": "pending"
+  },
+  {
+    "content": "Toll-free verification reminder card on admin Overview page (cosmetic, deferred)",
+    "status": "pending"
+  },
+  {
+    "content": "Inbound SMS replies (driver -> admin) via Twilio webhook (Phase 2C.2 future)",
     "status": "pending"
   }
 ]
