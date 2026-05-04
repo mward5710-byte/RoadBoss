@@ -6,7 +6,7 @@
 
 ---
 
-## Status: STAGE 3 — PHASE 2C COMPLETE ✅
+## Status: STAGE 3 — PHASE 2C.3 COMPLETE ✅
 - Stage 1 (Foundation): ✅ Done
 - Stage 2 (Workflows + Stripe + Google OAuth): ✅ Done
 - Stage 3 Phase 1 (Pricing alignment + AI Copilot): ✅ Done
@@ -17,9 +17,10 @@
 - Stage 3 Phase 2D (Driver Home Surgery — shift-flow state machine): ✅ Done
 - Stage 3 Phase 2E (Investor-grade demo data seeding): ✅ Done
 - Stage 3 Phase 2F.1 (Refactor: extract seed module): ✅ Done
-- **Stage 3 Phase 2C (Twilio SMS + SendGrid Email — full notification surface): ✅ Done** ← latest
-- Stage 3 Phase 2F.2+ (Refactor: extract Copilot/DVIR/Crash/Roadside routers): backlog
-- Stage 4 / 5: Backlog (CB Talker network, dashcam adapters, native iOS shell)
+- Stage 3 Phase 2C (Twilio SMS + SendGrid Email surface): ✅ Done
+- Stage 3 Phase 2C.2 (Inbound SMS — driver replies → admin alert feed): ✅ Done
+- **Stage 3 Phase 2C.3 (Co-Pilot voice-to-SMS — hands-free dispatch comm): ✅ Done** ← latest
+- Stage 4 / 5: Backlog (CB Talker network, dashcam adapters, native iOS shell, push notifications)
 
 ---
 
@@ -201,7 +202,37 @@
 3. Log out → log in as `tyler@highwaypilot.io` → state = sleeper, sees rest screen.
 4. Log out → log in as `marcus@highwaypilot.io` → state = on_duty, has a planned trip Memphis→St. Louis to start.
 
-### Phase 2C (DONE — May 4) ✅ — Twilio SMS + SendGrid Email — full notification surface
+### Phase 2C.2 + 2C.3 (DONE — May 4) ✅ — Inbound SMS replies + Co-Pilot voice-to-SMS
+
+**Phase 2C.2 — Inbound SMS** turns the SMS surface bidirectional. When a driver replies to any RoadBoss SMS, Twilio fires a webhook at our backend, we match the phone to a driver, log the message, create an admin alert, and surface it in the Notifications page with a violet INBOUND badge.
+
+What was built:
+- `POST /api/webhooks/twilio/sms-inbound` — public webhook target (form-data + TwiML response). Validates Twilio signature when present (warn-only mode to avoid retry storms). Mike still needs to point Twilio Console → Phone Numbers → +18889446859 → "A MESSAGE COMES IN" at this URL to enable production inbound.
+- `POST /api/test/sms-inbound` — admin-only simulator so we can demo the inbound flow without configuring the webhook.
+- Compliance keywords: `STOP / STOPALL / UNSUBSCRIBE / CANCEL / END / QUIT` set `driver.sms_opted_out=true` and skip alert creation. `START / YES / UNSTOP` clear the flag (TCPA compliance).
+- Severity escalation: bodies containing `HELP / EMERGENCY / 911 / CRASH / BROKE / FUEL OUT / STUCK` create `severity=warning` alerts; all others are `info`.
+- New `notification_logs` channel: `sms_inbound` (vs outbound `sms`).
+- Frontend: 5-card stat row (Total / SMS Out / **Replies In** / Email / Failed), 5 filter tabs (All / SMS Out / **Replies In** / Email / Failed), inbound rows render with violet INBOUND badge + "from" address instead of "to".
+
+**Phase 2C.3 — Co-Pilot voice-to-SMS** completes the safety story: drivers can dispatch SMS hands-free.
+
+Driver says: *"Hey Co-Pilot, text dispatch I'm 30 minutes late hitting Memphis"*
+
+Pipeline:
+1. Co-Pilot recognizes the intent, replies naturally: *"Copy that, texting dispatch now that you're running 30 minutes late to Memphis."*
+2. Emits `<<<ACTION:{"type":"send_sms","args":{"recipient":"dispatch","message":"Running 30 minutes late hitting Memphis"}}>>>`
+3. Action handler resolves `recipient`:
+   - Keywords `dispatch / admin / fleet_admin` → first user with role in [fleet_admin, dispatcher, super_admin] AND a phone on file
+   - Names like `Sarah` / `Mike` → fuzzy-match against fleet user names
+4. Calls `notify.send_sms()` — real Twilio API call, returns SID + status
+5. Drops in-app alert (`type=voice_sms`) so admin sees the message instantly even before SMS lands
+6. Audit-logged with `event_type=copilot_voice_sms`
+
+Admin user records (super_admin Mike + fleet_admin Sarah) now have phones populated in the seed (`+17654808889` for Mike, `+12145550110` for Sarah) so Co-Pilot can reach them.
+
+**Test results**: 22 new tests + 27 regression = **49/49 PASS (100%)**. Real Twilio API confirmed: 2 real SMS sent during testing to Mike's verified phone, status=queued, both delivered to his iPhone. SendGrid: still 100% green.
+
+**Production-blocking action item for Mike**: Configure the Twilio inbound webhook (5 min, in Twilio Console — covered in main agent's hand-off message).
 **Why this phase**: Mike provided real Twilio + SendGrid credentials. The voice-first command center needed an SMS surface (drivers without smartphones, dispatch comms while moving, crash escalation) and a transactional email surface (auth flows, fleet onboarding, FMCSA paper trail).
 
 **Architecture**:
