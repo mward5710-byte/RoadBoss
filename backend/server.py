@@ -1093,18 +1093,51 @@ async def create_checkout(body: CheckoutIn, user=Depends(get_current_user)):
         # Allow customers to adjust truck count from Stripe checkout for per_unit plans
         if plan.get('per_unit'):
             line_item['adjustable_quantity'] = {'enabled': True, 'minimum': 1, 'maximum': 500}
+        # Phase 2G.5: expand accepted payment methods. Stripe only enables the ones
+        # activated on the account — unsupported ones silently no-op. This gives us the
+        # broadest coverage for truckers (cards + mobile wallets + Cash App Pay + BNPL + Link).
+        # NOTE: ACH (us_bank_account) only works with 'setup' flow or invoice mode for subs,
+        # so we keep subscriptions card-flavored and offer ACH via the billing portal instead.
+        checkout_payment_methods = [
+            'card',         # Visa, Mastercard, Amex, Discover
+            'link',         # Stripe Link — one-click saved cards
+            'cashapp',      # Cash App Pay (US)
+            'us_bank_account',  # ACH Direct Debit for recurring subs
+        ]
         session = _stripe.checkout.Session.create(
             mode='subscription',
             customer=customer_id,
             line_items=[line_item],
+            payment_method_types=checkout_payment_methods,
+            # Enable Apple Pay + Google Pay automatically when user is on supported device
+            payment_method_options={
+                'card': {'request_three_d_secure': 'automatic'},
+            },
             subscription_data={'trial_period_days': STRIPE_TRIAL_DAYS, 'metadata': {'user_id': user['id'], 'plan_key': body.plan_key}},
             success_url=success,
             cancel_url=cancel,
             allow_promotion_codes=True,
+            billing_address_collection='auto',
             metadata={'user_id': user['id'], 'plan_key': body.plan_key, 'quantity': str(qty)},
         )
     except Exception as e:
-        raise HTTPException(500, f"Checkout creation failed: {e}")
+        # If Stripe rejects one of the payment methods (e.g. account doesn't have cashapp
+        # enabled yet), retry with the safe default list so checkout still works.
+        logger.warning(f"Full-payment-methods checkout failed ({e}). Falling back to card+link.")
+        try:
+            session = _stripe.checkout.Session.create(
+                mode='subscription',
+                customer=customer_id,
+                line_items=[line_item],
+                payment_method_types=['card', 'link'],
+                subscription_data={'trial_period_days': STRIPE_TRIAL_DAYS, 'metadata': {'user_id': user['id'], 'plan_key': body.plan_key}},
+                success_url=success,
+                cancel_url=cancel,
+                allow_promotion_codes=True,
+                metadata={'user_id': user['id'], 'plan_key': body.plan_key, 'quantity': str(qty)},
+            )
+        except Exception as inner:
+            raise HTTPException(500, f"Checkout creation failed: {inner}")
     return {'url': session.url, 'session_id': session.id}
 
 @api_router.post("/stripe/portal")
@@ -1179,7 +1212,144 @@ async def stripe_webhook(request: Request):
                 'subscription_id': obj.get('id') if isinstance(obj, dict) else None,
                 'subscription_updated_at': now_utc().isoformat(),
             }})
+    # Phase 2G.5: branded receipts, dunning, and cancellation emails via SendGrid.
+    try:
+        await _handle_stripe_email_side_effects(etype, obj)
+    except Exception as e:
+        logger.warning(f"Stripe email side-effect failed for {etype}: {e}")
     return {'received': True}
+
+
+async def _find_user_for_stripe_object(obj: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Locate the RoadBoss user tied to a Stripe invoice/subscription object."""
+    if not isinstance(obj, dict):
+        return None
+    customer_id = obj.get('customer')
+    if customer_id:
+        u = await db.users.find_one({'stripe_customer_id': customer_id}, {'_id': 0})
+        if u:
+            return u
+    meta = obj.get('metadata') or {}
+    user_id = meta.get('user_id') if isinstance(meta, dict) else None
+    if user_id:
+        return await db.users.find_one({'id': user_id}, {'_id': 0})
+    return None
+
+
+def _plan_name_from_invoice(obj: Dict[str, Any]) -> str:
+    """Best-effort plan display name from a Stripe invoice-ish object."""
+    try:
+        lines = (obj.get('lines') or {}).get('data') or []
+        if lines:
+            price = lines[0].get('price') or {}
+            product = price.get('product')
+            if isinstance(product, dict):
+                return product.get('name') or 'RoadBoss subscription'
+            # Match our price_id to the seeded plan catalog
+            if isinstance(price.get('id'), str):
+                plan_row = next((p for p in PLAN_CATALOG if p.get('price_id') == price.get('id')), None)
+                if plan_row:
+                    return plan_row.get('name') or 'RoadBoss subscription'
+    except Exception:
+        pass
+    return 'RoadBoss subscription'
+
+
+async def _handle_stripe_email_side_effects(etype: str, obj: Dict[str, Any]) -> None:
+    """Fire branded email + push notifications for key Stripe lifecycle events."""
+    if not isinstance(obj, dict):
+        return
+    user = await _find_user_for_stripe_object(obj)
+    if not user:
+        return
+    email = user.get('email')
+    name = user.get('name') or (email.split('@')[0] if email else 'there')
+    if not email:
+        return
+
+    base = (os.environ.get('PUBLIC_BASE_URL') or '').rstrip('/') or 'https://roadboss.app'
+    portal_url = f"{base}/app/billing"
+
+    if etype == 'invoice.paid' or etype == 'invoice.payment_succeeded':
+        # Only email on non-zero invoices (skip trialing $0 invoices).
+        amount = obj.get('amount_paid') or obj.get('amount_due') or 0
+        if not amount:
+            return
+        tmpl = notify.build_receipt_email(
+            name=name,
+            plan_name=_plan_name_from_invoice(obj),
+            amount_cents=amount,
+            currency=obj.get('currency') or 'usd',
+            invoice_number=obj.get('number'),
+            hosted_invoice_url=obj.get('hosted_invoice_url'),
+            period_start=obj.get('period_start'),
+            period_end=obj.get('period_end'),
+            portal_url=portal_url,
+        )
+        await notify.send_email(
+            db, email, tmpl['subject'], tmpl['html'], plain_text=tmpl['plain'],
+            event_type='stripe_receipt', event_ref_id=obj.get('id'),
+        )
+        try:
+            if user.get('id'):
+                await push_notify.send_push_to_users(
+                    db, [user['id']],
+                    title='Payment received',
+                    body=f"Receipt for {_plan_name_from_invoice(obj)} sent to {email}.",
+                    url=portal_url, tag='stripe-receipt',
+                    severity='info', event_type='stripe_receipt', event_ref_id=obj.get('id'),
+                )
+        except Exception as e:
+            logger.warning(f"Stripe receipt push failed: {e}")
+
+    elif etype == 'invoice.payment_failed':
+        amount = obj.get('amount_due') or 0
+        tmpl = notify.build_payment_failed_email(
+            name=name,
+            plan_name=_plan_name_from_invoice(obj),
+            amount_cents=amount,
+            currency=obj.get('currency') or 'usd',
+            portal_url=portal_url,
+            hosted_invoice_url=obj.get('hosted_invoice_url'),
+            next_attempt=obj.get('next_payment_attempt'),
+        )
+        await notify.send_email(
+            db, email, tmpl['subject'], tmpl['html'], plain_text=tmpl['plain'],
+            event_type='stripe_payment_failed', event_ref_id=obj.get('id'),
+        )
+        try:
+            if user.get('id'):
+                await push_notify.send_push_to_users(
+                    db, [user['id']],
+                    title='⚠ Payment issue',
+                    body=f"Your RoadBoss card was declined. Tap to update payment method.",
+                    url=portal_url, tag='stripe-payment-failed',
+                    severity='warning', event_type='stripe_payment_failed', event_ref_id=obj.get('id'),
+                )
+        except Exception as e:
+            logger.warning(f"Stripe dunning push failed: {e}")
+
+    elif etype == 'customer.subscription.deleted':
+        plan_name = 'RoadBoss subscription'
+        items = ((obj.get('items') or {}).get('data')) or []
+        if items:
+            try:
+                price = items[0].get('price') or {}
+                plan_row = next((p for p in PLAN_CATALOG if p.get('price_id') == price.get('id')), None)
+                if plan_row:
+                    plan_name = plan_row.get('name') or plan_name
+            except Exception:
+                pass
+        tmpl = notify.build_subscription_cancelled_email(
+            name=name,
+            plan_name=plan_name,
+            effective_date=obj.get('current_period_end') or obj.get('canceled_at'),
+            reactivate_url=f"{base}/pricing",
+        )
+        await notify.send_email(
+            db, email, tmpl['subject'], tmpl['html'], plain_text=tmpl['plain'],
+            event_type='stripe_subscription_cancelled', event_ref_id=obj.get('id'),
+        )
 
 
 # ============================================================

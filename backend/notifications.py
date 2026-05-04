@@ -371,3 +371,144 @@ def build_dvir_signed_email(driver_name: str, vehicle_name: str, inspection_type
     html = email_layout(f'DVIR Certified \u2014 {vehicle_name}', body, cta_text='View full report', cta_url=view_url)
     plain = f'{driver_name} certified a {insp_label} on {vehicle_name}.\n\nDefects: {len(defects)}\nCertified at: {certified_at}\nSignature: {signature}\n\nView: {view_url}'
     return {'html': html, 'plain': plain, 'subject': f'DVIR \u2014 {driver_name} certified {insp_label} on {vehicle_name}'}
+
+
+# ---------- Phase 2G.5: Stripe-triggered email templates ----------
+
+def _fmt_money(amount_cents: Optional[int], currency: str = 'usd') -> str:
+    """Format integer cents as a display money string."""
+    if amount_cents is None:
+        return '\u2014'
+    try:
+        amt = float(amount_cents) / 100.0
+    except (TypeError, ValueError):
+        return '\u2014'
+    symbol = '$' if (currency or 'usd').lower() == 'usd' else ''
+    return f"{symbol}{amt:,.2f}"
+
+
+def _fmt_date(ts: Optional[int]) -> str:
+    """Format a unix timestamp as 'Jan 5, 2026'."""
+    if not ts:
+        return '\u2014'
+    try:
+        return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime('%b %d, %Y')
+    except Exception:
+        return '\u2014'
+
+
+def build_receipt_email(
+    name: str,
+    plan_name: str,
+    amount_cents: int,
+    currency: str = 'usd',
+    invoice_number: Optional[str] = None,
+    hosted_invoice_url: Optional[str] = None,
+    period_start: Optional[int] = None,
+    period_end: Optional[int] = None,
+    portal_url: Optional[str] = None,
+) -> Dict[str, str]:
+    amt = _fmt_money(amount_cents, currency)
+    when_line = ''
+    if period_start or period_end:
+        when_line = (
+            f'<tr><td style="padding: 8px 0; color: #9ca3af; font-size: 13px;">Billing period</td>'
+            f'<td style="padding: 8px 0; color: #e5e7eb; text-align: right; font-size: 13px;">'
+            f'{_fmt_date(period_start)} &mdash; {_fmt_date(period_end)}</td></tr>'
+        )
+    inv_line = ''
+    if invoice_number:
+        inv_line = (
+            f'<tr><td style="padding: 8px 0; color: #9ca3af; font-size: 13px;">Invoice</td>'
+            f'<td style="padding: 8px 0; color: #e5e7eb; text-align: right; font-family: monospace; font-size: 13px;">'
+            f'{invoice_number}</td></tr>'
+        )
+    body = f'''<p>Thanks, {name or 'there'} \u2014 your RoadBoss payment is in.</p>
+      <table style="width: 100%; margin: 16px 0; border-collapse: collapse;">
+        <tr>
+          <td style="padding: 12px 0; color: #9ca3af; font-size: 13px; border-top: 1px solid #1f2937; border-bottom: 1px solid #1f2937;">
+            <strong style="color: #e5e7eb; font-size: 15px;">{plan_name}</strong>
+          </td>
+          <td style="padding: 12px 0; color: #38bdf8; text-align: right; font-size: 22px; font-weight: 600; border-top: 1px solid #1f2937; border-bottom: 1px solid #1f2937;">
+            {amt}
+          </td>
+        </tr>
+        {when_line}
+        {inv_line}
+      </table>
+      <p style="font-size: 13px; color: #9ca3af;">
+        Want to change your plan, update your payment method, or add Apple Pay / Cash App Pay?
+        Use the secure Stripe billing portal \u2014 we never see or store your card details.
+      </p>'''
+    cta_url = hosted_invoice_url or portal_url or 'https://roadboss.app'
+    cta_text = 'View receipt' if hosted_invoice_url else 'Manage subscription'
+    html = email_layout('Thanks for driving with RoadBoss', body, cta_text=cta_text, cta_url=cta_url)
+    plain = (
+        f"Thanks, {name}! Your RoadBoss payment of {amt} for {plan_name} is confirmed.\n"
+        f"Invoice: {invoice_number or '—'}\nReceipt: {hosted_invoice_url or portal_url or 'n/a'}\n"
+    )
+    return {'html': html, 'plain': plain, 'subject': f'RoadBoss receipt \u2014 {amt} for {plan_name}'}
+
+
+def build_payment_failed_email(
+    name: str,
+    plan_name: str,
+    amount_cents: int,
+    currency: str = 'usd',
+    portal_url: Optional[str] = None,
+    hosted_invoice_url: Optional[str] = None,
+    next_attempt: Optional[int] = None,
+) -> Dict[str, str]:
+    amt = _fmt_money(amount_cents, currency)
+    retry_line = ''
+    if next_attempt:
+        retry_line = (
+            f'<p style="margin: 12px 0 0; font-size: 13px; color: #fbbf24;">'
+            f'We will try the card again automatically on <strong>{_fmt_date(next_attempt)}</strong>. '
+            f'Update it before then to avoid any interruption.</p>'
+        )
+    body = f'''<p>Hey {name or 'there'},</p>
+      <p>Your card didn&apos;t go through for the <strong>{plan_name}</strong> plan ({amt}). No big deal \u2014
+      it happens, especially when cards get reissued or limits change.</p>
+      <p>Tap the button below to update your payment method in the secure Stripe portal. You can
+      switch to a different card, enable Apple Pay / Google Pay, add Cash App Pay, or pay by ACH
+      bank transfer for large fleets.</p>
+      {retry_line}
+      <p style="margin-top: 20px; font-size: 13px; color: #9ca3af;">
+        If you need a hand, reply to this email and we will personally help you get sorted. We are
+        a small founder-led team and every subscription matters to us.
+      </p>'''
+    cta_url = portal_url or hosted_invoice_url or 'https://roadboss.app'
+    html = email_layout('Heads up \u2014 your RoadBoss payment needs a fix', body,
+                        cta_text='Update payment method', cta_url=cta_url)
+    plain = (
+        f"Hey {name},\n\nYour {plan_name} payment of {amt} didn't go through. "
+        f"Update your card here: {cta_url}\n\nWe will retry automatically. Reply to this email for help."
+    )
+    return {'html': html, 'plain': plain, 'subject': 'Payment issue on your RoadBoss subscription'}
+
+
+def build_subscription_cancelled_email(
+    name: str,
+    plan_name: str,
+    effective_date: Optional[int] = None,
+    reactivate_url: Optional[str] = None,
+) -> Dict[str, str]:
+    effective = _fmt_date(effective_date) if effective_date else 'the end of your current billing cycle'
+    body = f'''<p>Hey {name or 'there'},</p>
+      <p>We&apos;ve cancelled your <strong>{plan_name}</strong> subscription. You&apos;ll still have
+      full access to RoadBoss through <strong>{effective}</strong>.</p>
+      <p>No hard feelings. If you change your mind, you can reactivate with one click \u2014 your
+      settings, HOS history, DVIRs, and emergency contacts all stay in place.</p>
+      <p style="margin-top: 20px; font-size: 13px; color: #9ca3af;">
+        Mind telling us why? Reply to this email with one sentence \u2014 it genuinely helps us
+        build a better product for truckers.
+      </p>'''
+    html = email_layout('Your RoadBoss subscription is cancelled', body,
+                        cta_text='Reactivate subscription',
+                        cta_url=reactivate_url or 'https://roadboss.app/pricing')
+    plain = (
+        f"Hey {name},\n\nYour {plan_name} subscription is cancelled, effective {effective}.\n"
+        f"Change your mind? Reactivate: {reactivate_url or 'https://roadboss.app/pricing'}"
+    )
+    return {'html': html, 'plain': plain, 'subject': 'Your RoadBoss subscription is cancelled'}

@@ -1,22 +1,30 @@
 [
   {
-    "content": "Audit existing dashcam surface (backend model + admin page + seed)",
+    "content": "Audit existing Stripe integration (webhook, checkout, subscription flows)",
     "status": "completed"
   },
   {
-    "content": "Backend: enrich dashcam event schema + simulate-live endpoint + vendor registry",
+    "content": "Backend: expand Stripe checkout payment_method_types (card, link, cashapp, us_bank_account) + safe fallback",
     "status": "completed"
   },
   {
-    "content": "Backend: expand seed_data to 72 investor-grade events across 4 vendors",
+    "content": "Backend: branded SendGrid templates (receipt, payment_failed, subscription_cancelled)",
     "status": "completed"
   },
   {
-    "content": "Frontend: full DashcamPage redesign (vendor filters, severity chips, driver avatars, speed/confidence/location badges, hover-to-play)",
+    "content": "Backend: wire Stripe webhook to trigger email + push + audit log",
     "status": "completed"
   },
   {
-    "content": "Screenshot verification: all vendors, Lytx filter, Critical filter, Simulate live event all working",
+    "content": "Frontend: pricing page payment-method badges",
     "status": "completed"
+  },
+  {
+    "content": "Smoke test: all 3 stripe webhooks produced queued emails via SendGrid",
+    "status": "completed"
+  },
+  {
+    "content": "Backend testing agent for Phase 2G.5",
+    "status": "in_progress"
   }
 ]

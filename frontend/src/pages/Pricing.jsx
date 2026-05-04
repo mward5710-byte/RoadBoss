@@ -265,6 +265,15 @@ export default function Pricing() {
           <div className="flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-sky-400" /> 14-day free trial</div>
           <div className="flex items-center gap-2"><Sparkles className="w-4 h-4 text-sky-400" /> Founder pricing — first 500 customers</div>
         </div>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500">
+          <span className="uppercase tracking-widest text-[10px] text-slate-500 mr-1">Pay with</span>
+          <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1">Visa · Mastercard · Amex · Discover</span>
+          <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1">Apple Pay</span>
+          <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1">Google Pay</span>
+          <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1">Cash App Pay</span>
+          <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1">Stripe Link</span>
+          <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1">ACH bank (Fleet)</span>
+        </div>
       </section>
     </div>
   );
