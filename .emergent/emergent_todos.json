@@ -1,26 +1,18 @@
 [
   {
-    "content": "Phase 2C.2: Inbound SMS replies (driver -> admin alert feed) - 22/22 tests PASS",
+    "content": "Build DriverOnboardingTour.jsx component (6 steps, framer-motion, localStorage persistence)",
     "status": "completed"
   },
   {
-    "content": "Phase 2C.3: Co-Pilot voice-to-SMS - real Twilio SMS confirmed",
+    "content": "Mount tour in DriverShell with auto-show on first visit",
     "status": "completed"
   },
   {
-    "content": "Mike to configure Twilio inbound webhook in Console (5 min, last step)",
-    "status": "pending"
+    "content": "Add 'Replay Tour' button in DriverSettings",
+    "status": "completed"
   },
   {
-    "content": "Phase 2C.4 (future): SMS conversation threading + per-driver inbox view",
-    "status": "pending"
-  },
-  {
-    "content": "Phase 2C.5 (future): PWA push notifications for crash/dispatch",
-    "status": "pending"
-  },
-  {
-    "content": "Phase 2F.2+ (deferred): Refactor remaining server.py modules incrementally",
-    "status": "pending"
+    "content": "Screenshot verification: tour appears for new driver & Replay button works",
+    "status": "completed"
   }
 ]
