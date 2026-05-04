@@ -1,12 +1,26 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { Truck, Lock, Activity, DollarSign, Clock, MapPin, Phone, Plus, RefreshCw, ArrowUpRight, Zap, UserPlus } from 'lucide-react';
+import { Truck, Lock, Activity, DollarSign, Clock, MapPin, Phone, Plus, RefreshCw, ArrowUpRight, Zap, UserPlus, Navigation } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import DriversPanel from './DriversPanel';
+import { navUrl, NAV_APPS, getNavApp, setNavApp } from '@/lib/navPref';
+
+// Haversine distance between two lat/lng pairs, in miles. Returns null if any coord is missing.
+function haversineMiles(a, b) {
+  if (!a || !b || a.lat == null || a.lng == null || b.lat == null || b.lng == null) return null;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const R = 3958.8; // Earth radius in miles
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const x = Math.sin(dLat / 2) ** 2 + Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
 
 const STATUS_COLORS = {
   pending:     'bg-slate-500/15 border-slate-500/30 text-slate-300',
@@ -78,13 +92,39 @@ function JobCard({ job, onAdvance, onSelectForAssign, isSelected }) {
       )}
       {job.pickup?.address && (
         <div className="mt-1 text-xs text-slate-500 truncate flex items-center gap-1">
-          <MapPin className="w-3 h-3" /> {job.pickup.address}
+          <MapPin className="w-3 h-3 shrink-0" /> <span className="truncate">{job.pickup.address}</span>
         </div>
       )}
+      {job.dropoff?.address && (
+        <div className="mt-0.5 text-xs text-slate-500 truncate flex items-center gap-1">
+          <Truck className="w-3 h-3 shrink-0 text-emerald-400/70" /> <span className="truncate">{job.dropoff.address}</span>
+        </div>
+      )}
+      {(() => {
+        const miles = haversineMiles(job.pickup, job.dropoff);
+        if (miles == null) return null;
+        return (
+          <div className="mt-1 text-[10px] uppercase tracking-wider text-sky-300/80 flex items-center gap-1" data-testid={`tow-distance-${job.id}`}>
+            <ArrowUpRight className="w-3 h-3" /> {miles.toFixed(1)} mi tow
+          </div>
+        );
+      })()}
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="text-sm font-semibold text-emerald-300">${(job.final_price ?? job.quoted_price ?? 0).toFixed(0)}</div>
-        {job.motor_club_name && <div className="text-[10px] uppercase tracking-wider text-amber-300/80">{job.motor_club_name}</div>}
+        {job.motor_club_name && <div className="text-[10px] uppercase tracking-wider text-amber-300/80 truncate">{job.motor_club_name}</div>}
       </div>
+      {job.pickup?.address && (
+        <a
+          href={navUrl(job.pickup.address, job.pickup.lat, job.pickup.lng)}
+          target="_blank"
+          rel="noreferrer"
+          data-testid={`navigate-${job.id}`}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-2 w-full h-7 flex items-center justify-center gap-1 rounded border border-sky-500/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 text-[10px] uppercase tracking-wider font-semibold transition"
+        >
+          <Navigation className="w-3 h-3" /> Navigate to Pickup
+        </a>
+      )}
       {isPending && (
         <Button
           data-testid={`select-${job.id}`}
@@ -176,6 +216,7 @@ export default function WreckerDashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <NavAppPicker />
           <Button data-testid="refresh-board" variant="outline" size="sm" onClick={load} className="border-white/10 text-slate-300">
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
           </Button>
@@ -231,3 +272,33 @@ export default function WreckerDashboard() {
     </div>
   );
 }
+
+function NavAppPicker() {
+  const [current, setCurrent] = useState(getNavApp());
+  useEffect(() => {
+    const handler = (e) => setCurrent(e.detail);
+    window.addEventListener('hp-nav-app-change', handler);
+    return () => window.removeEventListener('hp-nav-app-change', handler);
+  }, []);
+  const cycle = () => {
+    const idx = NAV_APPS.findIndex((n) => n.key === current);
+    const next = NAV_APPS[(idx + 1) % NAV_APPS.length];
+    setNavApp(next.key);
+    setCurrent(next.key);
+    toast.success(`Nav app: ${next.label}`);
+  };
+  const meta = NAV_APPS.find((n) => n.key === current) || NAV_APPS[0];
+  return (
+    <Button
+      data-testid="board-nav-picker"
+      onClick={cycle}
+      variant="outline"
+      size="sm"
+      className="border-white/10 text-slate-300 hover:text-white"
+      title="Tap to change navigation app"
+    >
+      <Navigation className="w-4 h-4 mr-1 text-sky-300" /> {meta.short}
+    </Button>
+  );
+}
+
