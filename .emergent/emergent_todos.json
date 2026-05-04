@@ -1,26 +1,22 @@
 [
   {
-    "content": "Backend: emergency_contacts CRUD endpoints (admin-only)",
+    "content": "Audit existing dashcam surface (backend model + admin page + seed)",
     "status": "completed"
   },
   {
-    "content": "Backend: rewire crash pipeline to read contacts from DB (fallback to .env)",
+    "content": "Backend: enrich dashcam event schema + simulate-live endpoint + vendor registry",
     "status": "completed"
   },
   {
-    "content": "Frontend: AdminSettings page with CRUD UI",
+    "content": "Backend: expand seed_data to 72 investor-grade events across 4 vendors",
     "status": "completed"
   },
   {
-    "content": "Frontend: add Settings link to AppShell sidebar + App.js route",
+    "content": "Frontend: full DashcamPage redesign (vendor filters, severity chips, driver avatars, speed/confidence/location badges, hover-to-play)",
     "status": "completed"
   },
   {
-    "content": "Smoke tests (auth, duplicate, invalid, driver-forbidden, update, delete) all green",
-    "status": "completed"
-  },
-  {
-    "content": "Backend testing agent: 31/31 passed (100%) — 0 blockers",
+    "content": "Screenshot verification: all vendors, Lytx filter, Critical filter, Simulate live event all working",
     "status": "completed"
   }
 ]

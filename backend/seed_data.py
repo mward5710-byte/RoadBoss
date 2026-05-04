@@ -250,33 +250,81 @@ async def seed_demo(
         }, when)
         await db.alerts.insert_one(dict(doc))
 
-    # ---------------- Dashcam events (15 spread over last 7 days) ----------------
-    cam_specs = [
-        (0, 1,  0, 0, 'Hard brake',                    'warning',  'Samsara',          'https://images.unsplash.com/photo-1580651315530-69c8e0903883?w=400'),
-        (0, 5,  2, 2, 'Following too close',           'warning',  'Lytx',             None),
-        (1, 2,  1, 1, 'Speeding',                      'info',     'Verizon Connect',  None),
-        (1, 7,  3, 3, 'Lane departure',                'warning',  'Samsara',          None),
-        (2, 4,  2, 2, 'Possible collision (false-pos)','critical', 'Lytx',             None),
-        (2, 9,  0, 0, 'Hard brake',                    'warning',  'Samsara',          None),
-        (3, 6,  4, 4, 'Hard acceleration',             'info',     'Samsara',          None),
-        (3, 11, 1, 1, 'Following too close',           'warning',  'Lytx',             None),
-        (4, 3,  3, 3, 'Lane departure',                'warning',  'Verizon Connect',  None),
-        (4, 8,  2, 2, 'Speeding',                      'info',     'Samsara',          None),
-        (5, 5,  0, 0, 'Distracted driving (phone)',    'warning',  'Lytx',             None),
-        (5, 10, 4, 4, 'Hard brake',                    'warning',  'Samsara',          None),
-        (6, 2,  1, 1, 'Rolling stop',                  'info',     'Verizon Connect',  None),
-        (6, 7,  3, 3, 'Hard brake',                    'warning',  'Samsara',          None),
-        (7, 4,  2, 2, 'Speeding',                      'info',     'Lytx',             None),
+    # ---------------- Dashcam events — Phase 2G.4: rich, investor-grade feed ----------------
+    # Event lexicon drawn from real Samsara/Lytx/Verizon event types.
+    DASHCAM_EVENT_LIBRARY = [
+        # (event, severity, vendor, trigger_speed_range)
+        ('Hard brake',                      'warning',  'Samsara',         (35, 65)),
+        ('Hard brake',                      'warning',  'Lytx',            (30, 55)),
+        ('Hard brake',                      'warning',  'RoadBoss',        (40, 70)),
+        ('Following too close',             'warning',  'Lytx',            (55, 72)),
+        ('Following too close',             'warning',  'Samsara',         (50, 68)),
+        ('Speeding',                        'info',     'Verizon Connect', (70, 82)),
+        ('Speeding',                        'warning',  'Samsara',         (78, 92)),
+        ('Lane departure',                  'warning',  'Samsara',         (55, 70)),
+        ('Lane departure',                  'warning',  'Verizon Connect', (48, 66)),
+        ('Lane drift (drowsy)',             'critical', 'Lytx',            (55, 68)),
+        ('Rolling stop',                    'info',     'Verizon Connect', (0, 10)),
+        ('Harsh cornering',                 'warning',  'Samsara',         (25, 45)),
+        ('Harsh acceleration',              'info',     'Samsara',         (0, 35)),
+        ('Distracted driving (phone)',      'warning',  'Lytx',            (40, 68)),
+        ('Distracted driving (eating)',     'info',     'Lytx',            (45, 65)),
+        ('Forward collision warning',       'critical', 'Samsara',         (45, 70)),
+        ('Forward collision warning',       'critical', 'RoadBoss',        (45, 65)),
+        ('Possible collision (false-pos)',  'critical', 'Lytx',            (50, 70)),
+        ('Seat belt off',                   'warning',  'Samsara',         (35, 65)),
+        ('Yawning / drowsiness',            'warning',  'Lytx',            (55, 68)),
+        ('Smoking detected',                'info',     'Lytx',            (40, 65)),
+        ('Tailgating — heavy traffic',      'warning',  'Samsara',         (30, 55)),
     ]
-    for days_ago, hours_ago, v_idx, d_idx, event, sev, vendor, thumb in cam_specs:
-        when = NOW - timedelta(days=days_ago, hours=hours_ago)
+    LOC_POOL = [
+        ('I-40 W', 'Memphis, TN'),   ('I-30 E', 'Dallas, TX'),
+        ('I-85 N', 'Atlanta, GA'),   ('I-70 E', 'Columbus, OH'),
+        ('I-10 W', 'Phoenix, AZ'),   ('US-412', 'Tulsa, OK'),
+        ('I-75 S', 'Chattanooga, TN'), ('I-20 W', 'Shreveport, LA'),
+        ('I-65 N', 'Louisville, KY'), ('US-40', 'Indianapolis, IN'),
+        ('I-44 E', 'Joplin, MO'),    ('I-55 S', 'Jackson, MS'),
+    ]
+    # A few realistic Unsplash dashcam-ish thumbnails (cycled for variety).
+    THUMB_POOL = [
+        'https://images.unsplash.com/photo-1580651315530-69c8e0903883?w=500',
+        'https://images.unsplash.com/photo-1552960562-daf630e9278b?w=500',
+        'https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?w=500',
+        'https://images.unsplash.com/photo-1519643381401-22c77e60520e?w=500',
+        'https://images.unsplash.com/photo-1501147830916-ce44a6359892?w=500',
+        'https://images.unsplash.com/photo-1502899576159-f224dc2349fa?w=500',
+        'https://images.unsplash.com/photo-1558442074-3c19857bc1dc?w=500',
+        'https://images.unsplash.com/photo-1537210249814-b9a10a161ae4?w=500',
+    ]
+    import random as _rnd
+    _rnd.seed(42)  # deterministic demo data
+    TOTAL_EVENTS = 72
+    for i in range(TOTAL_EVENTS):
+        d_idx = _rnd.randint(0, len(drivers) - 1)
+        v_idx = d_idx  # drivers and vehicles align 1:1 in seed
+        event_name, sev, vendor, spd_range = _rnd.choice(DASHCAM_EVENT_LIBRARY)
+        hours_ago = _rnd.randint(1, 14 * 24)  # last 14 days
+        when = NOW - timedelta(hours=hours_ago)
+        road, city = _rnd.choice(LOC_POOL)
+        speed = _rnd.randint(*spd_range) if spd_range[1] > spd_range[0] else spd_range[0]
+        confidence = _rnd.randint(72, 99)
+        clip_seconds = _rnd.randint(8, 30)
         doc = _dated({
             'vehicle_id': vehicles[v_idx]['id'],
+            'vehicle_name': vehicles[v_idx].get('name'),
             'driver_id': drivers[d_idx]['id'],
-            'event': event,
+            'driver_name': drivers[d_idx].get('name'),
+            'event': event_name,
             'severity': sev,
             'vendor': vendor,
-            'thumbnail': thumb,
+            'thumbnail': THUMB_POOL[i % len(THUMB_POOL)],
+            'speed_mph': speed,
+            'location_road': road,
+            'location_city': city,
+            'clip_duration_sec': clip_seconds,
+            'confidence_pct': confidence,
+            'reviewed': _rnd.random() > 0.45,
+            'coach_tag': _rnd.choice([None, None, None, 'Coaching queued', 'Reviewed with driver', 'Escalated']),
         }, when)
         await db.dashcam_events.insert_one(dict(doc))
 

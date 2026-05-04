@@ -442,8 +442,153 @@ async def create_alert(body: AlertIn, user=Depends(get_current_user)):
     return serialize_doc(doc)
 
 @api_router.get("/dashcam-events")
-async def list_dashcam(user=Depends(get_current_user)):
-    return await _list('dashcam_events', limit=200)
+async def list_dashcam(
+    vendor: Optional[str] = None,
+    severity: Optional[str] = None,
+    driver_id: Optional[str] = None,
+    limit: int = 200,
+    user=Depends(get_current_user),
+):
+    query: Dict[str, Any] = {}
+    if vendor:
+        query['vendor'] = vendor
+    if severity:
+        query['severity'] = severity
+    if driver_id:
+        query['driver_id'] = driver_id
+    rows = await db.dashcam_events.find(query, {'_id': 0}).sort('created_at', -1).to_list(max(1, min(limit, 500)))
+    return rows
+
+
+# ---------- Dashcam vendor registry (Phase 2G.4) ----------
+DASHCAM_VENDORS = [
+    {
+        'key': 'Samsara',
+        'label': 'Samsara',
+        'accent': '#38bdf8',
+        'tagline': 'Connected operations platform',
+        'status': 'mock',
+    },
+    {
+        'key': 'Lytx',
+        'label': 'Lytx DriveCam',
+        'accent': '#a78bfa',
+        'tagline': 'AI-powered video telematics',
+        'status': 'mock',
+    },
+    {
+        'key': 'Verizon Connect',
+        'label': 'Verizon Connect',
+        'accent': '#34d399',
+        'tagline': 'Fleet GPS and video',
+        'status': 'mock',
+    },
+    {
+        'key': 'RoadBoss',
+        'label': 'RoadBoss Native',
+        'accent': '#f59e0b',
+        'tagline': 'In-cab phone as a dashcam',
+        'status': 'live',
+    },
+]
+
+
+@api_router.get("/dashcam/vendors")
+async def dashcam_vendors(user=Depends(get_current_user)):
+    # Include rollup counts per vendor for the UI filter chips.
+    vendors = [dict(v) for v in DASHCAM_VENDORS]
+    for v in vendors:
+        v['event_count'] = await db.dashcam_events.count_documents({'vendor': v['key']})
+    return vendors
+
+
+SIMULATE_EVENT_LIBRARY = [
+    ('Hard brake',                  'warning',  (40, 70)),
+    ('Following too close',         'warning',  (55, 72)),
+    ('Speeding',                    'warning',  (78, 92)),
+    ('Lane departure',              'warning',  (55, 70)),
+    ('Distracted driving (phone)',  'warning',  (40, 68)),
+    ('Forward collision warning',   'critical', (45, 70)),
+    ('Harsh cornering',             'warning',  (25, 45)),
+    ('Yawning / drowsiness',        'warning',  (55, 68)),
+    ('Seat belt off',               'warning',  (35, 65)),
+]
+SIMULATE_LOCATIONS = [
+    ('I-40 W', 'Memphis, TN'), ('I-30 E', 'Dallas, TX'),
+    ('I-85 N', 'Atlanta, GA'), ('I-70 E', 'Columbus, OH'),
+    ('I-10 W', 'Phoenix, AZ'), ('I-65 N', 'Louisville, KY'),
+]
+
+
+class DashcamSimulateIn(BaseModel):
+    vendor: Optional[str] = None
+    driver_id: Optional[str] = None
+    event: Optional[str] = None
+    severity: Optional[str] = None
+
+
+@api_router.post("/dashcam/simulate-live")
+async def dashcam_simulate_live(
+    body: Optional[DashcamSimulateIn] = None,
+    user=Depends(require_role('fleet_admin', 'super_admin', 'dispatcher')),
+):
+    """Generate a realistic mock dashcam event (for demos + mock adapter testing).
+    Returns the freshly-created event. Also fires a push to admins so they see it arrive."""
+    import random as _rnd
+    body = body or DashcamSimulateIn()
+    drivers_list = await db.drivers.find({}, {'_id': 0}).to_list(200)
+    if not drivers_list:
+        raise HTTPException(400, "No drivers available to attribute the event to.")
+    driver = None
+    if body.driver_id:
+        driver = next((d for d in drivers_list if d.get('id') == body.driver_id), None)
+    if not driver:
+        driver = _rnd.choice(drivers_list)
+    vehicle = await db.vehicles.find_one({'id': driver.get('vehicle_id')}, {'_id': 0}) if driver.get('vehicle_id') else None
+    vendor_keys = [v['key'] for v in DASHCAM_VENDORS]
+    vendor = body.vendor if body.vendor in vendor_keys else _rnd.choice(vendor_keys)
+    if body.event and body.severity:
+        event_name, severity, spd_range = body.event, body.severity, (40, 70)
+    else:
+        event_name, severity, spd_range = _rnd.choice(SIMULATE_EVENT_LIBRARY)
+    road, city = _rnd.choice(SIMULATE_LOCATIONS)
+    speed = _rnd.randint(*spd_range)
+    confidence = _rnd.randint(78, 99)
+    doc = _make_doc({
+        'vehicle_id': (vehicle or {}).get('id'),
+        'vehicle_name': (vehicle or {}).get('name'),
+        'driver_id': driver.get('id'),
+        'driver_name': driver.get('name'),
+        'event': event_name,
+        'severity': severity,
+        'vendor': vendor,
+        'thumbnail': f"https://images.unsplash.com/photo-1580651315530-69c8e0903883?w=500&sig={_rnd.randint(1, 9999)}",
+        'speed_mph': speed,
+        'location_road': road,
+        'location_city': city,
+        'clip_duration_sec': _rnd.randint(8, 25),
+        'confidence_pct': confidence,
+        'reviewed': False,
+        'coach_tag': None,
+        'source': 'simulate-live',
+    })
+    await db.dashcam_events.insert_one(dict(doc))
+    # Lightweight admin alert + push for critical severity (keeps dashboard lively)
+    if severity == 'critical':
+        try:
+            await push_notify.send_push_to_admins(
+                db,
+                title=f"⚠ {vendor} · {event_name}",
+                body=f"{driver.get('name')} @ {speed} mph on {road} ({city}). Confidence {confidence}%.",
+                url='/app/dashcam',
+                tag=f"dashcam-{doc['id']}",
+                severity='warning',
+                event_type='dashcam_critical',
+                event_ref_id=doc['id'],
+            )
+        except Exception as e:
+            logger.warning(f"Dashcam push failed: {e}")
+    return doc
 
 # ============================================================
 # Stats / Overview
