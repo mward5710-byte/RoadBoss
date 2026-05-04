@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { LogOut, Volume2, Bell, Mic, Sparkles } from 'lucide-react';
 import { triggerDriverTour } from '@/components/DriverOnboardingTour';
+import PushNotificationToggle from '@/components/PushNotificationToggle';
 import { toast } from 'sonner';
 
 export default function DriverSettings() {
@@ -63,14 +64,8 @@ export default function DriverSettings() {
             Beta
           </span>
         </div>
-        <div className="w-full p-4 flex items-center gap-3">
-          <Bell className="w-4 h-4 text-amber-300" />
-          <div className="flex-1">
-            <div className="text-sm text-white">Notifications</div>
-            <div className="text-xs text-slate-500">Push, SMS · coming soon</div>
-          </div>
-        </div>
       </div>
+      <PushNotificationToggle variant="driver" />
       <Button
         onClick={() => {
           auth.logout();

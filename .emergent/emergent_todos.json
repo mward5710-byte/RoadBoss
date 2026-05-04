@@ -1,18 +1,38 @@
 [
   {
-    "content": "Build DriverOnboardingTour.jsx component (6 steps, framer-motion, localStorage persistence)",
+    "content": "Backend: install pywebpush + generate VAPID keys + add to .env",
     "status": "completed"
   },
   {
-    "content": "Mount tour in DriverShell with auto-show on first visit",
+    "content": "Backend: push_notifications.py module (subscribe/unsubscribe/send helpers + audit log)",
     "status": "completed"
   },
   {
-    "content": "Add 'Replay Tour' button in DriverSettings",
+    "content": "Backend: /api/push/config, /status, /subscribe, /unsubscribe, /test endpoints",
     "status": "completed"
   },
   {
-    "content": "Screenshot verification: tour appears for new driver & Replay button works",
+    "content": "Backend: wire push into crash, roadside, dispatch SMS, inbound SMS flows",
     "status": "completed"
+  },
+  {
+    "content": "Frontend: service worker /sw.js + manifest.json + SW registration in index.js",
+    "status": "completed"
+  },
+  {
+    "content": "Frontend: usePushNotifications hook + PushNotificationToggle component",
+    "status": "completed"
+  },
+  {
+    "content": "Frontend: mount toggle in DriverSettings + AdminNotifications",
+    "status": "completed"
+  },
+  {
+    "content": "End-to-end verification: config, subscribe, status, test-push, stale cleanup",
+    "status": "completed"
+  },
+  {
+    "content": "Call backend testing agent to validate Phase 2G.2",
+    "status": "in_progress"
   }
 ]

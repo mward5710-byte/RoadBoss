@@ -1445,6 +1445,28 @@ async def create_crash_event(body: CrashEventIn, user=Depends(get_current_user))
             )
             for contact in emergency_contacts[:10]:  # cap at 10 to avoid SMS storms
                 await notify.send_sms(db, contact, sms_body, event_type='crash_alert', event_ref_id=doc['id'], driver_id=(driver or {}).get('id'))
+        # Phase 2G.2: also fire web push to every fleet admin / dispatcher device
+        try:
+            push_title = f"🚨 Crash — {(driver or {}).get('name') or 'Driver'}"
+            push_body = (
+                f"{sev.upper()} severity"
+                f"{f' at {body.speed_mph} mph' if body.speed_mph else ''}"
+                f"{f', {body.g_force}g' if body.g_force else ''}. "
+                "Verify driver status immediately."
+            )
+            await push_notify.send_push_to_admins(
+                db,
+                title=push_title,
+                body=push_body,
+                url=f"/app/crash/{doc['id']}",
+                tag=f"crash-{doc['id']}",
+                severity='critical',
+                event_type='crash_alert',
+                event_ref_id=doc['id'],
+                data={'latitude': body.latitude, 'longitude': body.longitude, 'severity': sev},
+            )
+        except Exception as e:
+            logger.warning(f"Crash push send failed: {e}")
     return doc
 
 
@@ -1555,6 +1577,20 @@ async def create_roadside_dispatch(body: RoadsideDispatchIn, user=Depends(get_cu
             f"Reply with ETA. Quoted ${(provider or {}).get('typical_cost', '?')}."
         )
         await notify.send_sms(db, provider['phone'], sms_body, event_type='roadside_dispatch_provider', event_ref_id=doc['id'], driver_id=(driver or {}).get('id'))
+    # Phase 2G.2: push to admins so dispatch sees roadside requests immediately
+    try:
+        await push_notify.send_push_to_admins(
+            db,
+            title=f"🛠 Roadside · {body.service_type}",
+            body=f"{(driver or {}).get('name') or 'Driver'} needs {body.service_type}. Provider: {(provider or {}).get('name', 'auto-assigning')}.",
+            url=f"/app/roadside/{doc['id']}",
+            tag=f"roadside-{doc['id']}",
+            severity='warning',
+            event_type='roadside_dispatch',
+            event_ref_id=doc['id'],
+        )
+    except Exception as e:
+        logger.warning(f"Roadside push send failed: {e}")
     return doc
 
 
@@ -2152,6 +2188,23 @@ async def send_dispatch_sms(body: DispatchSMSIn, user=Depends(require_role('flee
         'driver_id': driver['id'],
         'message': f"SMS to {driver.get('name', 'driver')}: {body.message.strip()[:160]}",
     }))
+    # Phase 2G.2: also push the dispatch message to the driver's PWA (free, complements SMS)
+    try:
+        driver_user = await db.users.find_one({'email': driver.get('email')}, {'_id': 0, 'id': 1}) if driver.get('email') else None
+        if driver_user and driver_user.get('id'):
+            await push_notify.send_push_to_users(
+                db,
+                [driver_user['id']],
+                title=f"📩 {sender}",
+                body=body.message.strip()[:200],
+                url='/driver',
+                tag=f"dispatch-{driver['id']}",
+                severity='info',
+                event_type='dispatch_sms',
+                event_ref_id=driver['id'],
+            )
+    except Exception as e:
+        logger.warning(f"Dispatch push send failed: {e}")
     return result
 
 
@@ -2224,6 +2277,20 @@ async def _process_inbound_sms(from_phone: str, body: str, message_sid: Optional
             'message': f"📱 {sender_name}: {body_clean[:240]}",
             'meta': {'from_phone': norm_phone, 'inbound_sid': message_sid},
         }))
+        # Phase 2G.2: push to admins so replies surface even when tab is closed
+        try:
+            await push_notify.send_push_to_admins(
+                db,
+                title=f"📱 Reply from {sender_name}",
+                body=body_clean[:200] or '(empty message)',
+                url='/app/notifications',
+                tag=f"sms-reply-{norm_phone}",
+                severity=severity,
+                event_type='sms_reply',
+                event_ref_id=message_sid,
+            )
+        except Exception as e:
+            logger.warning(f"Inbound SMS push send failed: {e}")
 
     return {
         'matched_driver': bool(driver),
@@ -2404,6 +2471,83 @@ async def trigger_hos_warning(body: HOSWarningTriggerIn, user=Depends(require_ro
 
 from seed_data import seed_demo as _seed_demo_impl, wipe_demo_collections as _wipe_demo_impl
 import notifications as notify  # Phase 2C: SMS + Email dispatch
+import push_notifications as push_notify  # Phase 2G.2: Web Push
+
+
+# ============================================================
+# Push Notifications — Phase 2G.2
+# ============================================================
+
+class PushSubscribeIn(BaseModel):
+    endpoint: str
+    keys: Dict[str, str]
+    user_agent: Optional[str] = None
+
+
+class PushUnsubscribeIn(BaseModel):
+    endpoint: str
+
+
+class PushTestIn(BaseModel):
+    title: Optional[str] = None
+    body: Optional[str] = None
+
+
+@api_router.get("/push/config")
+async def push_config():
+    """Public endpoint so clients can fetch the VAPID public key + enabled flag."""
+    return {
+        "enabled": push_notify.is_push_configured(),
+        "public_key": push_notify.get_vapid_public_key(),
+    }
+
+
+@api_router.get("/push/status")
+async def push_status(user=Depends(get_current_user)):
+    subs = await push_notify.list_subscriptions_for_user(db, user['id'])
+    return {
+        "enabled": push_notify.is_push_configured(),
+        "subscribed": len(subs) > 0,
+        "device_count": len(subs),
+    }
+
+
+@api_router.post("/push/subscribe")
+async def push_subscribe(body: PushSubscribeIn, user=Depends(get_current_user)):
+    if not push_notify.is_push_configured():
+        raise HTTPException(status_code=503, detail="Push notifications are not configured on this server.")
+    try:
+        doc = await push_notify.save_subscription(
+            db,
+            user_id=user['id'],
+            subscription={'endpoint': body.endpoint, 'keys': body.keys},
+            user_agent=body.user_agent or '',
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "id": doc['id']}
+
+
+@api_router.post("/push/unsubscribe")
+async def push_unsubscribe(body: PushUnsubscribeIn, user=Depends(get_current_user)):
+    removed = await push_notify.remove_subscription(db, endpoint=body.endpoint, user_id=user['id'])
+    return {"ok": True, "removed": removed}
+
+
+@api_router.post("/push/test")
+async def push_test(body: PushTestIn, user=Depends(get_current_user)):
+    """Send a test push to every device subscribed by the current user."""
+    result = await push_notify.send_push_to_users(
+        db,
+        [user['id']],
+        title=body.title or 'RoadBoss test push',
+        body=body.body or 'If you see this, push alerts are wired up. Drive safe.',
+        url='/driver/settings' if user.get('role') == 'driver' else '/app/notifications',
+        tag='roadboss-test',
+        severity='info',
+        event_type='push_test',
+    )
+    return result
 
 
 async def _seed_demo():

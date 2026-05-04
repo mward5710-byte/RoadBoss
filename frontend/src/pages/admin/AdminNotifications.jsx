@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { MessageSquare, Mail, RefreshCw, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
+import PushNotificationToggle from '@/components/PushNotificationToggle';
 
 const statusBadge = (status) => {
   if (!status) return <Badge variant="secondary">unknown</Badge>;
@@ -76,6 +77,8 @@ export default function AdminNotifications() {
           Refresh
         </Button>
       </div>
+
+      <PushNotificationToggle variant="admin" />
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card className="bg-zinc-900 border-zinc-800"><CardContent className="p-4">
