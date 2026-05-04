@@ -5,6 +5,8 @@ import { Toaster } from 'sonner';
 import Marketing from '@/pages/Marketing';
 import Login from '@/pages/Login';
 import PitchDeck from '@/pages/PitchDeck';
+import TryPage from '@/pages/TryPage';
+import ShareKit from '@/pages/ShareKit';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
 import GoogleCallback from '@/pages/GoogleCallback';
@@ -60,6 +62,8 @@ function App() {
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/deck" element={<PitchDeck />} />
+          <Route path="/try" element={<TryPage />} />
+          <Route path="/share-kit" element={<ShareKit />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/auth/google-callback" element={<GoogleCallback />} />

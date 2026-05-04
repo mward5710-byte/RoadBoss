@@ -1,30 +1,26 @@
 [
   {
-    "content": "Audit existing Stripe integration (webhook, checkout, subscription flows)",
+    "content": "Backend: /api/auth/demo endpoint for frictionless demo-mode login",
     "status": "completed"
   },
   {
-    "content": "Backend: expand Stripe checkout payment_method_types + safe fallback",
+    "content": "Backend: /api/share/stats for traction numbers on share kit",
     "status": "completed"
   },
   {
-    "content": "Backend: branded SendGrid templates (receipt, payment_failed, subscription_cancelled)",
+    "content": "Frontend: /try page with animated self-playing phone demo reel (no face needed)",
     "status": "completed"
   },
   {
-    "content": "Backend: wire Stripe webhook to trigger email + push + audit log",
+    "content": "Frontend: /share-kit page with 6 social captions, angel email, video script, outlet list",
     "status": "completed"
   },
   {
-    "content": "Frontend: pricing page payment-method badges",
+    "content": "Route registration + Marketing nav link + primary CTA switch to /try",
     "status": "completed"
   },
   {
-    "content": "Smoke test: all 3 stripe webhooks produced queued emails via SendGrid",
-    "status": "completed"
-  },
-  {
-    "content": "Backend testing agent: 48/49 (98%), zero blockers",
+    "content": "End-to-end screenshot verification of /try and /share-kit",
     "status": "completed"
   }
 ]

@@ -60,6 +60,7 @@ export default function Marketing() {
             <a href="#roadmap" className="hover:text-white transition">Roadmap</a>
             <Link to="/pricing" className="hover:text-white transition">Pricing</Link>
             <a href="#waitlist" className="hover:text-white transition">Waitlist</a>
+            <Link to="/try" className="hover:text-white transition">Try it</Link>
             <Link to="/deck" className="hover:text-white transition hidden md:inline">Investors</Link>
           </nav>
           <div className="flex items-center gap-2">
@@ -83,8 +84,8 @@ export default function Marketing() {
             Highway Pilot is the first all-in-one operating system for truckers and fleets. Hands-free voice. Truck-aware GPS. ELD compliance. Dashcam, crash detection, and an AI copilot that rides shotgun.
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
-            <a href="#waitlist"><Button size="lg" className="bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold">Join the waitlist <ArrowRight className="w-4 h-4 ml-1" /></Button></a>
-            <a href="#features"><Button size="lg" variant="outline" className="border-white/15 text-slate-200 hover:bg-white/5">See the system</Button></a>
+            <Link to="/try"><Button size="lg" className="bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold">Try the live demo <ArrowRight className="w-4 h-4 ml-1" /></Button></Link>
+            <a href="#waitlist"><Button size="lg" variant="outline" className="border-white/15 text-slate-200 hover:bg-white/5">Join the waitlist</Button></a>
           </div>
           <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-400">
             <div className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-sky-400" /> Built for owner-operators &amp; fleets</div>

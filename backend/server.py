@@ -229,6 +229,64 @@ async def login(body: LoginIn):
 async def me(user=Depends(get_current_user)):
     return user
 
+
+# ------------------------------------------------------------
+# Demo login (public, no password) — Phase 2H.3
+# For TikTok / social visitors hitting /try. Auto-issues a short-lived token
+# for the seeded demo driver so they can explore the app without signup friction.
+# ------------------------------------------------------------
+class DemoLoginIn(BaseModel):
+    role: Optional[str] = 'driver'  # 'driver' | 'admin'
+    source: Optional[str] = None     # utm source (tiktok, fb, reddit, etc.)
+
+
+@api_router.post("/auth/demo")
+async def demo_login(body: DemoLoginIn):
+    role_map = {
+        'driver': 'driver@highwaypilot.io',
+        'admin':  'fleet_admin@highwaypilot.io',
+    }
+    email = role_map.get((body.role or 'driver').lower(), role_map['driver'])
+    user = await db.users.find_one({'email': email})
+    if not user:
+        raise HTTPException(404, "Demo account unavailable — re-seed the database.")
+    token = create_token(user['id'], user['email'], user['role'])
+    # Lightweight audit for marketing attribution (non-blocking)
+    try:
+        await db.demo_sessions.insert_one({
+            'id': str(uuid.uuid4()),
+            'user_email': email,
+            'source': (body.source or '').strip().lower()[:40] or 'direct',
+            'created_at': now_utc(),
+        })
+    except Exception:
+        pass
+    safe = serialize_doc({k: v for k, v in user.items() if k != 'password_hash'})
+    return {'access_token': token, 'token_type': 'bearer', 'user': safe, 'demo': True}
+
+
+@api_router.get("/share/stats")
+async def share_stats():
+    """Public — lightweight traction numbers for social-share kits."""
+    try:
+        waitlist_count = await db.waitlist.count_documents({})
+    except Exception:
+        waitlist_count = 0
+    try:
+        drivers_count = await db.drivers.count_documents({})
+    except Exception:
+        drivers_count = 0
+    try:
+        demo_count = await db.demo_sessions.count_documents({})
+    except Exception:
+        demo_count = 0
+    return {
+        'waitlist_count': waitlist_count,
+        'demo_sessions': demo_count,
+        'active_drivers_seeded': drivers_count,
+    }
+
+
 # ============================================================
 # Waitlist (public)
 # ============================================================

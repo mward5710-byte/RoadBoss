@@ -28,6 +28,7 @@
 - **Stage 3 Phase 2G is COMPLETE ✅** — onboarding tour, push, emergency contacts UI, dashcam, Stripe receipts all shipped.
 - **Stage 3 Phase 2H.1 (Investor Pitch Deck at /deck): ✅ Done** ← 12-slide presentable deck w/ print-to-PDF + framer-motion + keyboard nav
 - **Stage 3 Phase 2H.2 (iOS PWA polish + meta tags): ✅ Done** ← apple-touch meta tags, title, og tags, manifest
+- **Stage 3 Phase 2H.3 (Viral Launch Kit): ✅ Done** ← `/try` (demo mode + animated phone reel), `/share-kit` (6 captions + angel email + video script + outlet hit-list), `/api/auth/demo`, `/api/share/stats`, Marketing primary CTA switched to Try
 - **Mike's Action Items**: `/app/memory/mike_action_items.md` — comprehensive external-work checklist
 - Stage 4 / 5: Backlog (CB Talker network, native iOS shell, deeper dashcam adapters)
 
