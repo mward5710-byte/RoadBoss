@@ -88,7 +88,14 @@ Run `dart format .` locally and commit the result. Run `flutter analyze` and fix
 ### 0.4 Logo + branding sweep (45 min)
 Mike said the bots "didn't even get my logo in there." Fix this.
 
-**Logo asset path:** `assets/icons/wreckerlogix_icon.svg` (already in repo)
+**OFFICIAL LOGO ASSET (from Mike, May 2026):**
+- High-res master: https://customer-assets.emergentagent.com/job_build-forge-49/artifacts/rkiwlg9l_IMG_0846.jpeg
+- Description: Chrome + orange "WRECKERLOGIX" wordmark inside a steel gear shield with a tow hook hanging off the bottom-right.
+- Color palette derived from the logo: chrome silver `#c8d0d8`, deep orange `#ff7a18`, jet black `#0b0e14`.
+- This is also the logo currently used in the **RoadBoss "Wrecker Mode" sidebar** at https://build-forge-49.preview.emergentagent.com/wrecker — the brand families match.
+
+**Logo asset placement in Flutter project:**
+- Save the JPEG to `assets/icons/wreckerlogix-logo.jpeg` AND export a 1024×1024 transparent PNG to `assets/icons/wreckerlogix_icon.png` for icon generation.
 
 Tasks:
 - Generate iOS app icon set (1024x1024 master → all required sizes) using https://appicon.co or `flutter_launcher_icons` package.

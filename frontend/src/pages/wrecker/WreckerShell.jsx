@@ -1,6 +1,5 @@
 import React from 'react';
 import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
-import { Logo } from '@/components/Logo';
 import {
   LayoutDashboard, Truck, Lock, Building2, Fuel, CreditCard, LogOut,
   User, BookOpen, Mic, Wrench
@@ -25,9 +24,18 @@ export default function WreckerShell() {
   return (
     <div className="min-h-screen flex bg-[#07090d]">
       <aside className="w-60 border-r border-white/5 bg-[#0a0e14] flex flex-col">
-        <div className="p-4 border-b border-white/5 flex items-center justify-between">
-          <Link to="/wrecker"><Logo size={28} /></Link>
-          <span className="text-[9px] uppercase tracking-widest px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300" data-testid="wrecker-mode-badge">Wrecker</span>
+        <div className="p-3 border-b border-white/5 flex items-center gap-2">
+          <Link to="/wrecker" className="flex items-center gap-2 min-w-0 flex-1" data-testid="wrecker-logo-link">
+            <img
+              src="/assets/wreckerlogix-logo.jpeg"
+              alt="Wreckerlogix"
+              className="w-10 h-10 rounded-md object-contain bg-white/[0.04] border border-white/10"
+            />
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold text-white tracking-wider leading-tight">WRECKER<span className="text-amber-400">LOGIX</span></div>
+              <div className="text-[8px] uppercase tracking-widest text-slate-500 leading-tight">on RoadBoss · v0.1</div>
+            </div>
+          </Link>
         </div>
         <nav className="flex-1 p-3 space-y-1">
           {nav.map((n) => (
