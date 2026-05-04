@@ -266,7 +266,14 @@ export default function WreckerDashboard() {
 
         {/* DRIVERS + ROTATION */}
         <div className="space-y-3">
-          <DriversPanel onAssign={onAssigned} selectedJobId={selectedJobId} />
+          <DriversPanel
+            onAssign={onAssigned}
+            selectedJobId={selectedJobId}
+            selectedJobPickup={(() => {
+              const j = jobs.find((x) => x.id === selectedJobId);
+              return j?.pickup ? { lat: j.pickup.lat, lng: j.pickup.lng } : null;
+            })()}
+          />
         </div>
       </div>
     </div>

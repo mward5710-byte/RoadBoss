@@ -1,42 +1,26 @@
 [
   {
-    "content": "Update plan.md + create master spec doc",
+    "content": "Backend: POST /api/wrecker/drivers/me/location endpoint + serialize lat/lng on driver list",
     "status": "completed"
   },
   {
-    "content": "PHASE 1: Backend — extend tow_jobs with 7-stage flow, vehicle keys/drivable/drive_type, photo stages",
+    "content": "Frontend hook: useDriverLocation — watchPosition + throttled POST every 30s",
     "status": "completed"
   },
   {
-    "content": "PHASE 1: Backend — photo upload (base64) + email receipt API endpoints",
+    "content": "Driver Home: location status pill (ON/OFF/Denied) + auto-start on mount",
     "status": "completed"
   },
   {
-    "content": "PHASE 2: Backend — damage_forms collection + waivers collection + APIs",
+    "content": "Dispatcher Drivers Panel: show miles-to-pickup per driver when job selected",
     "status": "completed"
   },
   {
-    "content": "PHASE 3: Backend — charges line items + payments tracking + receipt sender",
+    "content": "Dispatch Board job cards: show closest driver distance always",
     "status": "completed"
   },
   {
-    "content": "PHASE 1: Frontend — Driver Job Cockpit",
-    "status": "completed"
-  },
-  {
-    "content": "PHASE 2: Frontend — Damage Form 4-view SVG + Liability Waiver + Signature canvas",
-    "status": "completed"
-  },
-  {
-    "content": "PHASE 3: Frontend — Charges editor + Payments + Email Receipt",
-    "status": "completed"
-  },
-  {
-    "content": "Backend tests via testing agent (33/34 passed, 1 medium bug fixed)",
-    "status": "completed"
-  },
-  {
-    "content": "Final UI screenshots for Mike",
+    "content": "Test + screenshot — verified end-to-end (3 drivers pinged, dispatcher sees sorted by distance)",
     "status": "completed"
   }
 ]

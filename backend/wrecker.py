@@ -535,6 +535,13 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
             d['rotation_order'] = u.get('rotation_order', 99)
             d['last_dispatched_at'] = u.get('last_dispatched_at')
             d['on_duty'] = u.get('on_duty', True)
+            d['truck_number'] = u.get('truck_number')
+            # Live location (if driver has ever pinged)
+            d['last_known_lat'] = u.get('last_known_lat')
+            d['last_known_lng'] = u.get('last_known_lng')
+            d['last_known_speed'] = u.get('last_known_speed')
+            d['last_known_heading'] = u.get('last_known_heading')
+            d['last_location_at'] = u.get('last_location_at')
             # Active job count
             d['active_jobs'] = await db.tow_jobs.count_documents({
                 'assigned_driver_id': u['id'],
@@ -574,6 +581,72 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         if res.matched_count == 0:
             raise HTTPException(404, 'Driver not found')
         return {'ok': True, 'on_duty': on_duty}
+
+    # =========================================================
+    # Live truck tracking — driver pushes GPS, dispatcher reads
+    # =========================================================
+    class DriverLocationIn(BaseModel):
+        lat: float
+        lng: float
+        accuracy: Optional[float] = None     # meters
+        speed: Optional[float] = None        # m/s
+        heading: Optional[float] = None      # degrees
+        battery: Optional[float] = None      # 0..1 if available
+
+    @router.post('/drivers/me/location')
+    async def update_my_location(body: DriverLocationIn, user=Depends(require_wrecker)):
+        """Driver-side: phone GPS pushes here every ~30s. Permissioned by browser, not API key."""
+        if user.get('role') not in ('wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'):
+            raise HTTPException(403, 'Only wrecker users can ping location')
+        update = {
+            'last_known_lat': body.lat,
+            'last_known_lng': body.lng,
+            'last_known_accuracy': body.accuracy,
+            'last_known_speed': body.speed,
+            'last_known_heading': body.heading,
+            'last_known_battery': body.battery,
+            'last_location_at': _now(),
+        }
+        await db.users.update_one({'id': user['id']}, {'$set': update})
+        # Also append to a lightweight breadcrumb collection (last 200 points per driver, ttl-ish)
+        breadcrumb = {
+            'driver_id': user['id'], 'lat': body.lat, 'lng': body.lng,
+            'speed': body.speed, 'heading': body.heading, 'at': _now(),
+        }
+        await db.driver_breadcrumbs.insert_one(breadcrumb)
+        # Trim breadcrumbs to last 200 per driver (best-effort)
+        try:
+            cnt = await db.driver_breadcrumbs.count_documents({'driver_id': user['id']})
+            if cnt > 200:
+                # Delete oldest beyond 200
+                old = db.driver_breadcrumbs.find({'driver_id': user['id']}).sort('at', 1).limit(cnt - 200)
+                ids_to_delete = [doc['_id'] async for doc in old]
+                if ids_to_delete:
+                    await db.driver_breadcrumbs.delete_many({'_id': {'$in': ids_to_delete}})
+        except Exception:
+            pass
+        return {'ok': True, 'last_location_at': update['last_location_at'].isoformat()}
+
+    @router.get('/drivers/locations')
+    async def all_driver_locations(user=Depends(require_dispatcher)):
+        """Dispatcher-only: live snapshot of every on-duty driver's last known position."""
+        out = []
+        async for u in db.users.find({'role': 'wrecker_operator'}, {'_id': 0, 'password_hash': 0}):
+            if u.get('last_known_lat') is None or u.get('last_known_lng') is None:
+                continue
+            out.append({
+                'id': u['id'],
+                'name': u.get('name'),
+                'truck_number': u.get('truck_number'),
+                'on_duty': u.get('on_duty', True),
+                'lat': u['last_known_lat'],
+                'lng': u['last_known_lng'],
+                'speed': u.get('last_known_speed'),
+                'heading': u.get('last_known_heading'),
+                'accuracy': u.get('last_known_accuracy'),
+                'last_location_at': (u.get('last_location_at') or _now()).isoformat() if isinstance(u.get('last_location_at'), datetime) else u.get('last_location_at'),
+            })
+        return out
 
     # =========================================================
     # Motor Clubs

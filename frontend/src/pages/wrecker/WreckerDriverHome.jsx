@@ -4,10 +4,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Mic, MapPin, Phone, Clock, ArrowRight, Truck, RefreshCw, AlertTriangle, CheckCircle2, Zap, Navigation } from 'lucide-react';
+import { Mic, MapPin, Phone, Clock, ArrowRight, Truck, RefreshCw, AlertTriangle, CheckCircle2, Zap, Navigation, Radio } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { navUrl, NAV_APPS, getNavApp, setNavApp } from '@/lib/navPref';
+import useDriverLocation from '@/hooks/useDriverLocation';
 
 const STATUS_ORDER = ['assigned', 'en_route', 'on_scene', 'in_progress', 'completed'];
 const STATUS_LABEL = { pending: 'Pending', assigned: 'Assigned', en_route: 'En Route', on_scene: 'On Scene', in_progress: 'In Progress', completed: 'Completed', cancelled: 'Cancelled' };
@@ -24,6 +25,9 @@ export default function WreckerDriverHome() {
   const me = getUser();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Live GPS — auto-starts and pings backend every ~30s while on this page
+  const loc = useDriverLocation({ autoStart: true });
 
   const load = useCallback(async () => {
     try {
@@ -75,7 +79,8 @@ export default function WreckerDriverHome() {
             Dispatch sends you the calls. Just update status as you work — no hunting, no picking.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <LocationStatusPill loc={loc} />
           <NavAppQuickPicker />
           <Button data-testid="driver-refresh" variant="outline" size="sm" onClick={load} className="border-white/10 text-slate-300">
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
@@ -237,6 +242,49 @@ export default function WreckerDriverHome() {
     </div>
   );
 }
+
+function LocationStatusPill({ loc }) {
+  const { status, lastSentAt, start } = loc;
+  const colors = {
+    on:         'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+    requesting: 'border-amber-500/40 bg-amber-500/10 text-amber-300 animate-pulse',
+    denied:     'border-red-500/40 bg-red-500/10 text-red-300',
+    error:      'border-red-500/40 bg-red-500/10 text-red-300',
+    idle:       'border-slate-500/30 bg-white/5 text-slate-300',
+    unsupported: 'border-slate-500/30 bg-white/5 text-slate-500',
+  };
+  const labels = {
+    on: 'GPS Live',
+    requesting: 'Locating…',
+    denied: 'GPS Blocked',
+    error: 'GPS Error',
+    idle: 'GPS Off',
+    unsupported: 'No GPS',
+  };
+  const handleClick = () => {
+    if (status === 'denied') {
+      toast.error('Location is blocked. Open browser settings → Site Permissions → allow Location for this site.');
+      return;
+    }
+    if (status !== 'on' && status !== 'requesting') start();
+  };
+  const ageText = lastSentAt
+    ? `${Math.round((Date.now() - lastSentAt.getTime()) / 1000)}s ago`
+    : null;
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      data-testid="driver-location-pill"
+      title={status === 'on' ? `Last broadcast ${ageText}` : 'Tap to enable location sharing'}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-semibold transition ${colors[status] || colors.idle}`}
+    >
+      <Radio className={`w-3.5 h-3.5 ${status === 'on' ? 'animate-pulse' : ''}`} />
+      <span>{labels[status] || 'GPS'}</span>
+    </button>
+  );
+}
+
 
 function NavAppQuickPicker() {
   const [current, setCurrent] = useState(getNavApp());
