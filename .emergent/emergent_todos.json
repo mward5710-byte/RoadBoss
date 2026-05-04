@@ -4,7 +4,7 @@
     "status": "completed"
   },
   {
-    "content": "Backend: expand Stripe checkout payment_method_types (card, link, cashapp, us_bank_account) + safe fallback",
+    "content": "Backend: expand Stripe checkout payment_method_types + safe fallback",
     "status": "completed"
   },
   {
@@ -24,7 +24,7 @@
     "status": "completed"
   },
   {
-    "content": "Backend testing agent for Phase 2G.5",
-    "status": "in_progress"
+    "content": "Backend testing agent: 48/49 (98%), zero blockers",
+    "status": "completed"
   }
 ]
