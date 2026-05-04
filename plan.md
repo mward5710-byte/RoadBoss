@@ -25,7 +25,10 @@
 - **Stage 3 Phase 2G.3 (Admin Settings — Emergency Contacts CRUD): ✅ Done** ← `/app/settings`, DB-backed contacts with env fallback (31/31 tests, 100%)
 - **Stage 3 Phase 2G.4 (Mock Dashcam Feeds): ✅ Done** ← 72-event seed, vendor registry, simulate-live endpoint, full UI redesign with filters + live badges
 - **Stage 3 Phase 2G.5 (Stripe → SendGrid + expanded payment methods): ✅ Done** ← invoice.paid/payment_failed/subscription.deleted → branded emails; checkout now accepts cards, Link, Cash App Pay, ACH w/ safe fallback (48/49 tests, 98%)
-- **Stage 3 Phase 2G is COMPLETE ✅** — onboarding tour, push, emergency contacts UI, dashcam, Stripe receipts all shipped. Next strategic moves: P4 CB Talker network, server.py incremental refactor, iOS native shell.
+- **Stage 3 Phase 2G is COMPLETE ✅** — onboarding tour, push, emergency contacts UI, dashcam, Stripe receipts all shipped.
+- **Stage 3 Phase 2H.1 (Investor Pitch Deck at /deck): ✅ Done** ← 12-slide presentable deck w/ print-to-PDF + framer-motion + keyboard nav
+- **Stage 3 Phase 2H.2 (iOS PWA polish + meta tags): ✅ Done** ← apple-touch meta tags, title, og tags, manifest
+- **Mike's Action Items**: `/app/memory/mike_action_items.md` — comprehensive external-work checklist
 - Stage 4 / 5: Backlog (CB Talker network, native iOS shell, deeper dashcam adapters)
 
 **External integration status notes (operational reality):**

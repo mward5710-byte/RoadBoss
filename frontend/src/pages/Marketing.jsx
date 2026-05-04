@@ -60,6 +60,7 @@ export default function Marketing() {
             <a href="#roadmap" className="hover:text-white transition">Roadmap</a>
             <Link to="/pricing" className="hover:text-white transition">Pricing</Link>
             <a href="#waitlist" className="hover:text-white transition">Waitlist</a>
+            <Link to="/deck" className="hover:text-white transition hidden md:inline">Investors</Link>
           </nav>
           <div className="flex items-center gap-2">
             <Link to="/login"><Button variant="ghost" size="sm" className="text-slate-300 hover:text-white">Sign in</Button></Link>
