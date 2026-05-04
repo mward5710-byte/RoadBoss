@@ -2,7 +2,7 @@ import React from 'react';
 import { getUser, auth } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { LogOut, Volume2, Bell, Mic, Sparkles } from 'lucide-react';
+import { LogOut, Volume2, Bell, Mic, Sparkles, BookOpen } from 'lucide-react';
 import { triggerDriverTour } from '@/components/DriverOnboardingTour';
 import PushNotificationToggle from '@/components/PushNotificationToggle';
 import { toast } from 'sonner';
@@ -54,6 +54,19 @@ export default function DriverSettings() {
             New
           </span>
         </button>
+        <a
+          href="/guide"
+          target="_blank"
+          rel="noreferrer"
+          data-testid="settings-open-manual"
+          className="w-full p-4 flex items-center gap-3 text-left hover:bg-white/[0.02]"
+        >
+          <BookOpen className="w-4 h-4 text-amber-300" />
+          <div className="flex-1">
+            <div className="text-sm text-white">Open user manual</div>
+            <div className="text-xs text-slate-500">Full instructions for voice, DVIR, crash, GPS, billing</div>
+          </div>
+        </a>
         <div className="w-full p-4 flex items-center gap-3">
           <Mic className="w-4 h-4 text-sky-300" />
           <div className="flex-1">

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
 import { Logo } from '@/components/Logo';
-import { LayoutDashboard, Users, Truck, Route, Wrench, Bell, Camera, Mail, LogOut, MapPin, User, CreditCard, ClipboardCheck, AlertTriangle, LifeBuoy, MessageSquare, Settings } from 'lucide-react';
+import { LayoutDashboard, Users, Truck, Route, Wrench, Bell, Camera, Mail, LogOut, MapPin, User, CreditCard, ClipboardCheck, AlertTriangle, LifeBuoy, MessageSquare, Settings, BookOpen } from 'lucide-react';
 import { auth, getUser } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 
@@ -42,6 +42,15 @@ export default function AppShell() {
           ))}
         </nav>
         <div className="p-3 border-t border-white/5">
+          <a
+            href="/guide"
+            target="_blank"
+            rel="noreferrer"
+            data-testid="nav-manual"
+            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-white/5 border border-transparent transition mb-2"
+          >
+            <BookOpen className="w-4 h-4" /> User Manual
+          </a>
           <Link to="/app/profile" className="flex items-center gap-3 mb-2 hover:bg-white/[0.03] rounded-lg p-1 -m-1">
             <div className="w-9 h-9 rounded-full bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-300 text-sm font-semibold">
               {(user?.name || '?').split(' ').map((s) => s[0]).slice(0, 2).join('')}
