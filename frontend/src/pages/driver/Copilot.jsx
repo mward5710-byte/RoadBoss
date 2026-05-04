@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, Volume2, VolumeX, Loader2, RotateCcw, ArrowLeft, Sparkles, Radio, ExternalLink, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { api } from '@/lib/api';
+import { api, getUser } from '@/lib/api';
 import { toast } from 'sonner';
 import { isInIframe } from '@/hooks/useWakeWord';
 
@@ -23,6 +23,10 @@ function speak(text, onEnd) {
 
 export default function Copilot() {
   const navigate = useNavigate();
+  const me = getUser();
+  const isWrecker = me?.role === 'wrecker_operator';
+  const backTo = isWrecker ? '/wrecker' : '/driver';
+  const backLabel = isWrecker ? 'Board' : 'Cab';
   const [messages, setMessages] = useState([]);
   const [mode, setMode] = useState('idle'); // idle | listening | thinking | speaking
   const [handsFree, setHandsFree] = useState(false);
@@ -78,6 +82,15 @@ export default function Copilot() {
         if (t === 'start_trip') toast.success(`Trip started: ${action.origin} → ${action.destination}`);
         if (t === 'end_trip') toast.success('Trip completed');
         if (t === 'log_fuel') toast.success('Fuel stop logged');
+        if (t === 'tow_job_status') toast.success(`${action.customer || 'Job'} → ${action.new_status?.replace('_', ' ')}`);
+        if (t === 'tow_job_next' && action.customer) {
+          toast.success(`Next: ${action.customer} — ${action.service_type}`);
+        }
+        if (t === 'fuel_check' && action.tanks?.length) {
+          const main = action.tanks[0];
+          toast.success(`${main.name}: ${main.current_gallons} gal (${main.percent}%)`);
+        }
+        if (t === 'impound_quick') toast.success('Impound record created');
         if (t === 'start_inspection' && action.redirect) {
           toast.success(`${action.inspection_type === 'pre_trip' ? 'Pre' : 'Post'}-trip inspection started`);
           // Speak first, then navigate to the inspection page (it auto-runs voice walkthrough)
@@ -258,9 +271,9 @@ export default function Copilot() {
       {/* Top bar */}
       <div className="px-5 py-3 border-b border-white/5 bg-[#07090d]/80 backdrop-blur sticky top-[57px] z-20">
         <div className="flex items-center justify-between gap-3">
-          <Link to="/driver" className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors" data-testid="copilot-back-btn">
+          <Link to={backTo} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors" data-testid="copilot-back-btn">
             <ArrowLeft className="w-4 h-4" />
-            <span className="text-xs uppercase tracking-widest">Cab</span>
+            <span className="text-xs uppercase tracking-widest">{backLabel}</span>
           </Link>
           <div className="text-center">
             <div className="text-[10px] uppercase tracking-widest text-sky-400/80 flex items-center justify-center gap-1.5"><Sparkles className="w-3 h-3" /> Co-Pilot AI</div>

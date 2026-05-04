@@ -1,34 +1,30 @@
 [
   {
-    "content": "Update /app/plan.md with Phase 3 — Wrecker Mode + Wreckerlogix spec doc",
+    "content": "Extend Co-Pilot system prompt with wrecker actions (tow_job_status, tow_job_next, fuel_check, impound_quick)",
     "status": "completed"
   },
   {
-    "content": "Write /app/memory/wreckerlogix_master_spec.md — comprehensive battle plan Mike pastes into a new Emergent session for the Flutter repo",
+    "content": "Extend _build_driver_context to include wrecker context (active tow job, today's revenue/jobs, fuel tanks)",
     "status": "completed"
   },
   {
-    "content": "Backend: Create /app/backend/wrecker.py with models + role 'wrecker_operator' + all /api/wrecker/* endpoints",
+    "content": "Add wrecker action handlers to _execute_copilot_action with spoken_addendum field",
     "status": "completed"
   },
   {
-    "content": "Backend: Wire wrecker.py into server.py + add /api/auth/demo-wrecker one-click demo login",
+    "content": "Wire wrecker context fetch (_build_wrecker_context) into copilot_chat endpoint",
     "status": "completed"
   },
   {
-    "content": "Frontend: Create /wrecker shell + 7 pages (Dashboard, JobNew, JobDetail, Impound, MotorClubs, Fuel, Billing)",
+    "content": "Add /wrecker/voice route reusing Copilot.jsx component with role-aware back button",
     "status": "completed"
   },
   {
-    "content": "Frontend: Add 'Try Wrecker Mode' demo button on /try page + route registration in App.js + role-based redirects",
+    "content": "Add wrecker action toasts in Copilot.jsx (status changes, next-call summary, fuel readout, impound)",
     "status": "completed"
   },
   {
-    "content": "Test Wrecker Mode end-to-end (smoke tests ✅ + screenshot ✅)",
+    "content": "Smoke test: 'next call', 'check fuel', 'mark in progress', 'job complete' — all working with proper spoken responses",
     "status": "completed"
-  },
-  {
-    "content": "Backend: Extend Co-Pilot action schema with wrecker intents (deferred to next sprint, basic intents already exposed in WRECKER_VOICE_INTENTS)",
-    "status": "pending"
   }
 ]

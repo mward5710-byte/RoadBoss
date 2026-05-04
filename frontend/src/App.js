@@ -127,6 +127,8 @@ function App() {
             <Route path="fuel" element={<WreckerFuel />} />
             <Route path="billing" element={<WreckerBilling />} />
           </Route>
+          {/* Wrecker hands-free voice page reuses the Co-Pilot UI but lives outside the shell so it can be full-screen */}
+          <Route path="/wrecker/voice" element={<RequireAuth roles={['wrecker_operator', 'fleet_admin', 'dispatcher']}><Copilot /></RequireAuth>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

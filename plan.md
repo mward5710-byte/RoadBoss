@@ -6,7 +6,7 @@
 
 ---
 
-## Status: STAGE 3 — PHASE 3A/3B v1 COMPLETE ✅ (ENTERING PHASE 3B v2 — WRECKER VOICE + RECEIPTS)
+## Status: STAGE 3 — PHASE 3A COMPLETE ✅ / PHASE 3B v2(a) COMPLETE ✅ (ENTERING PHASE 3B v2(b) — RECEIPTS)
 - Stage 1 (Foundation): ✅ Done
 - Stage 2 (Workflows + Stripe + Google OAuth): ✅ Done
 - Stage 3 Phase 1 (Pricing alignment + AI Copilot): ✅ Done
@@ -29,7 +29,8 @@
 - Stage 3 Phase 2H.2 (iOS PWA polish + meta tags): ✅ Done
 - Stage 3 Phase 2H.3 (Viral Launch Kit): ✅ Done
 - **Stage 3 Phase 3A (Wreckerlogix Master Spec Doc): ✅ Done**
-- **Stage 3 Phase 3B (Wrecker Mode in RoadBoss v1): ✅ Done**
+- **Stage 3 Phase 3B v1 (Wrecker Mode in RoadBoss — web/PWA cockpit): ✅ Done**
+- **Stage 3 Phase 3B v2(a) (Wrecker Voice Intents via Co-Pilot actions): ✅ Done**
 - Stage 4 / 5: Backlog (CB Talker network, native iOS shell, deeper dashcam adapters)
 
 **External integration status notes (operational reality):**
@@ -87,7 +88,7 @@
 **1. Co-Pilot ACTION EXECUTION**
   - Model emits `<<<ACTION:{json}>>>` markers.
   - Backend validates + executes whitelisted actions and returns spoken response.
-  - Whitelisted actions: `duty_change`, `start_trip`, `end_trip`, `log_fuel`, `start_inspection`.
+  - Whitelisted actions: `duty_change`, `start_trip`, `end_trip`, `log_fuel`, `start_inspection`, `dispatch_roadside`, `send_sms`.
   - Driver Home rewired: calls `/api/copilot/chat`.
   - Legacy `/api/voice/command` kept for backward compatibility.
 
@@ -159,11 +160,11 @@
 
 **Next execution step (outside this repo):** Start a **new Emergent session** with the Flutter repo URL and paste the master spec doc as instructions.
 
-### Phase 3B v1 (DONE ✅) — Wrecker Mode inside RoadBoss (web/PWA)
+### Phase 3B v1 (DONE ✅) — Wrecker Mode inside RoadBoss (web/PWA cockpit)
 **Goal:** unify Mike’s scattered apps into one command center while still allowing a dedicated towing operator cockpit.
 
 **Shipped (v1):**
-- Backend module: `/app/backend/wrecker.py` (~590 lines)
+- Backend module: `/app/backend/wrecker.py`
   - Models: TowJob, Impound, MotorClub, FuelTank, FuelTransaction
   - Endpoints under `/api/wrecker/*`:
     - Jobs: CRUD + status transitions + active dispatch
@@ -171,7 +172,7 @@
     - Motor clubs: CRUD
     - Fuel tanks + transactions + FuelCloud integration status
     - Overview dashboard
-  - Demo seed: 8 tow jobs, 2 impounds, 6 motor clubs, 2 fuel tanks
+  - Demo seed: 8+ tow jobs, 2 impounds, 6 motor clubs, 2 fuel tanks
   - Fixed impound storage fee calculation (timezone-aware)
 - Auth:
   - New role: `wrecker_operator`
@@ -181,7 +182,7 @@
     - `WreckerShell`, `WreckerDashboard`, `WreckerJobNew`, `WreckerJobDetail`, `WreckerImpound`, `WreckerMotorClubs`, `WreckerFuel`, `WreckerBilling`
   - Routing wired in `App.js` with role-gated access
   - Login redirect supports `wrecker_operator`
-  - `/try` page now includes **“🚛 Wrecker Mode”** demo button
+  - `/try` page includes **“🚛 Wrecker Mode”** demo button
 
 **Testing:**
 - All 7 endpoint groups return 200 (smoke-tested)
@@ -190,34 +191,64 @@
 
 **Definition of done (v1):** ✅ Complete.
 
-### Phase 3B v2 (NEXT) — Towbook-killer upgrades: voice + receipts + signature + accounting sync
-**Goal:** move from “demo-grade wrecker cockpit” to “operational replacement for Towbook.”
+### Phase 3B v2(a) (DONE ✅) — Wrecker Voice Intents (Towbook-killer hands-free dispatch)
+**Goal:** give tow operators the same “don’t touch the phone” superpower as RoadBoss drivers.
 
-**P0 (next sprint): Co-Pilot wrecker actions (hands-free dispatch)**
-- Bind `WRECKER_VOICE_INTENTS` into existing Co-Pilot system prompt + action parser.
-- New actions (v2):
-  - `tow_job_status` (en_route, on_scene, in_progress, completed)
-  - `tow_job_next` (fetch current call)
-  - `impound_create` (basic)
-  - `fuel_check` (reads tank estimate)
-- Safety constraints: no screen instructions while driving.
+**Completed — Co-Pilot Buddy now natively supports `wrecker_operator` with full action set:**
+- `tow_job_status` (en_route/on_scene/in_progress/completed/cancelled): updates operator’s active tow job
+- `tow_job_next`: reads active job aloud (customer, vehicle, address, service type)
+- `fuel_check`: reads tank levels aloud with percentages
+- `impound_quick`: converts active job into an impound record
 
-**P0 (next sprint): SMS/Email receipts on job completion**
-- Trigger when job status becomes `completed`:
-  - Option A: auto-send receipt (config)
-  - Option B: prompt operator UI button “Send receipt”
-- Use existing Twilio/SendGrid wrappers (`/app/backend/notifications.py`).
-- Store audit in `notification_logs`.
+**Key engineering wins:**
+- Added `_build_wrecker_context()` helper: fetches active tow job, fuel tanks, today’s completed/revenue
+- Extended `_build_driver_context(..., wrecker_ctx=...)` so Claude gets LIVE wrecker context inside the system prompt
+- Action results support `spoken_addendum` and backend appends it to the spoken reply so the AI reads real data aloud
+- `/wrecker/voice` route reuses `Copilot.jsx` with role-aware back button (BOARD vs CAB)
+- Toast feedback added for all 4 wrecker action types
 
-**P1: E-signature capture**
-- Add signature capture UI on job completion (touchscreen) and store `signature_url` on job.
+**Smoke tests verified (production preview):**
+- “What is my next call?” → reads job details aloud
+- “Check fuel level” → reads tank levels aloud
+- “Mark me in progress, hooking up now” → status advances to `in_progress`
+- “Job complete, all done” → status → `completed` + `tow_job_completed` alert fired
+
+**Definition of done:** ✅ Complete.
+
+### Phase 3B v2(b) (NEXT) — SMS/Email receipts on job completion
+**Goal:** turn job completion into immediate cashflow and clean books (no chasing receipts).
+
+**Current state:**
+- A `tow_job_completed` alert is fired on voice completion; Twilio/SendGrid infrastructure exists in `/app/backend/notifications.py`.
+
+**Implementation steps (rev 1):**
+1. **Receipt model + storage**
+   - Create `tow_receipts` collection: `{id, job_id, customer_name, customer_phone/email, line_items, total, sent_via, sent_at, status}`
+2. **Trigger rules**
+   - Trigger on transition to `completed` (voice or UI)
+   - Option A: auto-send if customer phone/email exists and setting enabled
+   - Option B: UI prompt on Job Detail: “Send receipt” button
+3. **Receipt formatting**
+   - v1: SMS with summary + link to web receipt page (`/receipt/:id`)
+   - v1.5: SendGrid HTML email with PDF attachment
+4. **Audit logging**
+   - Log to `notification_logs` with `event_type='tow_receipt'`
+5. **Admin controls**
+   - Wrecker Settings: default receipt channel (SMS/email), sender branding, opt-out
+
+**Definition of done (v2b):**
+- Completing a tow job can send an SMS/email receipt in one tap (or automatically per settings)
+- Receipt send attempts are logged and visible in UI
+
+### Phase 3B v2(c) (NEXT) — E-signature capture (optional but high value)
+- Add signature capture UI on job completion and store `signature_url` on job.
 - For RoadBoss web: implement HTML canvas signature pad.
 
-**P1: QuickBooks Online sync**
+### Phase 3B v2(d) (NEXT) — QuickBooks Online sync
 - Map completed jobs → QuickBooks invoices.
 - Track payment states.
 
-**P2: Customer/PD public lookup web page**
+### Phase 3B v2(e) (NEXT) — Customer/PD public lookup web page
 - API already live: `/api/wrecker/impounds/lookup`
 - Add frontend page: `/lookup` with rate limiting + basic abuse controls.
 
@@ -277,7 +308,7 @@ Refactor discipline: extract module, keep endpoints identical, re-run backend te
 - `/app/backend/notifications.py` — Twilio + SendGrid wrapper + audit logging.
 - `/app/backend/seed_data.py` — investor-grade demo seed.
 - `/app/frontend/src/pages/wrecker/*` — Wrecker Mode UI.
-- `/app/frontend/src/pages/driver/DriverShell.jsx` — driver shell.
+- `/app/frontend/src/pages/driver/Copilot.jsx` — shared Co-Pilot voice UI (now supports `/wrecker/voice`).
 - `/app/frontend/src/components/WakeWordBar.jsx` — wake word surface.
 - `/app/frontend/src/components/CrashGuardian.jsx` — crash detection surface.
 - `/app/memory/test_credentials.md` — demo accounts.

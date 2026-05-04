@@ -2091,6 +2091,16 @@ Available actions:
     - Use "admin" as the safe fallback if unsure
   IMPORTANT: Only send when the driver clearly states the message content. If unclear, ask "What do you want me to text them?" first.
 
+WRECKER MODE actions (only relevant when role is "wrecker_operator" or when LIVE WRECKER CONTEXT is provided):
+- tow_job_status — args: {"status":"en_route"|"on_scene"|"in_progress"|"completed"|"cancelled"}
+  Use when operator says: "I'm en route", "rolling now", "I'm on scene", "arrived on scene", "hooking up", "loading now", "in progress", "job done", "I'm finished", "completed". Updates the operator's active tow job.
+- tow_job_next — args: {}
+  Use when operator says: "what's my next call", "next job", "pull up my call", "show me what I'm on". Reads details of the operator's active tow job.
+- fuel_check — args: {"tank_id":"<optional>"}
+  Use when operator says: "check fuel", "how much fuel left", "tank level", "fuel status", "what's my diesel". Reads current fuel tank estimates.
+- impound_quick — args: {"plate":"<optional>","reason":"police_hold"|"private_property"|"accident"|"abandoned"}
+  Use when operator says: "impound this one", "log this as an impound", "tag for impound" — only after a job is completed. Creates a basic impound record from the active job's vehicle info.
+
 Rules for actions:
 - Only emit an ACTION marker if the driver clearly wants the action done. If unsure, ask a quick clarifying question instead.
 - Never invent action types not on the list above.
@@ -2114,6 +2124,22 @@ You: "You bet, starting your pre-trip inspection now.
 Driver: "What's my next destination?"
 You: "Memphis, boss. About four hundred miles out." (no marker — informational only)
 
+Operator: "I'm on scene."
+You: "10-4. Marked you on scene.
+<<<ACTION:{"type":"tow_job_status","args":{"status":"on_scene"}}>>>"
+
+Operator: "Job complete."
+You: "Nice work boss. Marking it done.
+<<<ACTION:{"type":"tow_job_status","args":{"status":"completed"}}>>>"
+
+Operator: "What's my next call?"
+You: "Pulling up your active call now.
+<<<ACTION:{"type":"tow_job_next","args":{}}>>>"
+
+Operator: "How much fuel left in the main tank?"
+You: "Let me check that for you.
+<<<ACTION:{"type":"fuel_check","args":{}}>>>"
+
 SIGN-OFF
 - End assertive actions with a brief confirmation ("Logged it." "Done." "Rolling.").
 - For safety-critical replies, end with "Stay safe out there.\""""
@@ -2122,7 +2148,8 @@ SIGN-OFF
 def _build_driver_context(user: Dict[str, Any], driver: Optional[Dict[str, Any]],
                           active_trip: Optional[Dict[str, Any]],
                           vehicle: Optional[Dict[str, Any]],
-                          recent_alerts: List[Dict[str, Any]]) -> str:
+                          recent_alerts: List[Dict[str, Any]],
+                          wrecker_ctx: Optional[Dict[str, Any]] = None) -> str:
     lines = ["", "=== LIVE DRIVER CONTEXT (for this turn) ==="]
     name = (driver or {}).get('name') or user.get('name') or 'Driver'
     lines.append(f"Driver name: {name}")
@@ -2150,6 +2177,38 @@ def _build_driver_context(user: Dict[str, Any], driver: Optional[Dict[str, Any]]
         lines.append("Recent alerts: " + " | ".join(alert_lines))
     else:
         lines.append("Recent alerts: none.")
+
+    # Wrecker Mode — inject only when role is wrecker_operator or context was provided
+    if wrecker_ctx:
+        lines.append("")
+        lines.append("=== LIVE WRECKER CONTEXT ===")
+        active_job = wrecker_ctx.get('active_job')
+        if active_job:
+            cust = (active_job.get('customer') or {}).get('name', '?')
+            v = active_job.get('vehicle') or {}
+            veh_str = ' '.join(filter(None, [str(v.get('year') or ''), v.get('color'), v.get('make'), v.get('model')])).strip() or 'vehicle'
+            pickup = (active_job.get('pickup') or {}).get('address', '?')
+            stat = active_job.get('status', 'pending').replace('_', ' ')
+            svc = (active_job.get('service_type') or '').replace('_', ' ')
+            lines.append(f"ACTIVE TOW JOB: {svc} for {cust} ({veh_str}) @ {pickup} — status: {stat}")
+            if active_job.get('motor_club_name'):
+                lines.append(f"Motor club: {active_job['motor_club_name']}")
+        else:
+            lines.append("No active tow job assigned right now.")
+        tanks = wrecker_ctx.get('tanks') or []
+        if tanks:
+            tlines = []
+            for t in tanks[:3]:
+                cap = t.get('capacity_gallons') or 0
+                cur = t.get('current_estimate_gallons') or 0
+                pct = int((cur / cap) * 100) if cap else 0
+                tlines.append(f"{t.get('name','?')}: {int(cur)}/{int(cap)} {t.get('fuel_type','')} ({pct}%)")
+            lines.append("Fuel tanks: " + " | ".join(tlines))
+        stats = wrecker_ctx.get('today') or {}
+        if stats:
+            lines.append(f"Today: {stats.get('completed', 0)} jobs completed, ${stats.get('revenue', 0):.0f} revenue.")
+        lines.append("=== END WRECKER CONTEXT ===")
+
     lines.append("=== END CONTEXT ===")
     return "\n".join(lines)
 
@@ -2161,6 +2220,38 @@ class CopilotChatIn(BaseModel):
 
 # Pattern matches <<<ACTION:{...}>>> at the end of an LLM reply (DOTALL allows JSON across lines)
 _ACTION_MARKER_RE = re.compile(r'<<<\s*ACTION\s*:\s*(\{.*?\})\s*>>>', re.DOTALL)
+
+
+async def _build_wrecker_context(user: Dict[str, Any]) -> Dict[str, Any]:
+    """Fetch live wrecker context: active job, fuel tanks, today's stats."""
+    ctx: Dict[str, Any] = {}
+    # Active job for this operator (or latest active overall for admins)
+    q: Dict[str, Any] = {'status': {'$nin': ['completed', 'cancelled']}}
+    if user.get('role') == 'wrecker_operator':
+        q['assigned_driver_id'] = user['id']
+    job = await db.tow_jobs.find_one(q, {'_id': 0}, sort=[('updated_at', -1)])
+    ctx['active_job'] = job
+    # Tanks
+    tanks = []
+    async for t in db.fuel_tanks.find({}, {'_id': 0}).limit(5):
+        tanks.append(t)
+    ctx['tanks'] = tanks
+    # Today's stats
+    start_of_day = now_utc().replace(hour=0, minute=0, second=0, microsecond=0)
+    completed = await db.tow_jobs.count_documents({'status': 'completed', 'updated_at': {'$gte': start_of_day}})
+    revenue = 0.0
+    async for j in db.tow_jobs.find({'status': 'completed', 'updated_at': {'$gte': start_of_day}}, {'final_price': 1, 'quoted_price': 1}):
+        revenue += float(j.get('final_price') or j.get('quoted_price') or 0)
+    ctx['today'] = {'completed': completed, 'revenue': revenue}
+    return ctx
+
+
+async def _resolve_active_tow_job(user: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Find the operator's active tow job for action targeting."""
+    q: Dict[str, Any] = {'status': {'$nin': ['completed', 'cancelled']}}
+    if user.get('role') == 'wrecker_operator':
+        q['assigned_driver_id'] = user['id']
+    return await db.tow_jobs.find_one(q, {'_id': 0}, sort=[('updated_at', -1)])
 
 
 async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
@@ -2365,6 +2456,124 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
             })
             return result
 
+        # ----- WRECKER MODE actions -----
+        if action_type == 'tow_job_status':
+            valid_status = {'pending', 'assigned', 'en_route', 'on_scene', 'in_progress', 'completed', 'cancelled'}
+            new_status = str(args.get('status', '')).lower().replace(' ', '_').replace('-', '_')
+            if new_status not in valid_status:
+                result['error'] = f"Invalid tow job status: {args.get('status')}"
+                return result
+            job = await _resolve_active_tow_job(user)
+            if not job:
+                result['error'] = 'No active tow job to update.'
+                return result
+            history = job.get('status_history', []) + [{'status': new_status, 'at': now_utc(), 'by': user['id']}]
+            await db.tow_jobs.update_one(
+                {'id': job['id']},
+                {'$set': {'status': new_status, 'status_history': history, 'updated_at': now_utc()}}
+            )
+            # Side-effect: log a notification on completed (receipt placeholder)
+            if new_status == 'completed':
+                await db.alerts.insert_one(_make_doc({
+                    'type': 'tow_job_completed',
+                    'severity': 'info',
+                    'driver_id': job.get('assigned_driver_id'),
+                    'message': f"🛻 Tow job for {(job.get('customer') or {}).get('name','?')} marked complete via voice.",
+                }))
+            result.update({
+                'executed': True,
+                'job_id': job['id'],
+                'new_status': new_status,
+                'customer': (job.get('customer') or {}).get('name'),
+            })
+            return result
+
+        if action_type == 'tow_job_next':
+            job = await _resolve_active_tow_job(user)
+            if not job:
+                result['error'] = 'No active tow job to read.'
+                result['no_job'] = True
+                result['spoken_addendum'] = "Looks like you don't have an active call right now, boss."
+                return result
+            cust = (job.get('customer') or {}).get('name', 'unknown customer')
+            v = job.get('vehicle') or {}
+            veh_str = ' '.join(filter(None, [str(v.get('year') or ''), v.get('color'), v.get('make'), v.get('model')])).strip() or 'vehicle'
+            pickup = (job.get('pickup') or {}).get('address', 'unknown location')
+            svc = (job.get('service_type') or '').replace('_', ' ')
+            result.update({
+                'executed': True,
+                'job_id': job['id'],
+                'customer': cust,
+                'vehicle': veh_str,
+                'pickup_address': pickup,
+                'service_type': svc,
+                'status': job.get('status'),
+                'priority': job.get('priority'),
+                'redirect': f"/wrecker/jobs/{job['id']}",
+                'spoken_addendum': f"{svc.title()} for {cust}, {veh_str}, at {pickup}.",
+            })
+            return result
+
+        if action_type == 'fuel_check':
+            tank_id = args.get('tank_id')
+            tanks_q = {'id': tank_id} if tank_id else {}
+            tanks = []
+            async for t in db.fuel_tanks.find(tanks_q, {'_id': 0}).limit(5):
+                cap = float(t.get('capacity_gallons') or 0)
+                cur = float(t.get('current_estimate_gallons') or 0)
+                pct = int((cur / cap) * 100) if cap else 0
+                tanks.append({
+                    'name': t.get('name'),
+                    'fuel_type': t.get('fuel_type'),
+                    'current_gallons': round(cur, 1),
+                    'capacity_gallons': round(cap, 1),
+                    'percent': pct,
+                })
+            if not tanks:
+                result['error'] = 'No fuel tanks configured yet.'
+                return result
+            # Spoken summary of the top tank
+            top = tanks[0]
+            spoken = f"{top['name']} is at {int(top['current_gallons'])} gallons, {top['percent']} percent full."
+            if len(tanks) > 1:
+                second = tanks[1]
+                spoken += f" {second['name']}: {int(second['current_gallons'])} gallons."
+            result.update({'executed': True, 'tanks': tanks, 'spoken_addendum': spoken})
+            return result
+
+        if action_type == 'impound_quick':
+            job = await _resolve_active_tow_job(user)
+            if not job:
+                result['error'] = 'No active tow job to convert to an impound.'
+                return result
+            reason = str(args.get('reason', 'police_hold')).lower()
+            if reason not in ('police_hold', 'private_property', 'accident', 'abandoned'):
+                reason = 'police_hold'
+            doc = {
+                'id': str(uuid.uuid4()),
+                'created_at': now_utc(),
+                'impounded_at': now_utc(),
+                'released_at': None,
+                'released_to': None,
+                'amount_paid': 0.0,
+                'created_by': user['id'],
+                'vehicle': job.get('vehicle') or {},
+                'owner_name': (job.get('customer') or {}).get('name'),
+                'owner_phone': (job.get('customer') or {}).get('phone'),
+                'storage_location': 'Main Lot',
+                'daily_rate': 35.0,
+                'reason': reason,
+                'notes': f"Created via voice from tow job {job['id']}",
+            }
+            await db.impounds.insert_one(doc)
+            result.update({
+                'executed': True,
+                'impound_id': doc['id'],
+                'reason': reason,
+                'redirect': '/wrecker/impound',
+            })
+            return result
+
         # Unknown action — silently ignore
         result['error'] = f"Unknown action type: {action_type}"
         return result
@@ -2421,6 +2630,14 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
             vehicle = await db.vehicles.find_one({'id': driver['vehicle_id']}, {'_id': 0})
     recent_alerts = await db.alerts.find({}, {'_id': 0}).sort('created_at', -1).to_list(5)
 
+    # Wrecker context (only when operator role or admin viewing)
+    wrecker_ctx = None
+    if user.get('role') in ('wrecker_operator', 'fleet_admin', 'dispatcher', 'super_admin'):
+        try:
+            wrecker_ctx = await _build_wrecker_context(user)
+        except Exception as e:
+            logger.warning(f"Failed to build wrecker context: {e}")
+
     # Persist user turn first
     user_doc = {
         'id': str(uuid.uuid4()),
@@ -2439,7 +2656,7 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         logger.error(f"emergentintegrations import failed: {e}")
         raise HTTPException(500, "Co-Pilot AI library not available.")
 
-    system_prompt = COPILOT_SYSTEM_BASE + _build_driver_context(user, driver, active_trip, vehicle, recent_alerts)
+    system_prompt = COPILOT_SYSTEM_BASE + _build_driver_context(user, driver, active_trip, vehicle, recent_alerts, wrecker_ctx=wrecker_ctx)
 
     try:
         chat = LlmChat(
@@ -2473,6 +2690,13 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
 
     # Parse and execute any ACTION marker emitted by the model
     spoken_text, action_result = await _parse_and_execute_action(reply_text, user, driver)
+
+    # Append spoken_addendum from the action result so the AI actually reads back data
+    if action_result and action_result.get('spoken_addendum'):
+        addendum = action_result.pop('spoken_addendum')
+        if spoken_text and not spoken_text.endswith(('.', '!', '?')):
+            spoken_text = spoken_text + '.'
+        spoken_text = (spoken_text + ' ' + addendum).strip() if spoken_text else addendum
 
     # Persist assistant turn (clean spoken text only)
     await db.copilot_chats.insert_one({
