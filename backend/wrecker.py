@@ -469,11 +469,12 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc):
 
     @router.get('/fuel/integration-status')
     async def fuelcloud_status(user=Depends(require_wrecker)):
-        """Returns whether FuelCloud is wired. v1: always 'pending_approval'."""
+        """Returns whether FuelCloud is wired. Currently PAUSED per founder direction —
+        manual logging is the active workflow."""
         return {
             'provider': 'FuelCloud',
-            'status': 'pending_approval',
-            'message': 'Submit API access request at help.fuelcloud.com. Once approved, paste credentials in Settings.',
+            'status': 'paused',
+            'message': 'FuelCloud integration is paused. Manual fuel logging is the active workflow.',
             'docs_url': 'https://help.fuelcloud.com/hc/en-us/articles/360008504014-FuelCloud-API',
             'manual_logging_active': True,
         }

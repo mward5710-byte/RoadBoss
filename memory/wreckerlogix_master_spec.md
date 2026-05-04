@@ -264,38 +264,18 @@ For environments where wake-word misfires (loud diesel idle), provide a **big ci
 
 ---
 
-## ⛽ PHASE 3 — FUELCLOUD INTEGRATION (1-2 days)
+## ⛽ PHASE 3 — FUELCLOUD INTEGRATION (PAUSED — DO NOT BUILD)
 
-**Status:** Mike has the FuelCloud app on his phone. The FuelCloud API is **request-only** — he must apply.
+**Status as of May 2026: PAUSED by founder.** Manual fuel logging is the active workflow.
 
-### 3.1 Request API access (Mike's task)
-Tell Mike to:
-1. Go to https://help.fuelcloud.com/hc/en-us/articles/360008504014-FuelCloud-API
-2. Submit a developer access request explaining he wants to integrate Wreckerlogix.
-3. Or email `support@fuelcloud.com` directly.
-4. **Approval typically takes 1-3 business days.**
+Reasoning: Mike does NOT own the tow company (Martin Wrecker Service). FuelCloud account is the company's, not his. Building this integration before having a real customer relationship + signed API credentials creates legal/employment risk and burns engineering time on something nobody is asking for yet.
 
-### 3.2 Build the integration stub NOW (don't wait for approval)
-```dart
-// lib/features/fuel/fuelcloud_service.dart
-class FuelCloudService {
-  final String baseUrl = 'https://api.fuelcloud.com/v1'; // confirm post-approval
-  final String? apiKey;
+**Action for the next agent:** Skip this phase entirely unless Mike explicitly tells you to resume it. Manual fuel transaction logging (already built in `lib/features/fuel/`) is sufficient for v1 App Store launch.
 
-  FuelCloudService({this.apiKey});
-
-  Future<List<FuelTank>> getTanks() async { /* GET /tanks */ }
-  Future<FuelTank> getTank(String id) async { /* GET /tanks/{id} */ }
-  Future<List<FuelTransaction>> getTransactions({DateTime? since}) async { /* GET /transactions */ }
-  Future<bool> enablePump(String pumpId) async { /* POST /pumps/{id}/enable */ }
-  Future<bool> disablePump(String pumpId) async { /* POST /pumps/{id}/disable */ }
-}
-```
-
-### 3.3 Manual fuel logging (works without FuelCloud)
-- Driver logs fuel manually: gallons, cost, vehicle, photo of receipt.
-- Sync to QuickBooks as expense.
-- When FuelCloud activates, swap manual logs for real-time sync.
+If Mike says resume later:
+- The integration request URL is https://help.fuelcloud.com/hc/en-us/articles/360008504014-FuelCloud-API
+- Architecture must be **per-tenant** — each shop pastes their own API key+secret in app Settings
+- Credentials encrypted at rest (use Firebase Functions secret storage, never store in client)
 
 ---
 

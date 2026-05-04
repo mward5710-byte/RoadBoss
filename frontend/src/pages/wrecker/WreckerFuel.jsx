@@ -141,25 +141,14 @@ export default function WreckerFuel() {
       </header>
 
       {intStatus && (
-        <Card className="p-4 bg-amber-500/5 border-amber-500/20">
+        <Card className="p-4 bg-[#0a0e14] border-white/5">
           <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-amber-300 mt-0.5" />
+            <Fuel className="w-5 h-5 text-slate-400 mt-0.5" />
             <div className="flex-1">
-              <div className="text-sm font-semibold text-amber-200">FuelCloud integration: {intStatus.status.replace(/_/g, ' ').toUpperCase()}</div>
-              <div className="text-xs text-slate-400 mt-1">{intStatus.message}</div>
-              <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
-                <strong className="text-slate-300">How this works:</strong> Each tow shop brings its own FuelCloud account. Once your shop's owner gets API access from <a href={intStatus.docs_url} target="_blank" rel="noreferrer" className="text-sky-300 hover:text-sky-200 underline">help.fuelcloud.com</a>, paste the credentials below — they're stored only for your shop and never shared.
+              <div className="text-sm font-semibold text-slate-200">Manual fuel logging — active</div>
+              <div className="text-xs text-slate-400 mt-1">
+                Track fuel by hand for now. Tap <span className="text-amber-300 font-semibold">Log Fuel</span> after every fill-up. FuelCloud auto-sync is paused until your shop has API credentials — we'll turn it back on when you're ready.
               </div>
-              <div className="mt-3 grid md:grid-cols-3 gap-2 max-w-2xl">
-                <input data-testid="fuelcloud-api-key" placeholder="API Key" className="bg-[#07090d] border border-white/10 rounded px-2 py-1.5 text-xs text-white placeholder:text-slate-600" disabled />
-                <input data-testid="fuelcloud-secret" placeholder="API Secret" type="password" className="bg-[#07090d] border border-white/10 rounded px-2 py-1.5 text-xs text-white placeholder:text-slate-600" disabled />
-                <button data-testid="fuelcloud-connect" disabled className="bg-amber-500/20 text-amber-300/60 cursor-not-allowed rounded px-3 py-1.5 text-xs font-semibold uppercase tracking-wider border border-amber-500/30">
-                  Connect (coming soon)
-                </button>
-              </div>
-              <a href={intStatus.docs_url} target="_blank" rel="noreferrer" className="text-xs text-sky-300 hover:text-sky-200 inline-flex items-center gap-1 mt-3">
-                Open FuelCloud API docs <ExternalLink className="w-3 h-3" />
-              </a>
             </div>
           </div>
         </Card>
