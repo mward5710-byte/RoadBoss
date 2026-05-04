@@ -45,6 +45,7 @@ import Roadside from '@/pages/driver/Roadside';
 import RoadsideDetail from '@/pages/driver/RoadsideDetail';
 import WreckerShell from '@/pages/wrecker/WreckerShell';
 import WreckerDashboard from '@/pages/wrecker/WreckerDashboard';
+import WreckerDriverHome from '@/pages/wrecker/WreckerDriverHome';
 import WreckerJobNew from '@/pages/wrecker/WreckerJobNew';
 import WreckerJobDetail from '@/pages/wrecker/WreckerJobDetail';
 import WreckerImpound from '@/pages/wrecker/WreckerImpound';
@@ -53,11 +54,17 @@ import WreckerFuel from '@/pages/wrecker/WreckerFuel';
 import WreckerBilling from '@/pages/wrecker/WreckerBilling';
 import { getUser } from '@/lib/api';
 
+const WRECKER_ROLES = ['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'dispatcher'];
+const DISPATCH_ROLES = ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'dispatcher'];
+
 function RequireAuth({ roles, children }) {
   const user = getUser();
   if (!user) return <Navigate to="/login" replace />;
   if (roles && !roles.includes(user.role) && user.role !== 'super_admin') {
-    const fallback = user.role === 'driver' ? '/driver' : user.role === 'wrecker_operator' ? '/wrecker' : '/app';
+    const fallback = user.role === 'driver' ? '/driver'
+      : user.role === 'wrecker_operator' ? '/wrecker/me'
+      : ['wrecker_dispatcher', 'wrecker_supervisor'].includes(user.role) ? '/wrecker'
+      : '/app';
     return <Navigate to={fallback} replace />;
   }
   return children;
@@ -118,8 +125,9 @@ function App() {
             <Route path="profile" element={<DriverProfile />} />
           </Route>
 
-          <Route path="/wrecker" element={<RequireAuth roles={['wrecker_operator', 'fleet_admin', 'dispatcher']}><WreckerShell /></RequireAuth>}>
+          <Route path="/wrecker" element={<RequireAuth roles={WRECKER_ROLES}><WreckerShell /></RequireAuth>}>
             <Route index element={<WreckerDashboard />} />
+            <Route path="me" element={<WreckerDriverHome />} />
             <Route path="jobs/new" element={<WreckerJobNew />} />
             <Route path="jobs/:id" element={<WreckerJobDetail />} />
             <Route path="impound" element={<WreckerImpound />} />
@@ -128,7 +136,7 @@ function App() {
             <Route path="billing" element={<WreckerBilling />} />
           </Route>
           {/* Wrecker hands-free voice page reuses the Co-Pilot UI but lives outside the shell so it can be full-screen */}
-          <Route path="/wrecker/voice" element={<RequireAuth roles={['wrecker_operator', 'fleet_admin', 'dispatcher']}><Copilot /></RequireAuth>} />
+          <Route path="/wrecker/voice" element={<RequireAuth roles={WRECKER_ROLES}><Copilot /></RequireAuth>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

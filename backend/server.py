@@ -246,9 +246,13 @@ class DemoLoginIn(BaseModel):
 @api_router.post("/auth/demo")
 async def demo_login(body: DemoLoginIn):
     role_map = {
-        'driver':  'driver@highwaypilot.io',
-        'admin':   'fleet_admin@highwaypilot.io',
-        'wrecker': 'wrecker@highwaypilot.io',
+        'driver':     'driver@highwaypilot.io',
+        'admin':      'fleet_admin@highwaypilot.io',
+        'wrecker':    'wrecker@highwaypilot.io',          # Steve Carroll (driver)
+        'wrecker2':   'wrecker2@highwaypilot.io',         # Tony Marquez
+        'wrecker3':   'wrecker3@highwaypilot.io',         # Jake Boudreaux
+        'dispatcher': 'dispatcher@highwaypilot.io',       # Pam Henderson (dispatcher)
+        'supervisor': 'supervisor@highwaypilot.io',       # Bill Kearney (foreman)
     }
     email = role_map.get((body.role or 'driver').lower(), role_map['driver'])
     user = await db.users.find_one({'email': email})

@@ -19,6 +19,49 @@ Hi! You're picking up Mike Ward's Wreckerlogix Flutter app. Mike is a real worki
 - Mike has ADHD-style focus jumps — **keep momentum extremely high**, ship visible wins fast.
 - He's already burned credits on bot agents that made a mess. **Don't compound it.** Be surgical.
 
+## 🚨 CRITICAL WORKFLOW RULE — Chain of Command (NON-NEGOTIABLE)
+
+This is how **real tow shops actually work**. The previous Flutter scaffold got this WRONG (it let drivers "accept" calls). **Do NOT replicate that mistake.**
+
+```
+👑 Fleet Admin / Super Admin
+  └─ 🦺 Wrecker Supervisor (Foreman)
+       └─ 📞 Dispatcher
+            └─ 🚛 Driver (Wrecker Operator)
+```
+
+**Driver (Wrecker Operator):**
+- Sees ONLY the calls assigned to them by dispatch
+- Updates status as they work: en route → on scene → in progress → completed
+- **CANNOT** create jobs, accept/decline calls, pick which call they want, or reassign
+- "First come first serve" / "closest driver wins" is **WRONG**. Drivers do NOT cherry-pick.
+- Sees the rotation board (transparency) so they know when they're up next
+
+**Dispatcher:**
+- Receives motor club calls / direct calls
+- Creates job records
+- Assigns drivers via **ROTATION** (oldest dispatched on-duty driver gets next call)
+- Cannot reassign a job once it's already with a driver
+
+**Supervisor / Foreman:**
+- All dispatcher powers + can REASSIGN already-assigned jobs (override)
+- Can take a call themselves and punt it to a different driver
+- This is the ONLY role allowed to override dispatcher decisions
+
+**Rotation Engine:**
+- Each driver has `rotation_order` (initial position) and `last_dispatched_at`
+- "Next in rotation" = on-duty driver with the OLDEST `last_dispatched_at` (or never dispatched, by `rotation_order`)
+- When a driver gets assigned a job, their `last_dispatched_at` updates → they drop to back of queue
+- Drivers can be toggled on-duty / off-duty (only on-duty drivers eligible for rotation)
+- This logic is already battle-tested in the RoadBoss web app at `/app/backend/wrecker.py` — port the same rules to Flutter.
+
+**Example screens (already built and working in RoadBoss web at https://build-forge-49.preview.emergentagent.com):**
+- `/wrecker` — Dispatcher view (kanban board + Drivers·Rotation panel + Select-to-assign flow)
+- `/wrecker/me` — Driver view (one big "current call" card + "up next" queue, no assign UI)
+- `/wrecker/jobs/:id` — Job detail (status pipeline + Driver Assignment card with reassign-gated-by-supervisor)
+
+When you build the Flutter version, mirror this UX. Drivers see ONE focused call card with status buttons. Dispatchers see the kanban + rotation. Foremen get a "reassign" override button.
+
 **Tech stack ground truth (do NOT change):**
 - Framework: **Flutter (Dart 3.x)**
 - State: **Provider** (already wired)

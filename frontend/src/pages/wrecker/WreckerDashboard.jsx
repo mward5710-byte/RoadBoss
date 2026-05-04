@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { Truck, Lock, Activity, DollarSign, Clock, MapPin, Phone, Plus, RefreshCw, ArrowUpRight, Zap } from 'lucide-react';
+import { Truck, Lock, Activity, DollarSign, Clock, MapPin, Phone, Plus, RefreshCw, ArrowUpRight, Zap, UserPlus } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import DriversPanel from './DriversPanel';
 
 const STATUS_COLORS = {
   pending:     'bg-slate-500/15 border-slate-500/30 text-slate-300',
@@ -49,15 +50,16 @@ function Kpi({ icon: Icon, label, value, sub, accent = 'amber' }) {
 function prettyStatus(s) { return (s || '').replace(/_/g, ' '); }
 function prettyService(s) { return (s || '').replace(/_/g, ' '); }
 
-function JobCard({ job, onAdvance }) {
+function JobCard({ job, onAdvance, onSelectForAssign, isSelected }) {
   const navigate = useNavigate();
   const nextIdx = BOARD_STATUSES.indexOf(job.status);
   const next = nextIdx >= 0 && nextIdx < BOARD_STATUSES.length - 1 ? BOARD_STATUSES[nextIdx + 1] : null;
+  const isPending = job.status === 'pending';
   return (
     <div
       data-testid={`job-card-${job.id}`}
-      className="hp-panel rounded-lg p-3 hover:border-amber-500/30 transition cursor-pointer"
-      onClick={() => navigate(`/wrecker/jobs/${job.id}`)}
+      className={`hp-panel rounded-lg p-3 transition cursor-pointer ${isSelected ? 'border-amber-500 ring-2 ring-amber-500/50' : 'hover:border-amber-500/30'}`}
+      onClick={() => isPending && onSelectForAssign ? onSelectForAssign(job) : navigate(`/wrecker/jobs/${job.id}`)}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -83,7 +85,18 @@ function JobCard({ job, onAdvance }) {
         <div className="text-sm font-semibold text-emerald-300">${(job.final_price ?? job.quoted_price ?? 0).toFixed(0)}</div>
         {job.motor_club_name && <div className="text-[10px] uppercase tracking-wider text-amber-300/80">{job.motor_club_name}</div>}
       </div>
-      {next && (
+      {isPending && (
+        <Button
+          data-testid={`select-${job.id}`}
+          size="sm"
+          variant="outline"
+          className={`w-full mt-2 h-7 text-[10px] uppercase tracking-wider ${isSelected ? 'border-amber-400 bg-amber-500/20 text-amber-100' : 'border-amber-500/30 text-amber-200 hover:bg-amber-500/10'}`}
+          onClick={(e) => { e.stopPropagation(); onSelectForAssign?.(job); }}
+        >
+          <UserPlus className="w-3 h-3 mr-1" /> {isSelected ? 'Pick Driver →' : 'Select to Assign'}
+        </Button>
+      )}
+      {!isPending && next && (
         <Button
           data-testid={`advance-${job.id}`}
           size="sm"
@@ -102,6 +115,7 @@ export default function WreckerDashboard() {
   const [overview, setOverview] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedJobId, setSelectedJobId] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -130,6 +144,20 @@ export default function WreckerDashboard() {
     }
   };
 
+  const selectForAssign = (job) => {
+    if (selectedJobId === job.id) {
+      setSelectedJobId(null);
+    } else {
+      setSelectedJobId(job.id);
+      toast.info(`Pick a driver in the rotation panel →`);
+    }
+  };
+
+  const onAssigned = () => {
+    setSelectedJobId(null);
+    load();
+  };
+
   if (loading) return <div className="p-8 text-slate-400">Loading dispatch board...</div>;
 
   const grouped = BOARD_STATUSES.reduce((acc, s) => {
@@ -143,7 +171,9 @@ export default function WreckerDashboard() {
         <div>
           <div className="text-xs uppercase tracking-widest text-amber-400/80">RoadBoss · Wrecker Mode</div>
           <h1 className="text-3xl font-bold text-white mt-1" data-testid="wrecker-page-title">Dispatch Board</h1>
-          <p className="text-sm text-slate-400 mt-1">Voice-first towing operations. Say “Hey Co-Pilot, I’m on scene” while driving.</p>
+          <p className="text-sm text-slate-400 mt-1">
+            Select a pending job, then click a driver in rotation to assign. Drivers can't pick — only dispatch dispatches.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button data-testid="refresh-board" variant="outline" size="sm" onClick={load} className="border-white/10 text-slate-300">
@@ -166,23 +196,37 @@ export default function WreckerDashboard() {
         </motion.div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3" data-testid="dispatch-board">
-        {BOARD_STATUSES.map((s) => (
-          <div key={s} className="hp-panel rounded-xl p-3 min-h-[60vh] flex flex-col">
-            <div className="flex items-center justify-between mb-3">
-              <div className={`text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border ${STATUS_COLORS[s]}`}>{prettyStatus(s)}</div>
-              <span className="text-xs text-slate-500">{grouped[s]?.length || 0}</span>
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-4">
+        {/* KANBAN */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-3" data-testid="dispatch-board">
+          {BOARD_STATUSES.map((s) => (
+            <div key={s} className="hp-panel rounded-xl p-3 min-h-[40vh] flex flex-col">
+              <div className="flex items-center justify-between mb-3">
+                <div className={`text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border ${STATUS_COLORS[s]}`}>{prettyStatus(s)}</div>
+                <span className="text-xs text-slate-500">{grouped[s]?.length || 0}</span>
+              </div>
+              <div className="space-y-2 flex-1 overflow-y-auto">
+                {(grouped[s] || []).map((j) => (
+                  <JobCard
+                    key={j.id}
+                    job={j}
+                    onAdvance={advanceJob}
+                    onSelectForAssign={selectForAssign}
+                    isSelected={selectedJobId === j.id}
+                  />
+                ))}
+                {(!grouped[s] || grouped[s].length === 0) && (
+                  <div className="text-center text-xs text-slate-600 py-6">— empty —</div>
+                )}
+              </div>
             </div>
-            <div className="space-y-2 flex-1 overflow-y-auto">
-              {(grouped[s] || []).map((j) => (
-                <JobCard key={j.id} job={j} onAdvance={advanceJob} />
-              ))}
-              {(!grouped[s] || grouped[s].length === 0) && (
-                <div className="text-center text-xs text-slate-600 py-6">— empty —</div>
-              )}
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
+
+        {/* DRIVERS + ROTATION */}
+        <div className="space-y-3">
+          <DriversPanel onAssign={onAssigned} selectedJobId={selectedJobId} />
+        </div>
       </div>
     </div>
   );

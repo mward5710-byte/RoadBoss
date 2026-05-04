@@ -197,7 +197,11 @@ export default function TryPage() {
       const { data } = await api.post('/auth/demo', { role, source: src });
       setSession(data.access_token, data.user);
       toast.success('Demo mode unlocked — welcome to RoadBoss');
-      const dest = role === 'admin' ? '/app' : role === 'wrecker' ? '/wrecker' : '/driver';
+      const r = data.user.role;
+      const dest = r === 'driver' ? '/driver'
+        : r === 'wrecker_operator' ? '/wrecker/me'
+        : ['wrecker_dispatcher', 'wrecker_supervisor'].includes(r) ? '/wrecker'
+        : '/app';
       navigate(dest);
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Could not start demo. Try again.');
@@ -252,7 +256,7 @@ export default function TryPage() {
             One tap below. You&apos;re in. Drive the demo fleet, fire the Co-Pilot by voice, see crash
             detection, send a real dispatch SMS. <span className="text-sky-300">It&apos;s the actual product — on your phone right now.</span>
           </p>
-          <div className="mt-6 flex flex-col sm:flex-row gap-3">
+          <div className="mt-6 flex flex-wrap gap-3">
             <Button
               onClick={() => launchDemo('driver')}
               disabled={launching}
@@ -272,15 +276,40 @@ export default function TryPage() {
               Try as a fleet admin
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
+          </div>
+          <div className="mt-2 text-[11px] uppercase tracking-widest text-slate-500">
+            🚛 Wrecker Mode demos:
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
             <Button
               onClick={() => launchDemo('wrecker')}
               disabled={launching}
               variant="outline"
               data-testid="try-demo-wrecker"
-              className="border-amber-500/40 bg-amber-500/5 text-amber-200 hover:bg-amber-500/10 text-base h-12 px-5"
+              size="sm"
+              className="border-sky-500/40 bg-sky-500/5 text-sky-200 hover:bg-sky-500/10 h-10 px-3 text-sm"
             >
-              🚛 Wrecker Mode
-              <ArrowRight className="ml-2 h-4 w-4" />
+              🚛 Tow Driver
+            </Button>
+            <Button
+              onClick={() => launchDemo('dispatcher')}
+              disabled={launching}
+              variant="outline"
+              data-testid="try-demo-dispatcher"
+              size="sm"
+              className="border-amber-500/40 bg-amber-500/5 text-amber-200 hover:bg-amber-500/10 h-10 px-3 text-sm"
+            >
+              📞 Dispatcher
+            </Button>
+            <Button
+              onClick={() => launchDemo('supervisor')}
+              disabled={launching}
+              variant="outline"
+              data-testid="try-demo-supervisor"
+              size="sm"
+              className="border-violet-500/40 bg-violet-500/5 text-violet-200 hover:bg-violet-500/10 h-10 px-3 text-sm"
+            >
+              🦺 Foreman
             </Button>
           </div>
           <div className="mt-6 flex items-center gap-4 flex-wrap text-xs text-slate-400">

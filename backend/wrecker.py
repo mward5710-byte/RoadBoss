@@ -191,8 +191,31 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc):
     """Returns an APIRouter (without prefix) — caller mounts it under /api/wrecker."""
     router = APIRouter(prefix="/wrecker", tags=["wrecker"])
 
+    # ------------------------------------------------------------
+    # Permission helpers — chain-of-command rules per Mike's spec:
+    #   - Driver (wrecker_operator): can ONLY view + update status of their OWN assigned jobs
+    #   - Dispatcher (wrecker_dispatcher): creates jobs, assigns to drivers via rotation
+    #   - Supervisor (wrecker_supervisor / foreman): all dispatcher powers + can REASSIGN
+    #   - Fleet Admin / Super Admin: god mode
+    # Drivers NEVER pick, accept, or decline calls. Period.
+    # ------------------------------------------------------------
+    DISPATCH_ROLES = {'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'}
+    REASSIGN_ROLES = {'wrecker_supervisor', 'fleet_admin', 'super_admin'}
+    ANY_WRECKER_ROLES = {'wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin', 'dispatcher'}
+
+    def _is_dispatcher(user):
+        return user.get('role') in DISPATCH_ROLES
+
+    def _is_supervisor(user):
+        return user.get('role') in REASSIGN_ROLES
+
+    def _is_driver(user):
+        return user.get('role') == 'wrecker_operator'
+
     # Either a wrecker_operator OR a fleet_admin/super_admin can use these endpoints.
-    require_wrecker = require_role('wrecker_operator', 'fleet_admin', 'dispatcher')
+    require_wrecker = require_role('wrecker_operator', 'fleet_admin', 'dispatcher', 'wrecker_dispatcher', 'wrecker_supervisor')
+    require_dispatcher = require_role('wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'dispatcher')
+    require_supervisor = require_role('wrecker_supervisor', 'fleet_admin')
 
     # =========================================================
     # Tow Jobs (the dispatch board)
@@ -202,11 +225,15 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc):
         q: Dict[str, Any] = {}
         if status:
             q['status'] = status
+        # Drivers see ONLY their own assigned jobs — no cherry-picking
+        if _is_driver(user):
+            q['assigned_driver_id'] = user['id']
         cursor = db.tow_jobs.find(q).sort('created_at', -1).limit(500)
         return [serialize_doc(j) async for j in cursor]
 
     @router.post('/jobs')
-    async def create_job(body: TowJobIn, user=Depends(require_wrecker)):
+    async def create_job(body: TowJobIn, user=Depends(require_dispatcher)):
+        """Only dispatchers/supervisors/admins can create jobs. Drivers never create their own work."""
         doc = body.model_dump()
         doc.update({
             'id': _new_id(),
@@ -217,17 +244,31 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc):
             'photo_urls': [],
             'status_history': [{'status': 'pending', 'at': _now(), 'by': user['id']}],
         })
+        # If creator pre-assigned a driver, mark assigned + bump rotation
         if doc.get('assigned_driver_id'):
             doc['status'] = 'assigned'
             doc['status_history'].append({'status': 'assigned', 'at': _now(), 'by': user['id']})
+            await _bump_rotation(doc['assigned_driver_id'])
         await db.tow_jobs.insert_one(doc)
         return serialize_doc(doc)
+
+    async def _bump_rotation(driver_id: str):
+        """Stamp last_dispatched_at on a driver to push them to the back of the rotation."""
+        if not driver_id:
+            return
+        await db.users.update_one(
+            {'id': driver_id, 'role': 'wrecker_operator'},
+            {'$set': {'last_dispatched_at': _now()}},
+        )
 
     @router.get('/jobs/{job_id}')
     async def get_job(job_id: str, user=Depends(require_wrecker)):
         j = await db.tow_jobs.find_one({'id': job_id}, {'_id': 0})
         if not j:
             raise HTTPException(404, 'Job not found')
+        # Driver can only view their own jobs
+        if _is_driver(user) and j.get('assigned_driver_id') != user['id']:
+            raise HTTPException(403, 'Not your call. Talk to dispatch if there is a problem.')
         return serialize_doc(j)
 
     @router.put('/jobs/{job_id}')
@@ -235,7 +276,25 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc):
         existing = await db.tow_jobs.find_one({'id': job_id})
         if not existing:
             raise HTTPException(404, 'Job not found')
+
         updates: Dict[str, Any] = {k: v for k, v in body.model_dump(exclude_none=True).items()}
+
+        # ---- Permission gate ----
+        if _is_driver(user):
+            # Driver can ONLY update their own assigned jobs, and only status / notes / photos / signature
+            if existing.get('assigned_driver_id') != user['id']:
+                raise HTTPException(403, 'Not your call. Talk to dispatch.')
+            allowed_for_driver = {'status', 'notes', 'photo_urls', 'signature_url'}
+            blocked = set(updates.keys()) - allowed_for_driver
+            if blocked:
+                raise HTTPException(403, f"Drivers cannot change: {', '.join(blocked)}. Talk to dispatch.")
+
+        # Reassignment rules: changing assigned_driver_id on an already-assigned job requires supervisor
+        new_driver = updates.get('assigned_driver_id')
+        if new_driver and new_driver != existing.get('assigned_driver_id') and existing.get('assigned_driver_id'):
+            if not _is_supervisor(user):
+                raise HTTPException(403, 'Only supervisors can reassign a job that is already with a driver.')
+
         # Validate status transition
         if 'status' in updates:
             if updates['status'] not in JOB_STATUSES:
@@ -243,13 +302,30 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc):
             history = existing.get('status_history', [])
             history.append({'status': updates['status'], 'at': _now(), 'by': user['id']})
             updates['status_history'] = history
+
+        # If newly assigning a driver (was unassigned), require dispatch perm + bump rotation
+        if new_driver and not existing.get('assigned_driver_id'):
+            if not _is_dispatcher(user):
+                raise HTTPException(403, 'Only dispatchers/supervisors can assign drivers.')
+            # Auto-set status to 'assigned' if it was pending
+            if existing.get('status') == 'pending' and 'status' not in updates:
+                updates['status'] = 'assigned'
+                history = updates.get('status_history') or existing.get('status_history', [])
+                history.append({'status': 'assigned', 'at': _now(), 'by': user['id']})
+                updates['status_history'] = history
+            await _bump_rotation(new_driver)
+        elif new_driver and new_driver != existing.get('assigned_driver_id'):
+            # Reassignment — bump the new driver
+            await _bump_rotation(new_driver)
+
         updates['updated_at'] = _now()
         await db.tow_jobs.update_one({'id': job_id}, {'$set': updates})
         j = await db.tow_jobs.find_one({'id': job_id}, {'_id': 0})
         return serialize_doc(j)
 
     @router.delete('/jobs/{job_id}')
-    async def delete_job(job_id: str, user=Depends(require_wrecker)):
+    async def delete_job(job_id: str, user=Depends(require_dispatcher)):
+        """Only dispatchers/supervisors/admins can delete jobs."""
         res = await db.tow_jobs.delete_one({'id': job_id})
         if res.deleted_count == 0:
             raise HTTPException(404, 'Job not found')
@@ -257,13 +333,16 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc):
 
     @router.post('/jobs/{job_id}/status')
     async def quick_status_update(job_id: str, body: Dict[str, str], user=Depends(require_wrecker)):
-        """Quick voice-friendly status changer. Body: {status: 'on_scene'}."""
+        """Quick voice-friendly status changer. Body: {status: 'on_scene'}.
+        Drivers can only update status on their OWN assigned jobs."""
         new_status = body.get('status')
         if new_status not in JOB_STATUSES:
             raise HTTPException(400, f"Invalid status. Allowed: {JOB_STATUSES}")
         existing = await db.tow_jobs.find_one({'id': job_id})
         if not existing:
             raise HTTPException(404, 'Job not found')
+        if _is_driver(user) and existing.get('assigned_driver_id') != user['id']:
+            raise HTTPException(403, 'Not your call. Talk to dispatch.')
         history = existing.get('status_history', [])
         history.append({'status': new_status, 'at': _now(), 'by': user['id']})
         await db.tow_jobs.update_one(
@@ -273,17 +352,105 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc):
         j = await db.tow_jobs.find_one({'id': job_id}, {'_id': 0})
         return serialize_doc(j)
 
+    @router.post('/jobs/{job_id}/assign')
+    async def assign_driver(job_id: str, body: Dict[str, str], user=Depends(require_dispatcher)):
+        """Dispatcher assigns or reassigns a driver. Reassignment requires supervisor."""
+        driver_id = body.get('driver_id')
+        if not driver_id:
+            raise HTTPException(400, 'driver_id required')
+        existing = await db.tow_jobs.find_one({'id': job_id})
+        if not existing:
+            raise HTTPException(404, 'Job not found')
+        # Reassignment guard
+        if existing.get('assigned_driver_id') and existing['assigned_driver_id'] != driver_id:
+            if not _is_supervisor(user):
+                raise HTTPException(403, 'Only supervisors can reassign an already-assigned job.')
+        # Verify the target driver actually exists and is a wrecker_operator
+        target = await db.users.find_one({'id': driver_id, 'role': 'wrecker_operator'}, {'_id': 0})
+        if not target:
+            raise HTTPException(404, 'Driver not found or not a wrecker operator')
+        history = existing.get('status_history', [])
+        new_status = existing.get('status', 'pending')
+        if new_status == 'pending':
+            new_status = 'assigned'
+            history.append({'status': 'assigned', 'at': _now(), 'by': user['id']})
+        history.append({'note': f"Assigned to {target.get('name')}", 'at': _now(), 'by': user['id']})
+        await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$set': {
+                'assigned_driver_id': driver_id,
+                'status': new_status,
+                'status_history': history,
+                'updated_at': _now(),
+            }}
+        )
+        await _bump_rotation(driver_id)
+        j = await db.tow_jobs.find_one({'id': job_id}, {'_id': 0})
+        return serialize_doc(j)
+
     @router.get('/dispatch/active')
     async def active_dispatch(user=Depends(require_wrecker)):
         """Voice-friendly: returns the *one* active job for the operator (or empty)."""
         # If user is a driver, scoped to them; admin sees latest active overall
         q: Dict[str, Any] = {'status': {'$nin': ['completed', 'cancelled']}}
-        if user.get('role') == 'wrecker_operator':
+        if _is_driver(user):
             q['assigned_driver_id'] = user['id']
         cursor = db.tow_jobs.find(q).sort('updated_at', -1).limit(1)
         async for j in cursor:
             return serialize_doc(j)
         return None
+
+    # =========================================================
+    # Drivers + Rotation
+    # =========================================================
+    @router.get('/drivers')
+    async def list_drivers(user=Depends(require_wrecker)):
+        """List wrecker drivers ordered by rotation (next-up first)."""
+        drivers = []
+        async for u in db.users.find({'role': 'wrecker_operator'}, {'_id': 0, 'password_hash': 0}):
+            d = serialize_doc(u)
+            d['rotation_order'] = u.get('rotation_order', 99)
+            d['last_dispatched_at'] = u.get('last_dispatched_at')
+            d['on_duty'] = u.get('on_duty', True)
+            # Active job count
+            d['active_jobs'] = await db.tow_jobs.count_documents({
+                'assigned_driver_id': u['id'],
+                'status': {'$nin': ['completed', 'cancelled']},
+            })
+            drivers.append(d)
+        # Sort: on-duty first, then by oldest last_dispatched (or never dispatched), then rotation_order
+        def _sort_key(d):
+            on_duty = 0 if d.get('on_duty') else 1
+            last = d.get('last_dispatched_at') or datetime(1970, 1, 1, tzinfo=timezone.utc)
+            if hasattr(last, 'tzinfo') and last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            return (on_duty, last, d.get('rotation_order', 99))
+        drivers.sort(key=_sort_key)
+        # Mark next-in-rotation
+        for i, d in enumerate(drivers):
+            d['next_in_rotation'] = (i == 0 and d.get('on_duty'))
+        return drivers
+
+    @router.get('/drivers/next')
+    async def next_in_rotation(user=Depends(require_dispatcher)):
+        """Returns the driver who should get the next call by rotation."""
+        drivers_list = await list_drivers(user)
+        for d in drivers_list:
+            if d.get('on_duty'):
+                return d
+        return None
+
+    @router.post('/drivers/{driver_id}/duty')
+    async def set_duty(driver_id: str, body: Dict[str, bool], user=Depends(require_dispatcher)):
+        """Toggle a driver on/off duty (affects rotation eligibility)."""
+        on_duty = bool(body.get('on_duty', True))
+        res = await db.users.update_one(
+            {'id': driver_id, 'role': 'wrecker_operator'},
+            {'$set': {'on_duty': on_duty}}
+        )
+        if res.matched_count == 0:
+            raise HTTPException(404, 'Driver not found')
+        return {'ok': True, 'on_duty': on_duty}
 
     # =========================================================
     # Motor Clubs
@@ -531,19 +698,63 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc):
 
 async def seed_wrecker_demo(db, hash_password):
     """Seed demo wrecker data. Idempotent: only seeds if collections empty."""
-    # Demo wrecker_operator user
-    demo_email = 'wrecker@highwaypilot.io'
-    existing = await db.users.find_one({'email': demo_email})
-    if not existing:
-        await db.users.insert_one({
-            'id': _new_id(),
-            'email': demo_email,
-            'password_hash': hash_password('Demo!Wrecker2026'),
-            'name': 'Demo Wrecker Operator',
-            'role': 'wrecker_operator',
-            'company_name': 'Apex Towing & Recovery',
-            'created_at': _now(),
-        })
+    # Demo users — full chain of command
+    demo_users = [
+        {'email': 'wrecker@highwaypilot.io',
+         'password': 'Demo!Wrecker2026',
+         'name': 'Steve Carroll',
+         'role': 'wrecker_operator',
+         'rotation_order': 1, 'on_duty': True},
+        {'email': 'wrecker2@highwaypilot.io',
+         'password': 'Demo!Wrecker2026',
+         'name': 'Tony Marquez',
+         'role': 'wrecker_operator',
+         'rotation_order': 2, 'on_duty': True},
+        {'email': 'wrecker3@highwaypilot.io',
+         'password': 'Demo!Wrecker2026',
+         'name': 'Jake Boudreaux',
+         'role': 'wrecker_operator',
+         'rotation_order': 3, 'on_duty': True},
+        {'email': 'dispatcher@highwaypilot.io',
+         'password': 'Demo!Dispatch2026',
+         'name': 'Pam Henderson',
+         'role': 'wrecker_dispatcher',
+         'company_name': 'Apex Towing & Recovery'},
+        {'email': 'supervisor@highwaypilot.io',
+         'password': 'Demo!Super2026',
+         'name': 'Bill Kearney',
+         'role': 'wrecker_supervisor',
+         'company_name': 'Apex Towing & Recovery'},
+    ]
+    driver_ids: Dict[str, str] = {}  # rotation_order -> user_id
+    for u in demo_users:
+        existing = await db.users.find_one({'email': u['email']})
+        if existing:
+            # Backfill rotation fields if missing
+            patch = {}
+            for f in ('rotation_order', 'on_duty', 'role'):
+                if f in u and u[f] != existing.get(f):
+                    patch[f] = u[f]
+            if patch:
+                await db.users.update_one({'id': existing['id']}, {'$set': patch})
+            uid = existing['id']
+        else:
+            doc = {
+                'id': _new_id(),
+                'email': u['email'],
+                'password_hash': hash_password(u['password']),
+                'name': u['name'],
+                'role': u['role'],
+                'company_name': u.get('company_name', 'Apex Towing & Recovery'),
+                'created_at': _now(),
+            }
+            if 'rotation_order' in u:
+                doc['rotation_order'] = u['rotation_order']
+                doc['on_duty'] = u.get('on_duty', True)
+            await db.users.insert_one(doc)
+            uid = doc['id']
+        if u.get('rotation_order'):
+            driver_ids[u['rotation_order']] = uid
 
     # Motor clubs
     if await db.motor_clubs.count_documents({}) == 0:
@@ -557,7 +768,7 @@ async def seed_wrecker_demo(db, hash_password):
         for tank in [
             {'name': 'Main Yard Diesel', 'location': 'Apex Yard — Kokomo, IN', 'fuel_type': 'diesel',
              'capacity_gallons': 1000, 'current_estimate_gallons': 740,
-             'notes': 'Primary diesel for fleet. FuelCloud pending.'},
+             'notes': 'Primary diesel for fleet. FuelCloud paused.'},
             {'name': 'Backup DEF Tank', 'location': 'Apex Yard — Kokomo, IN', 'fuel_type': 'def',
              'capacity_gallons': 250, 'current_estimate_gallons': 180},
         ]:
@@ -565,7 +776,7 @@ async def seed_wrecker_demo(db, hash_password):
             doc.update({'id': _new_id(), 'created_at': _now()})
             await db.fuel_tanks.insert_one(doc)
 
-    # Tow jobs (active dispatch board)
+    # Tow jobs (active dispatch board) — pre-assigned to drivers in rotation order
     if await db.tow_jobs.count_documents({}) == 0:
         # Get motor club ids
         clubs = []
@@ -581,6 +792,7 @@ async def seed_wrecker_demo(db, hash_password):
                 'dropoff': {'lat': 40.4864, 'lng': -86.1336, 'address': "Apex Yard — 1200 W Markland Ave"},
                 'notes': 'Flat tire, customer waiting roadside. Hazards on.',
                 'quoted_price': 95.0, 'payment_method': 'motor_club',
+                'assign_to': None,  # pending — dispatcher will assign
             },
             {
                 'service_type': 'jumpstart', 'priority': 'normal', 'status': 'assigned',
@@ -589,6 +801,7 @@ async def seed_wrecker_demo(db, hash_password):
                 'pickup': {'lat': 40.4933, 'lng': -86.1247, 'address': 'Walmart Parking Lot, Kokomo, IN'},
                 'notes': 'Battery dead after 30 min in store.',
                 'quoted_price': 65.0, 'payment_method': 'motor_club',
+                'assign_to': 1,  # Steve
             },
             {
                 'service_type': 'tow_medium_duty', 'priority': 'high', 'status': 'en_route',
@@ -597,15 +810,16 @@ async def seed_wrecker_demo(db, hash_password):
                 'pickup': {'lat': 40.5078, 'lng': -86.1411, 'address': 'US-31 & 350 N, Kokomo, IN'},
                 'notes': 'Transmission failure, stuck in middle lane.',
                 'quoted_price': 175.0, 'payment_method': 'invoice',
+                'assign_to': 2,  # Tony
             },
             {
-                'service_type': 'lockout', 'priority': 'normal', 'status': 'on_scene',
+                'service_type': 'lockout', 'priority': 'emergency', 'status': 'on_scene',
                 'customer': {'name': 'Tyler Brooks', 'phone': '+17655554004'},
                 'vehicle': {'year': 2022, 'make': 'Toyota', 'model': 'Camry', 'color': 'Blue', 'plate': 'IN-5521W'},
                 'pickup': {'lat': 40.4711, 'lng': -86.1256, 'address': 'YMCA Parking, Kokomo, IN'},
                 'notes': 'Keys locked inside, baby in back seat. EMERGENCY.',
-                'priority': 'emergency',
                 'quoted_price': 75.0, 'payment_method': 'cash',
+                'assign_to': 3,  # Jake
             },
             {
                 'service_type': 'flatbed', 'priority': 'normal', 'status': 'in_progress',
@@ -615,6 +829,7 @@ async def seed_wrecker_demo(db, hash_password):
                 'dropoff': {'lat': 40.5055, 'lng': -86.1599, 'address': 'Friendly BMW Service Center'},
                 'notes': 'Lowered car, requires flatbed.',
                 'quoted_price': 165.0, 'payment_method': 'card',
+                'assign_to': 1,  # Steve
             },
             {
                 'service_type': 'accident_recovery', 'priority': 'high', 'status': 'pending',
@@ -623,6 +838,7 @@ async def seed_wrecker_demo(db, hash_password):
                 'pickup': {'lat': 40.5201, 'lng': -86.1655, 'address': 'I-31 NB Mile 165, Kokomo, IN'},
                 'notes': 'Single-vehicle rollover. Driver to hospital. Police on scene.',
                 'quoted_price': 425.0, 'payment_method': 'invoice',
+                'assign_to': None,  # pending
             },
             {
                 'service_type': 'winch_out', 'priority': 'normal', 'status': 'completed',
@@ -631,6 +847,7 @@ async def seed_wrecker_demo(db, hash_password):
                 'pickup': {'lat': 40.4733, 'lng': -86.0988, 'address': 'County Road 300 E, Kokomo, IN'},
                 'notes': 'Stuck in mud after rain.',
                 'quoted_price': 125.0, 'final_price': 125.0, 'payment_method': 'cash',
+                'assign_to': 2,  # Tony
             },
             {
                 'service_type': 'tire_change', 'priority': 'low', 'status': 'pending',
@@ -639,11 +856,15 @@ async def seed_wrecker_demo(db, hash_password):
                 'pickup': {'lat': 40.4655, 'lng': -86.1502, 'address': 'Kroger Parking Lot, Kokomo, IN'},
                 'notes': 'Customer has spare in trunk.',
                 'quoted_price': 55.0, 'payment_method': 'card',
+                'assign_to': None,
             },
         ]
 
         for i, sj in enumerate(sample_jobs):
             doc = dict(sj)
+            assign_to = doc.pop('assign_to', None)
+            if assign_to and assign_to in driver_ids:
+                doc['assigned_driver_id'] = driver_ids[assign_to]
             # Assign random motor club to ~50% of jobs
             if clubs and i % 2 == 0:
                 club = clubs[i % len(clubs)]
@@ -700,6 +921,7 @@ async def seed_wrecker_demo(db, hash_password):
         'impounds': await db.impounds.count_documents({}),
         'motor_clubs': await db.motor_clubs.count_documents({}),
         'fuel_tanks': await db.fuel_tanks.count_documents({}),
+        'wrecker_users': await db.users.count_documents({'role': {'$in': ['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor']}}),
     }
 
 

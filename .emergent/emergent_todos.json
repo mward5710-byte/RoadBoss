@@ -1,30 +1,46 @@
 [
   {
-    "content": "Extend Co-Pilot system prompt with wrecker actions (tow_job_status, tow_job_next, fuel_check, impound_quick)",
+    "content": "Backend: Add role helpers + scope job list/update by role",
     "status": "completed"
   },
   {
-    "content": "Extend _build_driver_context to include wrecker context (active tow job, today's revenue/jobs, fuel tanks)",
+    "content": "Backend: Seed wrecker drivers (Steve, Tony, Jake) with rotation + supervisor + dispatcher demo users",
     "status": "completed"
   },
   {
-    "content": "Add wrecker action handlers to _execute_copilot_action with spoken_addendum field",
+    "content": "Backend: Add /api/wrecker/drivers (rotation list) + /api/wrecker/drivers/next + /api/wrecker/jobs/{id}/assign",
     "status": "completed"
   },
   {
-    "content": "Wire wrecker context fetch (_build_wrecker_context) into copilot_chat endpoint",
+    "content": "Backend: Restrict create_job + assignment to dispatcher/supervisor/admin; restrict reassign to supervisor/admin; auto-update rotation on assign",
     "status": "completed"
   },
   {
-    "content": "Add /wrecker/voice route reusing Copilot.jsx component with role-aware back button",
+    "content": "Frontend: Create WreckerDriverHome (simple 'My Jobs' view, no kanban) + auto-redirect operators there from /wrecker",
     "status": "completed"
   },
   {
-    "content": "Add wrecker action toasts in Copilot.jsx (status changes, next-call summary, fuel readout, impound)",
+    "content": "Frontend: Add Drivers + Rotation panel to dispatch board with Suggest Next + Assign on pending jobs",
     "status": "completed"
   },
   {
-    "content": "Smoke test: 'next call', 'check fuel', 'mark in progress', 'job complete' — all working with proper spoken responses",
+    "content": "Frontend: Add Reassign action on JobDetail (supervisor/admin only); hide assignment fields from operators; remove cancel from drivers",
+    "status": "completed"
+  },
+  {
+    "content": "Frontend: Update WreckerShell to gate nav by role + role badge",
+    "status": "completed"
+  },
+  {
+    "content": "Frontend: Add Dispatcher + Supervisor demo buttons on /try + auto-route by role on login",
+    "status": "completed"
+  },
+  {
+    "content": "Smoke test: driver flow, dispatcher assign w/ rotation advance, supervisor reassign — ALL PASSING",
+    "status": "completed"
+  },
+  {
+    "content": "Master spec doc updated with chain-of-command rules for the Flutter session",
     "status": "completed"
   }
 ]
