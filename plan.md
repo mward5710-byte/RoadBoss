@@ -22,7 +22,8 @@
 - **Stage 3 Phase 2C.3 (Co-Pilot voice-to-SMS — hands-free dispatch comm): ✅ Done** ← latest shipped
 - **Stage 3 Phase 2G.1 (Driver Onboarding Tour): ✅ Done** ← 6-step framer-motion overlay, auto-first-visit, Replay in Settings
 - **Stage 3 Phase 2G.2 (PWA Push Notifications): ✅ Done** ← VAPID + SW + subscribe/test/unsubscribe + wired into crash/roadside/dispatch (40/41 tests, 98%)
-- **Stage 3 Phase 2G.3 (Admin Settings UI for Crash Contacts): 🔜 Next**
+- **Stage 3 Phase 2G.3 (Admin Settings — Emergency Contacts CRUD): ✅ Done** ← `/app/settings`, DB-backed contacts with env fallback (31/31 tests, 100%)
+- **Stage 3 Phase 2G.4 (Mock Dashcam API Adapters): 🔜 Next**
 - Stage 4 / 5: Backlog (CB Talker network, native iOS shell, deeper dashcam adapters)
 
 **External integration status notes (operational reality):**
