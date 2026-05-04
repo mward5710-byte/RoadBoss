@@ -217,11 +217,24 @@ export default function RoiCalculator() {
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5">
-              <div className="text-xs uppercase tracking-widest text-slate-400 mb-2">
-                Avg revenue / truck / year
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs uppercase tracking-widest text-slate-400">
+                  Revenue context <span className="text-slate-500 normal-case">(optional)</span>
+                </div>
+                <span className="text-[10px] uppercase tracking-widest text-amber-300 border border-amber-500/30 rounded px-1.5 py-0.5">
+                  context only
+                </span>
               </div>
-              <div className="text-3xl font-bold text-white mb-3" data-testid="roi-revenue-value">
+              <div className="text-xs text-slate-400 mb-3">Avg revenue per truck per year</div>
+              <div className="text-3xl font-bold text-white" data-testid="roi-revenue-value">
                 {money(avgRevenuePerTruck)}
+              </div>
+              <div className="text-xs text-slate-400 mt-1 mb-3">
+                Total fleet revenue:{' '}
+                <span className="text-emerald-300 font-semibold" data-testid="roi-total-revenue">
+                  {money(avgRevenuePerTruck * trucks)}
+                </span>
+                <span className="text-slate-500"> ({trucks} × {money(avgRevenuePerTruck)})</span>
               </div>
               <input
                 type="range"
@@ -233,8 +246,10 @@ export default function RoiCalculator() {
                 data-testid="roi-revenue-slider"
                 className="w-full accent-emerald-500"
               />
-              <div className="text-xs text-slate-500 mt-2">
-                Only used to show savings as % of revenue — doesn&apos;t change the savings math.
+              <div className="text-xs text-amber-200/80 mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2">
+                <strong className="text-amber-200">Heads up:</strong> revenue does NOT change your
+                savings dollar amount — it only changes the &quot;% of revenue&quot; metric below.
+                Move <strong>Fleet size</strong> above to change savings.
               </div>
             </div>
           </div>
@@ -251,6 +266,9 @@ export default function RoiCalculator() {
               <div className="flex items-center gap-2 text-emerald-300">
                 <DollarSign className="h-5 w-5" />
                 <div className="text-xs uppercase tracking-widest font-semibold">Your annualized savings</div>
+                <span className="ml-auto text-[10px] uppercase tracking-widest text-slate-400 border border-white/10 bg-white/[0.04] rounded px-2 py-0.5">
+                  driven by fleet size
+                </span>
               </div>
               <div className="text-5xl md:text-6xl font-bold text-white mt-2" data-testid="roi-total-savings">
                 {money(breakdown.netSavings)}
