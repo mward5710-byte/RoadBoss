@@ -41,13 +41,17 @@ import DriverSettings from '@/pages/driver/DriverSettings';
 import DriverProfile from '@/pages/driver/DriverProfile';
 import Copilot from '@/pages/driver/Copilot';
 import Inspection from '@/pages/driver/Inspection';
+import InspectionSign from '@/pages/driver/InspectionSign';
 import Roadside from '@/pages/driver/Roadside';
 import RoadsideDetail from '@/pages/driver/RoadsideDetail';
 import WreckerShell from '@/pages/wrecker/WreckerShell';
 import WreckerDashboard from '@/pages/wrecker/WreckerDashboard';
 import WreckerDriverHome from '@/pages/wrecker/WreckerDriverHome';
 import WreckerJobNew from '@/pages/wrecker/WreckerJobNew';
-import WreckerJobDetail from '@/pages/wrecker/WreckerJobDetail';
+import WreckerJobCockpit from '@/pages/wrecker/WreckerJobCockpit';
+import WreckerDamageForm from '@/pages/wrecker/WreckerDamageForm';
+import WreckerWaiver from '@/pages/wrecker/WreckerWaiver';
+import WreckerReceipt from '@/pages/wrecker/WreckerReceipt';
 import WreckerImpound from '@/pages/wrecker/WreckerImpound';
 import WreckerMotorClubs from '@/pages/wrecker/WreckerMotorClubs';
 import WreckerFuel from '@/pages/wrecker/WreckerFuel';
@@ -115,7 +119,9 @@ function App() {
           <Route path="/driver" element={<RequireAuth roles={['driver']}><DriverShell /></RequireAuth>}>
             <Route index element={<DriverHome />} />
             <Route path="copilot" element={<Copilot />} />
+            <Route path="inspection/new" element={<Inspection />} />
             <Route path="inspection/:id" element={<Inspection />} />
+            <Route path="inspection/:id/sign" element={<InspectionSign />} />
             <Route path="roadside" element={<Roadside />} />
             <Route path="roadside/:id" element={<RoadsideDetail />} />
             <Route path="trips" element={<DriverTrips />} />
@@ -129,12 +135,16 @@ function App() {
             <Route index element={<WreckerDashboard />} />
             <Route path="me" element={<WreckerDriverHome />} />
             <Route path="jobs/new" element={<WreckerJobNew />} />
-            <Route path="jobs/:id" element={<WreckerJobDetail />} />
+            <Route path="jobs/:id" element={<WreckerJobCockpit />} />
             <Route path="impound" element={<WreckerImpound />} />
             <Route path="clubs" element={<WreckerMotorClubs />} />
             <Route path="fuel" element={<WreckerFuel />} />
             <Route path="billing" element={<WreckerBilling />} />
           </Route>
+          {/* Full-screen wrecker sub-pages (no sidebar) */}
+          <Route path="/wrecker/jobs/:id/damage-form" element={<RequireAuth roles={WRECKER_ROLES}><WreckerDamageForm /></RequireAuth>} />
+          <Route path="/wrecker/jobs/:id/waiver" element={<RequireAuth roles={WRECKER_ROLES}><WreckerWaiver /></RequireAuth>} />
+          <Route path="/wrecker/jobs/:id/receipt" element={<RequireAuth roles={WRECKER_ROLES}><WreckerReceipt /></RequireAuth>} />
           {/* Wrecker hands-free voice page reuses the Co-Pilot UI but lives outside the shell so it can be full-screen */}
           <Route path="/wrecker/voice" element={<RequireAuth roles={WRECKER_ROLES}><Copilot /></RequireAuth>} />
 

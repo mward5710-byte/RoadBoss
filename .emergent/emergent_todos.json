@@ -1,46 +1,42 @@
 [
   {
-    "content": "Backend: Add role helpers + scope job list/update by role",
+    "content": "Update plan.md + create master spec doc",
     "status": "completed"
   },
   {
-    "content": "Backend: Seed wrecker drivers (Steve, Tony, Jake) with rotation + supervisor + dispatcher demo users",
+    "content": "PHASE 1: Backend — extend tow_jobs with 7-stage flow, vehicle keys/drivable/drive_type, photo stages",
     "status": "completed"
   },
   {
-    "content": "Backend: Add /api/wrecker/drivers (rotation list) + /api/wrecker/drivers/next + /api/wrecker/jobs/{id}/assign",
+    "content": "PHASE 1: Backend — photo upload (base64) + email receipt API endpoints",
     "status": "completed"
   },
   {
-    "content": "Backend: Restrict create_job + assignment to dispatcher/supervisor/admin; restrict reassign to supervisor/admin; auto-update rotation on assign",
+    "content": "PHASE 2: Backend — damage_forms collection + waivers collection + APIs",
     "status": "completed"
   },
   {
-    "content": "Frontend: Create WreckerDriverHome (simple 'My Jobs' view, no kanban) + auto-redirect operators there from /wrecker",
+    "content": "PHASE 3: Backend — charges line items + payments tracking + receipt sender",
     "status": "completed"
   },
   {
-    "content": "Frontend: Add Drivers + Rotation panel to dispatch board with Suggest Next + Assign on pending jobs",
+    "content": "PHASE 1: Frontend — Driver Job Cockpit (status timeline, photos by stage, action row, vehicle details)",
     "status": "completed"
   },
   {
-    "content": "Frontend: Add Reassign action on JobDetail (supervisor/admin only); hide assignment fields from operators; remove cancel from drivers",
+    "content": "PHASE 2: Frontend — Damage Form 4-view SVG + Liability Waiver + Signature canvas",
     "status": "completed"
   },
   {
-    "content": "Frontend: Update WreckerShell to gate nav by role + role badge",
+    "content": "PHASE 3: Frontend — Charges editor (rate × qty), Payments screen, Email Receipt with toggles",
     "status": "completed"
   },
   {
-    "content": "Frontend: Add Dispatcher + Supervisor demo buttons on /try + auto-route by role on login",
-    "status": "completed"
+    "content": "Run backend tests via testing agent (new endpoints)",
+    "status": "in_progress"
   },
   {
-    "content": "Smoke test: driver flow, dispatcher assign w/ rotation advance, supervisor reassign — ALL PASSING",
-    "status": "completed"
-  },
-  {
-    "content": "Master spec doc updated with chain-of-command rules for the Flutter session",
-    "status": "completed"
+    "content": "Final UI screenshots for Mike",
+    "status": "pending"
   }
 ]

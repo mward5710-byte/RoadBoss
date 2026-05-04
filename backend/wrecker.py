@@ -37,16 +37,34 @@ def _now() -> datetime:
 def _new_id() -> str:
     return str(uuid.uuid4())
 
-# Job status lifecycle (mirrors Towbook)
+# Job status lifecycle (mirrors Towbook 7-stage flow)
 JOB_STATUSES = [
-    'pending',          # Just created
-    'assigned',         # Driver picked
+    'pending',          # Just created (Waiting in Towbook)
+    'assigned',         # Driver picked (Dispatched)
     'en_route',         # Driver heading to scene
     'on_scene',         # Driver arrived
-    'in_progress',      # Hooking up / loading
+    'towing',           # Hooking up / loading / towing in motion (was 'in_progress')
+    'dest_arrival',     # At destination (drop-off arrival)
     'completed',        # Job done
     'cancelled',        # Customer cancelled
 ]
+# Legacy alias — incoming 'in_progress' is normalized to 'towing'
+_LEGACY_STATUS_ALIASES = {'in_progress': 'towing'}
+
+# Color map for the status timeline (keep consistent across backend & frontend)
+STATUS_COLOR_HEX = {
+    'pending':      '#f59e0b',   # amber
+    'assigned':     '#1d4ed8',   # blue-800
+    'en_route':     '#86efac',   # green-300
+    'on_scene':     '#16a34a',   # green-600
+    'towing':       '#38bdf8',   # sky-400
+    'dest_arrival': '#d946ef',   # fuchsia-500
+    'completed':    '#0f172a',   # slate-900 (dark check)
+    'cancelled':    '#64748b',   # slate-500
+}
+
+# Photo capture stages — tagged so the receipt/proof-of-condition is clean
+PHOTO_STAGES = ['on_scene', 'towing', 'dest_arrival', 'pre_hook', 'damage', 'other']
 
 SERVICE_TYPES = [
     'tow_light_duty',
@@ -97,8 +115,16 @@ class VehicleInfo(BaseModel):
     model: Optional[str] = None
     color: Optional[str] = None
     plate: Optional[str] = None
+    state: Optional[str] = None              # IN, OH, etc.
     vin: Optional[str] = None
     notes: Optional[str] = None
+    # Towbook parity additions
+    duty_class: Optional[str] = None         # Light / Medium / Heavy
+    drive_type: Optional[str] = None         # FWD / RWD / AWD / 4X2 / 4X4
+    has_keys: Optional[bool] = None
+    key_location: Optional[str] = None       # e.g. "Locker 4634"
+    drivable: Optional[bool] = None
+    odometer: Optional[int] = None
 
 class GeoPoint(BaseModel):
     lat: float
@@ -183,13 +209,109 @@ class FuelTxIn(BaseModel):
     receipt_photo_url: Optional[str] = None
     notes: Optional[str] = None
 
+# ---- Towbook parity: photos, charges, payments, damage form, waiver ----
+class PhotoUploadIn(BaseModel):
+    data_url: str                       # base64 data URL — never saved to camera roll
+    stage: Optional[str] = 'other'      # one of PHOTO_STAGES
+    caption: Optional[str] = None
+
+class ChargeIn(BaseModel):
+    key: str                            # e.g. 'tow_hook_fee'
+    label: str                          # e.g. 'Tow / Hook Fee'
+    rate: float                         # per unit
+    qty: float = 1.0                    # units (miles, days, hours, ea)
+    unit: Optional[str] = 'ea'          # 'mi', 'day', 'hr', 'ea'
+
+class PaymentIn(BaseModel):
+    amount: float
+    method: str = 'cash'                # cash / check / card / square / motor_club / other
+    reference: Optional[str] = None     # check #, last-4, transaction id
+    note: Optional[str] = None
+
+class DamageMarkIn(BaseModel):
+    x: float                            # 0-1 normalized in SVG viewbox
+    y: float
+    panel: Optional[str] = None         # e.g. 'front_bumper', 'left_door', 'wheel_fl'
+    severity: str = 'minor'             # minor / moderate / major / pre_existing
+    note: Optional[str] = None
+
+class DamageFormIn(BaseModel):
+    marks: List[DamageMarkIn] = []
+    customer_name: Optional[str] = None
+    signature_data_url: Optional[str] = None
+    notes: Optional[str] = None
+
+class WaiverAcceptIn(BaseModel):
+    customer_name: str
+    signature_data_url: str
+    waiver_text_snapshot: Optional[str] = None    # if not provided, current fleet template is snapshotted
+
+class WaiverTemplateIn(BaseModel):
+    waiver_text: str
+    company_name: Optional[str] = None
+
+class ReceiptSendIn(BaseModel):
+    channel: str = 'email'              # email / sms / both
+    to_email: Optional[str] = None
+    to_phone: Optional[str] = None
+    hide_charges: bool = False
+    hide_discounts: bool = False
+    hide_photos: bool = False
+    include_payment_link: bool = True
+    message: Optional[str] = None
+
+class RateSheetItemIn(BaseModel):
+    key: str
+    label: str
+    rate: float
+    unit: Optional[str] = 'ea'
+
+class RateSheetIn(BaseModel):
+    items: List[RateSheetItemIn]
+
+# Default Martin Wrecker rate sheet (admin-editable per fleet)
+DEFAULT_RATE_SHEET = [
+    {'key': 'tow_hook_fee',       'label': 'Tow / Hook Fee',       'rate': 65.00, 'unit': 'ea'},
+    {'key': 'loaded_mileage',     'label': 'Loaded / Hooked Mileage', 'rate': 4.50, 'unit': 'mi'},
+    {'key': 'unloaded_mileage',   'label': 'Unloaded / Enroute Mileage', 'rate': 3.50, 'unit': 'mi'},
+    {'key': 'admin_fee',          'label': 'Administrative Fees',  'rate': 50.00, 'unit': 'ea'},
+    {'key': 'certified_mail',     'label': 'Certified Mail',       'rate': 100.00, 'unit': 'ea'},
+    {'key': 'title_search',       'label': 'Title Search',         'rate': 100.00, 'unit': 'ea'},
+    {'key': 'labor',              'label': 'Labor',                'rate': 150.00, 'unit': 'hr'},
+    {'key': 'set_out',            'label': 'Set Out',              'rate': 100.00, 'unit': 'ea'},
+    {'key': 'storage_daily',      'label': 'Daily Impound Rate',   'rate': 50.00, 'unit': 'day'},
+    {'key': 'fuel_surcharge',     'label': 'Fuel Surcharge',       'rate': 5.00,  'unit': 'ea'},
+]
+
+# Default Martin Wrecker liability waiver
+DEFAULT_WAIVER_TEMPLATE = """The driver has been absolutely forbidden to push cars with his/her truck or drive in any type of grass area. UNDER ANY CIRCUMSTANCES WHATSOEVER! Please do not make his/her position difficult by requesting him/her to do so.
+
+If towing a vehicle does result in having to go onto the property/grass area the property owner understands that damage may result and will not hold {{COMPANY_NAME}} responsible for any & all damages done to said property.
+
+I have been advised that servicing or removal of my car may result in unavoidable damage. I hereby authorize the servicing of my car and agree that I will not hold {{COMPANY_NAME}} responsible for such unavoidable damage.
+
+I have been advised that leaving my car at an unattended location may result in unavoidable vandalism, theft or other damage. I hereby authorize the service to be provided and agree that I will not hold the service facility, its employees or {{COMPANY_NAME}} responsible for such unavoidable vandalism, theft or other damage.
+
+I hereby agree to hold {{COMPANY_NAME}} harmless for any previous damage on vehicle prior to time of service. I will not hold {{COMPANY_NAME}} responsible for such pre-existing damage.
+
+I hereby acknowledge the probability the vehicle may have pre-existing damage or become damaged during the course of service and agree that I will not hold {{COMPANY_NAME}} or its employees responsible for such damage. I also acknowledge that if my vehicle is 15 years old or older that I will not hold {{COMPANY_NAME}} responsible for any structural damage to the under carriage of the vehicle.
+
+For Tire Services {{COMPANY_NAME}} is not responsible for wearable maintenance items such as Lug Nuts &/or Lug Studs."""
+
 # ---------------------------------------------------------------
 # Router factory — takes db and shared helpers as dependencies
 # ---------------------------------------------------------------
 
-def build_wrecker_router(db, get_current_user, require_role, serialize_doc):
-    """Returns an APIRouter (without prefix) — caller mounts it under /api/wrecker."""
+def build_wrecker_router(db, get_current_user, require_role, serialize_doc, notifications=None):
+    """Returns an APIRouter (without prefix) — caller mounts it under /api/wrecker.
+    `notifications` (optional) is the notifications module — used for SMS/email receipts.
+    """
     router = APIRouter(prefix="/wrecker", tags=["wrecker"])
+
+    def _normalize_status(s: Optional[str]) -> Optional[str]:
+        if s is None:
+            return None
+        return _LEGACY_STATUS_ALIASES.get(s, s)
 
     # ------------------------------------------------------------
     # Permission helpers — chain-of-command rules per Mike's spec:
@@ -297,6 +419,7 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc):
 
         # Validate status transition
         if 'status' in updates:
+            updates['status'] = _normalize_status(updates['status'])
             if updates['status'] not in JOB_STATUSES:
                 raise HTTPException(400, f"Invalid status. Allowed: {JOB_STATUSES}")
             history = existing.get('status_history', [])
@@ -335,7 +458,7 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc):
     async def quick_status_update(job_id: str, body: Dict[str, str], user=Depends(require_wrecker)):
         """Quick voice-friendly status changer. Body: {status: 'on_scene'}.
         Drivers can only update status on their OWN assigned jobs."""
-        new_status = body.get('status')
+        new_status = _normalize_status(body.get('status'))
         if new_status not in JOB_STATUSES:
             raise HTTPException(400, f"Invalid status. Allowed: {JOB_STATUSES}")
         existing = await db.tow_jobs.find_one({'id': job_id})
@@ -689,6 +812,366 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc):
             'status_breakdown': status_counts,
         }
 
+    # =========================================================
+    # Towbook parity: Photos, Charges, Payments, Damage Form, Waiver, Receipts
+    # =========================================================
+
+    def _job_or_404(job_id: str):
+        async def _inner():
+            j = await db.tow_jobs.find_one({'id': job_id})
+            if not j:
+                raise HTTPException(404, 'Job not found')
+            return j
+        return _inner
+
+    async def _get_job_for_driver(job_id: str, user):
+        j = await db.tow_jobs.find_one({'id': job_id})
+        if not j:
+            raise HTTPException(404, 'Job not found')
+        if _is_driver(user) and j.get('assigned_driver_id') != user['id']:
+            raise HTTPException(403, 'Not your call. Talk to dispatch.')
+        return j
+
+    # ---------- Photos ----------
+    @router.post('/jobs/{job_id}/photo')
+    async def add_job_photo(job_id: str, body: PhotoUploadIn, user=Depends(require_wrecker)):
+        """Attach a base64 photo to a job, tagged by capture stage (on_scene/towing/dest_arrival/etc).
+        Photos are stored INSIDE the app — never auto-saved to camera roll."""
+        await _get_job_for_driver(job_id, user)
+        if body.stage and body.stage not in PHOTO_STAGES:
+            raise HTTPException(400, f"Invalid stage. Allowed: {PHOTO_STAGES}")
+        photo = {
+            'id': _new_id(),
+            'data_url': body.data_url,
+            'stage': body.stage or 'other',
+            'caption': body.caption,
+            'taken_at': _now(),
+            'taken_by': user['id'],
+            'taken_by_name': user.get('name'),
+        }
+        await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$push': {'photos': photo}, '$set': {'updated_at': _now()}}
+        )
+        return {'ok': True, 'photo_id': photo['id'], 'stage': photo['stage'], 'taken_at': photo['taken_at'].isoformat()}
+
+    @router.delete('/jobs/{job_id}/photo/{photo_id}')
+    async def delete_job_photo(job_id: str, photo_id: str, user=Depends(require_wrecker)):
+        await _get_job_for_driver(job_id, user)
+        res = await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$pull': {'photos': {'id': photo_id}}, '$set': {'updated_at': _now()}}
+        )
+        if res.modified_count == 0:
+            raise HTTPException(404, 'Photo not found on job')
+        return {'ok': True}
+
+    # ---------- Charges (line items) ----------
+    def _recompute_totals(job: Dict[str, Any]) -> Dict[str, float]:
+        charges = job.get('charges') or []
+        subtotal = sum(round(float(c.get('rate', 0)) * float(c.get('qty', 0)), 2) for c in charges)
+        tax_rate = float(job.get('tax_rate', 0) or 0)
+        tax = round(subtotal * tax_rate, 2)
+        total = round(subtotal + tax, 2)
+        payments = job.get('payments') or []
+        paid = round(sum(float(p.get('amount', 0)) for p in payments), 2)
+        balance = round(total - paid, 2)
+        return {
+            'subtotal': round(subtotal, 2),
+            'tax': tax,
+            'invoice_total': total,
+            'amount_paid': paid,
+            'balance_due': balance,
+        }
+
+    @router.post('/jobs/{job_id}/charges')
+    async def add_charge(job_id: str, body: ChargeIn, user=Depends(require_wrecker)):
+        # Drivers can add charges to their own jobs (they need to log mileage on scene).
+        existing = await _get_job_for_driver(job_id, user)
+        line = body.model_dump()
+        line['id'] = _new_id()
+        line['subtotal'] = round(line['rate'] * line['qty'], 2)
+        line['added_at'] = _now()
+        line['added_by'] = user['id']
+        charges = list(existing.get('charges') or [])
+        charges.append(line)
+        existing['charges'] = charges
+        totals = _recompute_totals(existing)
+        await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$set': {'charges': charges, 'updated_at': _now(), **totals}}
+        )
+        return {'ok': True, 'charge': serialize_doc(line), 'totals': totals}
+
+    @router.delete('/jobs/{job_id}/charges/{charge_id}')
+    async def delete_charge(job_id: str, charge_id: str, user=Depends(require_wrecker)):
+        existing = await _get_job_for_driver(job_id, user)
+        charges = [c for c in (existing.get('charges') or []) if c.get('id') != charge_id]
+        existing['charges'] = charges
+        totals = _recompute_totals(existing)
+        await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$set': {'charges': charges, 'updated_at': _now(), **totals}}
+        )
+        return {'ok': True, 'totals': totals}
+
+    # ---------- Payments ----------
+    @router.post('/jobs/{job_id}/payments')
+    async def add_payment(job_id: str, body: PaymentIn, user=Depends(require_wrecker)):
+        existing = await _get_job_for_driver(job_id, user)
+        pay = body.model_dump()
+        pay.update({
+            'id': _new_id(),
+            'received_at': _now(),
+            'received_by': user['id'],
+            'received_by_name': user.get('name'),
+        })
+        payments = list(existing.get('payments') or [])
+        payments.append(pay)
+        existing['payments'] = payments
+        totals = _recompute_totals(existing)
+        await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$set': {'payments': payments, 'updated_at': _now(), **totals}}
+        )
+        return {'ok': True, 'payment': serialize_doc(pay), 'totals': totals}
+
+    @router.delete('/jobs/{job_id}/payments/{payment_id}')
+    async def delete_payment(job_id: str, payment_id: str, user=Depends(require_wrecker)):
+        existing = await _get_job_for_driver(job_id, user)
+        payments = [p for p in (existing.get('payments') or []) if p.get('id') != payment_id]
+        existing['payments'] = payments
+        totals = _recompute_totals(existing)
+        await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$set': {'payments': payments, 'updated_at': _now(), **totals}}
+        )
+        return {'ok': True, 'totals': totals}
+
+    # ---------- Damage Form ----------
+    @router.get('/jobs/{job_id}/damage-form')
+    async def get_damage_form(job_id: str, user=Depends(require_wrecker)):
+        await _get_job_for_driver(job_id, user)
+        rec = await db.damage_forms.find_one({'job_id': job_id}, {'_id': 0})
+        return serialize_doc(rec) if rec else None
+
+    @router.post('/jobs/{job_id}/damage-form')
+    async def upsert_damage_form(job_id: str, body: DamageFormIn, user=Depends(require_wrecker)):
+        await _get_job_for_driver(job_id, user)
+        existing = await db.damage_forms.find_one({'job_id': job_id})
+        doc = {
+            'job_id': job_id,
+            'marks': [m.model_dump() for m in body.marks],
+            'customer_name': body.customer_name,
+            'signature_data_url': body.signature_data_url,
+            'notes': body.notes,
+            'updated_at': _now(),
+            'updated_by': user['id'],
+        }
+        if existing:
+            await db.damage_forms.update_one({'job_id': job_id}, {'$set': doc})
+            doc['id'] = existing['id']
+            doc['created_at'] = existing.get('created_at', _now())
+        else:
+            doc['id'] = _new_id()
+            doc['created_at'] = _now()
+            await db.damage_forms.insert_one(doc)
+        # Stamp the job with damage_form_id
+        await db.tow_jobs.update_one({'id': job_id}, {'$set': {'damage_form_id': doc['id'], 'updated_at': _now()}})
+        return serialize_doc(doc)
+
+    # ---------- Waiver ----------
+    @router.get('/waiver/template')
+    async def get_waiver_template(user=Depends(require_wrecker)):
+        # Per-fleet template lookup (stub: single fleet doc keyed 'default')
+        rec = await db.fleet_waiver_templates.find_one({'fleet_id': 'default'}, {'_id': 0})
+        if not rec:
+            return {
+                'fleet_id': 'default',
+                'company_name': 'Martin Wrecker Service Inc',
+                'waiver_text': DEFAULT_WAIVER_TEMPLATE,
+            }
+        return serialize_doc(rec)
+
+    @router.put('/waiver/template')
+    async def update_waiver_template(body: WaiverTemplateIn, user=Depends(require_dispatcher)):
+        existing = await db.fleet_waiver_templates.find_one({'fleet_id': 'default'})
+        doc = {
+            'fleet_id': 'default',
+            'waiver_text': body.waiver_text,
+            'company_name': body.company_name,
+            'updated_at': _now(),
+            'updated_by': user['id'],
+        }
+        if existing:
+            await db.fleet_waiver_templates.update_one({'fleet_id': 'default'}, {'$set': doc})
+        else:
+            doc['id'] = _new_id()
+            doc['created_at'] = _now()
+            await db.fleet_waiver_templates.insert_one(doc)
+        return doc
+
+    @router.get('/jobs/{job_id}/waiver')
+    async def get_waiver(job_id: str, user=Depends(require_wrecker)):
+        await _get_job_for_driver(job_id, user)
+        rec = await db.waivers.find_one({'job_id': job_id}, {'_id': 0})
+        return serialize_doc(rec) if rec else None
+
+    @router.post('/jobs/{job_id}/waiver/accept')
+    async def accept_waiver(job_id: str, body: WaiverAcceptIn, user=Depends(require_wrecker)):
+        await _get_job_for_driver(job_id, user)
+        # Snapshot the current template if not provided
+        snapshot = body.waiver_text_snapshot
+        company_name = 'Martin Wrecker Service Inc'
+        if not snapshot:
+            tpl = await db.fleet_waiver_templates.find_one({'fleet_id': 'default'})
+            snapshot = (tpl or {}).get('waiver_text') or DEFAULT_WAIVER_TEMPLATE
+            company_name = (tpl or {}).get('company_name') or company_name
+        # Replace {{COMPANY_NAME}} in the snapshot for record
+        snapshot = (snapshot or '').replace('{{COMPANY_NAME}}', company_name)
+        doc = {
+            'id': _new_id(),
+            'job_id': job_id,
+            'waiver_text_snapshot': snapshot,
+            'company_name': company_name,
+            'customer_name': body.customer_name,
+            'signature_data_url': body.signature_data_url,
+            'accepted_at': _now(),
+            'accepted_by_user': user['id'],
+            'created_at': _now(),
+        }
+        await db.waivers.insert_one(doc)
+        await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$set': {'waiver_id': doc['id'], 'waiver_signed_at': doc['accepted_at'], 'updated_at': _now()}}
+        )
+        return serialize_doc(doc)
+
+    # ---------- Rate sheet (per-fleet) ----------
+    @router.get('/rate-sheet')
+    async def get_rate_sheet(user=Depends(require_wrecker)):
+        rec = await db.fleet_rate_sheets.find_one({'fleet_id': 'default'}, {'_id': 0})
+        if not rec:
+            return {'fleet_id': 'default', 'items': DEFAULT_RATE_SHEET}
+        return serialize_doc(rec)
+
+    @router.put('/rate-sheet')
+    async def update_rate_sheet(body: RateSheetIn, user=Depends(require_dispatcher)):
+        items = [i.model_dump() for i in body.items]
+        existing = await db.fleet_rate_sheets.find_one({'fleet_id': 'default'})
+        doc = {'fleet_id': 'default', 'items': items, 'updated_at': _now()}
+        if existing:
+            await db.fleet_rate_sheets.update_one({'fleet_id': 'default'}, {'$set': doc})
+        else:
+            doc['id'] = _new_id()
+            doc['created_at'] = _now()
+            await db.fleet_rate_sheets.insert_one(doc)
+        return doc
+
+    # ---------- Receipts (Email + SMS via SendGrid/Twilio) ----------
+    def _format_receipt_html(job: Dict[str, Any], totals: Dict[str, float], opts: ReceiptSendIn, company_name: str) -> str:
+        veh = job.get('vehicle') or {}
+        veh_str = ' '.join(str(x) for x in [veh.get('year'), veh.get('color'), veh.get('make'), veh.get('model')] if x)
+        rows = ''
+        if not opts.hide_charges:
+            for c in (job.get('charges') or []):
+                rows += f"<tr><td style='padding:6px 0;border-bottom:1px solid #eee'>{c.get('label','')} ({c.get('qty',1)} × ${c.get('rate',0):.2f})</td><td style='padding:6px 0;border-bottom:1px solid #eee;text-align:right'>${c.get('subtotal',0):.2f}</td></tr>"
+        photos_html = ''
+        if not opts.hide_photos:
+            photos = (job.get('photos') or [])[:6]
+            if photos:
+                photos_html = "<div style='margin-top:16px'><div style='font-weight:bold;margin-bottom:8px'>Job Photos</div>"
+                for p in photos:
+                    photos_html += f"<img src='{p.get('data_url','')}' alt='{p.get('stage','photo')}' style='max-width:240px;margin:4px;border-radius:6px' />"
+                photos_html += "</div>"
+        msg_html = f"<p style='color:#475569'>{opts.message}</p>" if opts.message else ''
+        pay_link = ''
+        if opts.include_payment_link and totals.get('balance_due', 0) > 0:
+            pay_link = f"<p style='margin-top:16px'><a href='#' style='background:#f59e0b;color:#0f172a;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:bold'>Pay ${totals['balance_due']:.2f} Online</a></p>"
+        return f"""
+<div style='font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;max-width:560px;margin:0 auto'>
+  <div style='background:#0f172a;color:white;padding:20px;border-radius:12px 12px 0 0'>
+    <div style='font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#fbbf24'>Tow Service Receipt</div>
+    <div style='font-size:22px;font-weight:bold;margin-top:6px'>{company_name}</div>
+  </div>
+  <div style='background:white;border:1px solid #e2e8f0;border-top:none;padding:20px;border-radius:0 0 12px 12px'>
+    {msg_html}
+    <div style='color:#64748b;font-size:13px'>Job # {job.get('id','')[:8].upper()} · {veh_str or 'Vehicle'} {('· '+veh.get('plate','')) if veh.get('plate') else ''}</div>
+    <table style='width:100%;border-collapse:collapse;margin-top:16px;font-size:14px'>
+      {rows}
+      <tr><td style='padding:8px 0'><b>Sub Total</b></td><td style='padding:8px 0;text-align:right'>${totals['subtotal']:.2f}</td></tr>
+      <tr><td style='padding:4px 0'>Tax</td><td style='padding:4px 0;text-align:right'>${totals['tax']:.2f}</td></tr>
+      <tr><td style='padding:8px 0;font-size:18px;font-weight:bold'>Invoice Total</td><td style='padding:8px 0;text-align:right;font-size:18px;font-weight:bold'>${totals['invoice_total']:.2f}</td></tr>
+      <tr><td style='padding:4px 0;color:#16a34a'>Payments</td><td style='padding:4px 0;text-align:right;color:#16a34a'>−${totals['amount_paid']:.2f}</td></tr>
+      <tr><td style='padding:8px 0;color:#dc2626;font-weight:bold'>Balance Due</td><td style='padding:8px 0;text-align:right;color:#dc2626;font-weight:bold'>${totals['balance_due']:.2f}</td></tr>
+    </table>
+    {pay_link}
+    {photos_html}
+    <div style='margin-top:24px;color:#94a3b8;font-size:11px'>Thanks for choosing {company_name}. Powered by RoadBoss · Wrecker Mode.</div>
+  </div>
+</div>
+"""
+
+    def _format_receipt_sms(job: Dict[str, Any], totals: Dict[str, float], company_name: str) -> str:
+        veh = job.get('vehicle') or {}
+        veh_str = ' '.join(str(x) for x in [veh.get('year'), veh.get('make'), veh.get('model')] if x)
+        return (
+            f"{company_name} receipt\n"
+            f"Job #{job.get('id','')[:8].upper()} · {veh_str}\n"
+            f"Total ${totals['invoice_total']:.2f} · Paid ${totals['amount_paid']:.2f}\n"
+            f"Balance Due ${totals['balance_due']:.2f}"
+        )
+
+    @router.post('/jobs/{job_id}/receipt')
+    async def send_receipt(job_id: str, body: ReceiptSendIn, user=Depends(require_wrecker)):
+        existing = await _get_job_for_driver(job_id, user)
+        totals = _recompute_totals(existing)
+        # Pull company name from waiver template
+        tpl = await db.fleet_waiver_templates.find_one({'fleet_id': 'default'})
+        company_name = (tpl or {}).get('company_name') or 'Martin Wrecker Service Inc'
+
+        sent = {'email': None, 'sms': None}
+
+        if body.channel in ('email', 'both'):
+            to_email = body.to_email or (existing.get('customer') or {}).get('email')
+            if not to_email:
+                raise HTTPException(400, 'No customer email on file. Provide to_email.')
+            html = _format_receipt_html(existing, totals, body, company_name)
+            if notifications is not None:
+                res = await notifications.send_email(
+                    db, to_email,
+                    subject=f"{company_name} — Receipt for Job #{job_id[:8].upper()}",
+                    html=html,
+                    plain_text=_format_receipt_sms(existing, totals, company_name),
+                    event_type='tow_receipt',
+                    event_ref_id=job_id,
+                )
+                sent['email'] = res
+            else:
+                sent['email'] = {'ok': False, 'error': 'notifications_module_not_wired'}
+
+        if body.channel in ('sms', 'both'):
+            to_phone = body.to_phone or (existing.get('customer') or {}).get('phone')
+            if not to_phone:
+                raise HTTPException(400, 'No customer phone on file. Provide to_phone.')
+            text = _format_receipt_sms(existing, totals, company_name)
+            if notifications is not None:
+                res = await notifications.send_sms(
+                    db, to_phone, text,
+                    event_type='tow_receipt',
+                    event_ref_id=job_id,
+                )
+                sent['sms'] = res
+            else:
+                sent['sms'] = {'ok': False, 'error': 'notifications_module_not_wired'}
+
+        # Stamp receipt sent
+        await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$set': {'receipt_last_sent_at': _now(), 'updated_at': _now()}}
+        )
+        return {'ok': True, 'sent': sent, 'totals': totals}
+
     return router
 
 
@@ -945,10 +1428,15 @@ WRECKER_VOICE_INTENTS = {
         'action': {'type': 'tow_job_status', 'status': 'completed'},
         'spoken': "Nice work boss. Job marked complete.",
     },
-    'in_progress': {
-        'phrases': ['hooking up', 'loading now', 'in progress', 'started'],
-        'action': {'type': 'tow_job_status', 'status': 'in_progress'},
-        'spoken': "Got it. In progress.",
+    'towing': {
+        'phrases': ['hooking up', 'loading now', 'towing now', 'in progress', 'started', 'on the hook'],
+        'action': {'type': 'tow_job_status', 'status': 'towing'},
+        'spoken': "Got it. Towing in progress.",
+    },
+    'dest_arrival': {
+        'phrases': ['at destination', 'arrived at drop', 'at the drop', 'drop off arrival', 'arrived at dropoff'],
+        'action': {'type': 'tow_job_status', 'status': 'dest_arrival'},
+        'spoken': "Copy. At destination.",
     },
     'next_call': {
         'phrases': ['next call', 'whats next', "what's next", 'show me my next'],

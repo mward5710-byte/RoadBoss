@@ -1523,37 +1523,106 @@ async def voice_command(body: VoiceCmdIn, user=Depends(get_current_user)):
 # ============================================================
 
 DVIR_TEMPLATE: Dict[str, List[Dict[str, str]]] = {
-    'tractor': [
-        {'key': 'service_brakes', 'label': 'Service Brakes'},
-        {'key': 'parking_brake', 'label': 'Parking Brake'},
-        {'key': 'steering', 'label': 'Steering Mechanism'},
-        {'key': 'lights_reflectors', 'label': 'Lights and Reflectors'},
-        {'key': 'tires', 'label': 'Tires'},
-        {'key': 'wheels_rims', 'label': 'Wheels and Rims'},
-        {'key': 'mirrors', 'label': 'Mirrors'},
-        {'key': 'windshield_wipers', 'label': 'Windshield and Wipers'},
-        {'key': 'horn', 'label': 'Horn'},
-        {'key': 'coupling', 'label': 'Coupling Devices and Fifth Wheel'},
-        {'key': 'fluid_leaks', 'label': 'Fluid Leaks (oil, coolant, fuel)'},
-        {'key': 'fluid_levels', 'label': 'Fluid Levels (oil, coolant, washer)'},
-        {'key': 'air_brakes', 'label': 'Air Pressure and Air Lines'},
-        {'key': 'suspension', 'label': 'Suspension'},
-        {'key': 'exhaust', 'label': 'Exhaust System'},
-        {'key': 'frame_body', 'label': 'Frame, Body, and Doors'},
-        {'key': 'emergency_equipment', 'label': 'Emergency Equipment (Triangles, Fire Extinguisher, Spare Fuses)'},
-        {'key': 'seat_belt', 'label': 'Seat Belt'},
+    'truck_details': [
+        {'key': 'truck_number',     'label': 'Truck Number',      'type': 'text',   'required': True},
+        {'key': 'inspection_form',  'label': 'Inspection Form',   'type': 'text',   'default': 'Standard Pre/Post Trip Inspection'},
+        {'key': 'odometer',         'label': 'Odometer',          'type': 'number', 'required': True, 'allow_photo': True},
+        {'key': 'general_notes',    'label': 'Notes',             'type': 'textarea', 'max': 1000, 'optional': True},
     ],
-    'trailer': [
-        {'key': 'trailer_brakes', 'label': 'Trailer Brakes'},
-        {'key': 'trailer_lights', 'label': 'Trailer Lights and Reflectors'},
-        {'key': 'trailer_tires', 'label': 'Trailer Tires'},
-        {'key': 'trailer_wheels', 'label': 'Trailer Wheels and Rims'},
-        {'key': 'trailer_coupling', 'label': 'Coupling (King Pin, Apron, Hooks)'},
-        {'key': 'trailer_doors', 'label': 'Doors, Hinges, Latches'},
-        {'key': 'trailer_frame', 'label': 'Frame and Body'},
-        {'key': 'trailer_suspension', 'label': 'Suspension and Air Lines'},
-        {'key': 'trailer_load', 'label': 'Load Securement'},
+    'under_hood_engine': [
+        {'key': 'engine_oil',        'label': 'Engine Oil Level'},
+        {'key': 'coolant_level',     'label': 'Coolant / Radiator Fluid'},
+        {'key': 'power_steering',    'label': 'Power Steering Fluid'},
+        {'key': 'windshield_washer', 'label': 'Windshield Washer Fluid'},
+        {'key': 'brake_fluid',       'label': 'Brake / Clutch Fluid'},
+        {'key': 'belts_hoses',       'label': 'Belts and Hoses'},
+        {'key': 'air_filter',        'label': 'Air Filter Condition'},
+        {'key': 'battery',           'label': 'Battery / Connections'},
+        {'key': 'engine_leaks',      'label': 'Visible Leaks (oil, coolant, fuel)'},
+        {'key': 'wiring',            'label': 'Wiring / Insulation'},
     ],
+    'interior_cab': [
+        {'key': 'gauges',           'label': 'Gauges & Warning Lights'},
+        {'key': 'horn',             'label': 'Horn (city + air)'},
+        {'key': 'wipers_washers',   'label': 'Windshield Wipers & Washers'},
+        {'key': 'mirrors',          'label': 'Mirrors (cleanliness + adjustment)'},
+        {'key': 'windshield',       'label': 'Windshield (no cracks blocking view)'},
+        {'key': 'seat_belt',        'label': 'Seat Belt'},
+        {'key': 'steering_play',    'label': 'Steering Play (≤10°)'},
+        {'key': 'parking_brake',    'label': 'Parking Brake Test'},
+        {'key': 'service_brake',    'label': 'Service Brake Pedal Test'},
+        {'key': 'air_pressure',     'label': 'Air Pressure (build / leak / governor)'},
+        {'key': 'low_air_warning',  'label': 'Low Air Warning Device'},
+        {'key': 'heater_defroster', 'label': 'Heater / Defroster'},
+        {'key': 'emergency_kit',    'label': 'Emergency Kit (triangles, fuses, extinguisher)'},
+    ],
+    'lights_reflectors': [
+        {'key': 'headlights_low',   'label': 'Headlights — Low Beam'},
+        {'key': 'headlights_high',  'label': 'Headlights — High Beam'},
+        {'key': 'turn_signals',     'label': 'Turn Signals (front + rear)'},
+        {'key': 'four_way_flashers','label': 'Four-Way Flashers'},
+        {'key': 'brake_lights',     'label': 'Brake Lights'},
+        {'key': 'tail_lights',      'label': 'Tail Lights'},
+        {'key': 'clearance_lights', 'label': 'Clearance / Marker Lights'},
+        {'key': 'reflectors',       'label': 'Reflective Tape & Reflectors'},
+        {'key': 'license_plate_light', 'label': 'License Plate Light'},
+    ],
+    'tires_wheels': [
+        {'key': 'tire_tread_steer',  'label': 'Steer Tires Tread Depth (≥4/32")'},
+        {'key': 'tire_tread_drive',  'label': 'Drive Tires Tread Depth (≥2/32")'},
+        {'key': 'tire_pressure',     'label': 'Tire Pressure (all)'},
+        {'key': 'tire_sidewall',     'label': 'Tire Sidewalls (no cuts/bulges)'},
+        {'key': 'lug_nuts',          'label': 'Lug Nuts / Wheel Studs'},
+        {'key': 'rims',              'label': 'Rims (no cracks or dents)'},
+        {'key': 'mud_flaps',         'label': 'Mud Flaps'},
+    ],
+    'brakes_suspension': [
+        {'key': 'brake_drums_pads', 'label': 'Brake Drums / Pads / Linings'},
+        {'key': 'brake_chambers',   'label': 'Brake Chambers'},
+        {'key': 'slack_adjusters',  'label': 'Slack Adjusters'},
+        {'key': 'air_lines_brake',  'label': 'Air Lines & Couplers'},
+        {'key': 'springs_shocks',   'label': 'Springs / Shocks / Air Bags'},
+        {'key': 'u_bolts',          'label': 'U-Bolts'},
+        {'key': 'frame_crossmembers','label': 'Frame & Cross-members'},
+    ],
+    'coupling_trailer': [
+        {'key': 'fifth_wheel',      'label': 'Fifth Wheel (mount, locking jaws, grease)'},
+        {'key': 'kingpin',          'label': 'Kingpin / Apron / Gap'},
+        {'key': 'safety_chains',    'label': 'Safety Chains / Hooks (if applicable)'},
+        {'key': 'glad_hands',       'label': 'Air Glad-hands'},
+        {'key': 'electrical_pigtail','label': 'Electrical Pigtail / 7-way'},
+        {'key': 'trailer_brakes',   'label': 'Trailer Brakes'},
+        {'key': 'trailer_lights',   'label': 'Trailer Lights & Reflectors'},
+        {'key': 'trailer_doors',    'label': 'Trailer Doors / Hinges / Latches'},
+        {'key': 'load_securement',  'label': 'Load Securement (straps, chains, binders)'},
+    ],
+    'exhaust_fuel': [
+        {'key': 'exhaust_pipe',     'label': 'Exhaust Pipe / Stack (no leaks)'},
+        {'key': 'def_level',        'label': 'DEF Level'},
+        {'key': 'fuel_caps',        'label': 'Fuel Tank Caps & Straps'},
+        {'key': 'fuel_lines',       'label': 'Fuel Lines (no leaks)'},
+    ],
+    'documents_safety': [
+        {'key': 'registration_insurance', 'label': 'Registration & Insurance'},
+        {'key': 'permit_book',           'label': 'Permit Book / Cab Card'},
+        {'key': 'eld_logs',              'label': 'ELD Working / Hours Available'},
+        {'key': 'placards',              'label': 'Placards (if hauling hazmat)'},
+        {'key': 'spare_fuses',           'label': 'Spare Fuses'},
+        {'key': 'reflective_vest',       'label': 'Reflective Vest'},
+    ],
+}
+
+# Pretty section labels for UI rendering
+DVIR_SECTION_LABELS: Dict[str, str] = {
+    'truck_details':       'Truck Details',
+    'under_hood_engine':   'Under Hood / Engine Compartment',
+    'interior_cab':        'Interior Cab Inspection',
+    'lights_reflectors':   'Lights & Reflectors',
+    'tires_wheels':        'Tires & Wheels',
+    'brakes_suspension':   'Brakes & Suspension',
+    'coupling_trailer':    'Coupling / Trailer',
+    'exhaust_fuel':        'Exhaust & Fuel',
+    'documents_safety':    'Documents & Safety',
 }
 
 
@@ -1561,15 +1630,33 @@ def _build_blank_items() -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
     for section, rows in DVIR_TEMPLATE.items():
         for row in rows:
-            items.append({
+            item = {
                 'section': section,
                 'key': row['key'],
                 'label': row['label'],
-                'status': 'pending',  # pending | pass | defect | na
+                'type': row.get('type', 'check'),  # check (pass/fail/na) | text | number | textarea
+                'status': 'pending' if row.get('type', 'check') == 'check' else None,
+                'value': row.get('default'),  # for text/number/textarea fields
                 'note': None,
+                'photos': [],  # list of {id, data_url, taken_at}
+                'allow_photo': bool(row.get('allow_photo', row.get('type', 'check') == 'check')),
+                'required': bool(row.get('required', False)),
+                'optional': bool(row.get('optional', False)),
+                'max': row.get('max'),
                 'updated_at': None,
-            })
+            }
+            items.append(item)
     return items
+
+
+@api_router.get("/inspections/template")
+async def get_inspection_template_full(user=Depends(get_current_user)):
+    """Returns the full DVIR template with section labels and all items pre-structured."""
+    return {
+        'template': DVIR_TEMPLATE,
+        'section_labels': DVIR_SECTION_LABELS,
+        'sections_order': list(DVIR_TEMPLATE.keys()),
+    }
 
 
 async def _create_blank_inspection(driver: Dict[str, Any], inspection_type: str) -> Dict[str, Any]:
@@ -1604,18 +1691,21 @@ class InspectionCreateIn(BaseModel):
 
 class InspectionItemUpdateIn(BaseModel):
     key: str
-    status: str  # pass | defect | na
+    status: Optional[str] = None  # pass | defect | na (for check items)
     note: Optional[str] = None
+    value: Optional[Any] = None   # for text/number/textarea items
+
+
+class InspectionPhotoIn(BaseModel):
+    key: str            # item key the photo belongs to (or 'general' for a global photo)
+    data_url: str       # base64-encoded image data URL: data:image/jpeg;base64,...
+    label: Optional[str] = None   # 'arrival' | 'on_scene' | 'leaving' | 'drop_off' | 'damage' | None
+    caption: Optional[str] = None
 
 
 class InspectionCertifyIn(BaseModel):
     no_defects: bool
     signature: str
-
-
-@api_router.get("/inspections/template")
-async def get_inspection_template(user=Depends(get_current_user)):
-    return {'template': DVIR_TEMPLATE}
 
 
 @api_router.get("/inspections")
@@ -1675,7 +1765,7 @@ async def get_inspection(insp_id: str, user=Depends(get_current_user)):
 @api_router.put("/inspections/{insp_id}/item")
 async def update_inspection_item(insp_id: str, body: InspectionItemUpdateIn,
                                   user=Depends(get_current_user)):
-    if body.status not in ('pass', 'defect', 'na'):
+    if body.status is not None and body.status not in ('pass', 'defect', 'na'):
         raise HTTPException(400, "status must be pass | defect | na")
     doc = await db.inspections.find_one({'id': insp_id}, {'_id': 0})
     if not doc:
@@ -1690,8 +1780,12 @@ async def update_inspection_item(insp_id: str, body: InspectionItemUpdateIn,
     found = False
     for item in doc.get('items', []):
         if item.get('key') == body.key:
-            item['status'] = body.status
-            item['note'] = body.note
+            if body.status is not None:
+                item['status'] = body.status
+            if body.note is not None:
+                item['note'] = body.note
+            if body.value is not None:
+                item['value'] = body.value
             item['updated_at'] = now_utc().isoformat()
             found = True
             break
@@ -1703,6 +1797,96 @@ async def update_inspection_item(insp_id: str, body: InspectionItemUpdateIn,
         {'$set': {'items': doc['items'], 'updated_at': doc['updated_at']}}
     )
     return doc
+
+
+@api_router.post("/inspections/{insp_id}/photo")
+async def upload_inspection_photo(insp_id: str, body: InspectionPhotoIn,
+                                  user=Depends(get_current_user)):
+    """Attach a base64 photo to an inspection item.
+    Photos are stored in MongoDB (in-app), NOT to the user's camera roll."""
+    data_url = (body.data_url or '').strip()
+    if not data_url.startswith('data:image/'):
+        raise HTTPException(400, "data_url must be a base64 image data URL")
+    # Sanity-check size (cap at ~3 MB base64 ~= 2.25 MB binary)
+    if len(data_url) > 3_500_000:
+        raise HTTPException(413, "Photo too large. Try a smaller capture (≤3 MB).")
+    doc = await db.inspections.find_one({'id': insp_id}, {'_id': 0})
+    if not doc:
+        raise HTTPException(404, "Inspection not found")
+    if doc.get('status') == 'certified':
+        raise HTTPException(400, "Inspection already certified — cannot add photos.")
+    if user.get('role') == 'driver':
+        me = await _get_my_driver(user['email'])
+        if not me or doc.get('driver_id') != me['id']:
+            raise HTTPException(403, "Not your inspection")
+
+    photo = {
+        'id': str(uuid.uuid4()),
+        'data_url': data_url,
+        'label': body.label,
+        'caption': body.caption,
+        'taken_at': now_utc().isoformat(),
+        'taken_by': user.get('id'),
+    }
+    if body.key == 'general':
+        # Global photo (e.g., overall vehicle shot before/after)
+        general = doc.get('general_photos') or []
+        general.append(photo)
+        await db.inspections.update_one(
+            {'id': insp_id},
+            {'$set': {'general_photos': general, 'updated_at': now_utc().isoformat()}}
+        )
+    else:
+        # Attach to specific item
+        items = doc.get('items', [])
+        target = next((i for i in items if i.get('key') == body.key), None)
+        if not target:
+            raise HTTPException(400, f"Unknown item key: {body.key}")
+        target.setdefault('photos', []).append(photo)
+        target['updated_at'] = now_utc().isoformat()
+        await db.inspections.update_one(
+            {'id': insp_id},
+            {'$set': {'items': items, 'updated_at': now_utc().isoformat()}}
+        )
+    return {'ok': True, 'photo_id': photo['id'], 'photo_count_for_item': len(target.get('photos', [])) if body.key != 'general' else len(doc.get('general_photos', []) or []) + 1}
+
+
+@api_router.delete("/inspections/{insp_id}/photo/{photo_id}")
+async def delete_inspection_photo(insp_id: str, photo_id: str, user=Depends(get_current_user)):
+    doc = await db.inspections.find_one({'id': insp_id}, {'_id': 0})
+    if not doc:
+        raise HTTPException(404, "Inspection not found")
+    if doc.get('status') == 'certified':
+        raise HTTPException(400, "Inspection already certified.")
+    if user.get('role') == 'driver':
+        me = await _get_my_driver(user['email'])
+        if not me or doc.get('driver_id') != me['id']:
+            raise HTTPException(403, "Not your inspection")
+    items = doc.get('items', [])
+    removed = False
+    for item in items:
+        photos = item.get('photos') or []
+        new_photos = [p for p in photos if p.get('id') != photo_id]
+        if len(new_photos) != len(photos):
+            item['photos'] = new_photos
+            removed = True
+            break
+    if not removed:
+        # Try general
+        general = doc.get('general_photos') or []
+        new_general = [p for p in general if p.get('id') != photo_id]
+        if len(new_general) != len(general):
+            await db.inspections.update_one(
+                {'id': insp_id},
+                {'$set': {'general_photos': new_general, 'updated_at': now_utc().isoformat()}}
+            )
+            return {'ok': True}
+        raise HTTPException(404, "Photo not found")
+    await db.inspections.update_one(
+        {'id': insp_id},
+        {'$set': {'items': items, 'updated_at': now_utc().isoformat()}}
+    )
+    return {'ok': True}
 
 
 @api_router.post("/inspections/{insp_id}/certify")
@@ -3296,7 +3480,7 @@ async def seed(force: bool = False):
 # ============================================================
 
 # Mount Wrecker Mode router under /api/wrecker
-_wrecker_router = build_wrecker_router(db, get_current_user, require_role, serialize_doc)
+_wrecker_router = build_wrecker_router(db, get_current_user, require_role, serialize_doc, notifications=notify)
 api_router.include_router(_wrecker_router)
 
 app.include_router(api_router)
