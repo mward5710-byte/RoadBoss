@@ -66,8 +66,8 @@ async def seed_demo(
 
     # ---------------- Users (login accounts) ----------------
     user_specs = [
-        {'name': 'Mike Ward (Founder)', 'email': 'super_admin@highwaypilot.io', 'role': 'super_admin'},
-        {'name': 'Sarah Chen (Fleet Admin)', 'email': 'fleet_admin@highwaypilot.io', 'role': 'fleet_admin'},
+        {'name': 'Mike Ward (Founder)', 'email': 'super_admin@highwaypilot.io', 'role': 'super_admin', 'phone': '+17654808889'},
+        {'name': 'Sarah Chen (Fleet Admin)', 'email': 'fleet_admin@highwaypilot.io', 'role': 'fleet_admin', 'phone': '+12145550110'},
         {'name': 'Diego Ruiz (Driver)', 'email': 'driver@highwaypilot.io', 'role': 'driver'},
         {'name': 'Marcus Bell (Driver)', 'email': 'marcus@highwaypilot.io', 'role': 'driver'},
         {'name': 'Aaliyah Johnson (Driver)', 'email': 'aaliyah@highwaypilot.io', 'role': 'driver'},
@@ -75,14 +75,17 @@ async def seed_demo(
         {'name': 'Rosa Delgado (Driver)', 'email': 'rosa@highwaypilot.io', 'role': 'driver'},
     ]
     for u in user_specs:
-        await db.users.insert_one({
+        doc = {
             'id': str(uuid.uuid4()),
             'email': u['email'],
             'name': u['name'],
             'role': u['role'],
             'password_hash': hash_password(SHARED_PASSWORD),
             'created_at': (NOW - timedelta(days=42)).isoformat(),
-        })
+        }
+        if u.get('phone'):
+            doc['phone'] = u['phone']
+        await db.users.insert_one(doc)
 
     # ---------------- Vehicles ----------------
     vehicle_specs = [

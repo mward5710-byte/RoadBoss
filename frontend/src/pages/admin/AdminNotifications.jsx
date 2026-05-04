@@ -39,12 +39,14 @@ export default function AdminNotifications() {
 
   const filtered = logs.filter(l => {
     if (tab === 'sms' && l.channel !== 'sms') return false;
+    if (tab === 'inbound' && l.channel !== 'sms_inbound') return false;
     if (tab === 'email' && l.channel !== 'email') return false;
     if (tab === 'failed' && !['failed', 'undelivered', 'bounced'].includes((l.status || '').toLowerCase())) return false;
     if (search) {
       const q = search.toLowerCase();
       return (
         (l.to || '').toLowerCase().includes(q) ||
+        (l.from || '').toLowerCase().includes(q) ||
         (l.subject || '').toLowerCase().includes(q) ||
         (l.body || '').toLowerCase().includes(q) ||
         (l.event_type || '').toLowerCase().includes(q)
@@ -56,6 +58,7 @@ export default function AdminNotifications() {
   const stats = {
     total: logs.length,
     sms: logs.filter(l => l.channel === 'sms').length,
+    inbound: logs.filter(l => l.channel === 'sms_inbound').length,
     email: logs.filter(l => l.channel === 'email').length,
     failed: logs.filter(l => ['failed', 'undelivered', 'bounced'].includes((l.status || '').toLowerCase())).length,
   };
@@ -66,7 +69,7 @@ export default function AdminNotifications() {
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-cyan-400 font-semibold">FLEET COMMAND CENTER</div>
           <h1 className="text-2xl font-bold text-white mt-1">Notifications</h1>
-          <p className="text-sm text-zinc-400 mt-1">Audit log for every SMS and email RoadBoss has sent on behalf of your fleet.</p>
+          <p className="text-sm text-zinc-400 mt-1">Audit log for every SMS and email RoadBoss has sent or received on behalf of your fleet.</p>
         </div>
         <Button onClick={load} variant="outline" size="sm" disabled={loading} data-testid="refresh-notifications-btn">
           <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
@@ -74,14 +77,18 @@ export default function AdminNotifications() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card className="bg-zinc-900 border-zinc-800"><CardContent className="p-4">
-          <div className="text-xs text-zinc-400 uppercase tracking-wide">Total Sent</div>
+          <div className="text-xs text-zinc-400 uppercase tracking-wide">Total</div>
           <div className="text-2xl font-bold text-white mt-1" data-testid="stat-total">{stats.total}</div>
         </CardContent></Card>
         <Card className="bg-zinc-900 border-zinc-800"><CardContent className="p-4">
-          <div className="text-xs text-zinc-400 uppercase tracking-wide flex items-center gap-1"><MessageSquare className="h-3 w-3" /> SMS</div>
+          <div className="text-xs text-zinc-400 uppercase tracking-wide flex items-center gap-1"><MessageSquare className="h-3 w-3" /> SMS Out</div>
           <div className="text-2xl font-bold text-cyan-400 mt-1" data-testid="stat-sms">{stats.sms}</div>
+        </CardContent></Card>
+        <Card className="bg-zinc-900 border-zinc-800"><CardContent className="p-4">
+          <div className="text-xs text-zinc-400 uppercase tracking-wide flex items-center gap-1"><MessageSquare className="h-3 w-3" /> Replies In</div>
+          <div className="text-2xl font-bold text-violet-400 mt-1" data-testid="stat-inbound">{stats.inbound}</div>
         </CardContent></Card>
         <Card className="bg-zinc-900 border-zinc-800"><CardContent className="p-4">
           <div className="text-xs text-zinc-400 uppercase tracking-wide flex items-center gap-1"><Mail className="h-3 w-3" /> Email</div>
@@ -108,7 +115,8 @@ export default function AdminNotifications() {
           <Tabs value={tab} onValueChange={setTab} className="mt-3">
             <TabsList className="bg-zinc-950">
               <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
-              <TabsTrigger value="sms" data-testid="tab-sms">SMS</TabsTrigger>
+              <TabsTrigger value="sms" data-testid="tab-sms">SMS Out</TabsTrigger>
+              <TabsTrigger value="inbound" data-testid="tab-inbound">Replies In</TabsTrigger>
               <TabsTrigger value="email" data-testid="tab-email">Email</TabsTrigger>
               <TabsTrigger value="failed" data-testid="tab-failed">Failed</TabsTrigger>
             </TabsList>
@@ -128,18 +136,30 @@ export default function AdminNotifications() {
             </div>
           ) : (
             <div className="divide-y divide-zinc-800">
-              {filtered.map((log) => (
+              {filtered.map((log) => {
+                const isInbound = log.channel === 'sms_inbound';
+                const isEmail = log.channel === 'email';
+                return (
                 <div key={log.id} className="py-3 flex items-start gap-3" data-testid={`notification-row-${log.id}`}>
                   <div className="flex-shrink-0 mt-1">
-                    {log.channel === 'sms' ? (
-                      <MessageSquare className="h-4 w-4 text-cyan-400" />
-                    ) : (
+                    {isEmail ? (
                       <Mail className="h-4 w-4 text-emerald-400" />
+                    ) : isInbound ? (
+                      <MessageSquare className="h-4 w-4 text-violet-400" />
+                    ) : (
+                      <MessageSquare className="h-4 w-4 text-cyan-400" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium text-white">{log.to}</span>
+                      {isInbound ? (
+                        <>
+                          <Badge className="bg-violet-500/20 text-violet-300 border-violet-500/40 text-[10px]">INBOUND</Badge>
+                          <span className="text-sm font-medium text-white">{log.from || '(unknown)'}</span>
+                        </>
+                      ) : (
+                        <span className="text-sm font-medium text-white">{log.to}</span>
+                      )}
                       <Badge variant="outline" className="text-[10px] uppercase border-zinc-700 text-zinc-400">
                         {log.event_type || 'transactional'}
                       </Badge>
@@ -161,7 +181,8 @@ export default function AdminNotifications() {
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

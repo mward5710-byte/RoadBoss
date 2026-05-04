@@ -1,26 +1,42 @@
 [
   {
-    "content": "Phase 2C: Twilio SMS + SendGrid Email integration",
-    "status": "completed"
+    "content": "Phase 2C.2: Inbound SMS replies (driver -> admin alert feed)",
+    "status": "in_progress"
   },
   {
-    "content": "Run backend testing agent on full notification surface (27/27 PASS)",
-    "status": "completed"
+    "content": "Build POST /api/webhooks/twilio/sms-inbound endpoint w/ signature validation",
+    "status": "in_progress"
   },
   {
-    "content": "Update plan.md + test_credentials.md",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 2F.2+ (deferred): Extract Copilot/DVIR/Crash/Roadside routers - incremental as needed",
+    "content": "Match inbound phone -> driver, create alert + log to notification_logs",
     "status": "pending"
   },
   {
-    "content": "Toll-free verification reminder card on admin Overview page (cosmetic, deferred)",
+    "content": "Add manual /api/test/sms-inbound for testing without webhook configured",
     "status": "pending"
   },
   {
-    "content": "Inbound SMS replies (driver -> admin) via Twilio webhook (Phase 2C.2 future)",
+    "content": "Frontend: surface inbound SMS replies in Notifications + Alerts pages",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2C.3: Co-Pilot voice-to-SMS (driver says 'text dispatch I'm late')",
+    "status": "pending"
+  },
+  {
+    "content": "Update Co-Pilot system prompt with send_sms action",
+    "status": "pending"
+  },
+  {
+    "content": "Add ACTION:send_sms parser w/ recipient resolution (by name/role)",
+    "status": "pending"
+  },
+  {
+    "content": "Test via testing agent + screenshot",
+    "status": "pending"
+  },
+  {
+    "content": "Show Mike how to configure Twilio webhook in console",
     "status": "pending"
   }
 ]

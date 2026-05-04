@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -1670,6 +1670,13 @@ Available actions:
   Use when: "start my pre-trip", "begin pre-trip inspection", "pre trip", "post-trip", "DVIR", "vehicle inspection"
 - dispatch_roadside — args: {"service_type":"tire"|"tow"|"jumpstart"|"fuel"|"mechanical"|"lockout"|"other","description":"<short desc>"}
   Use when: "I need a tire fixed", "I broke down", "need a tow", "send a wrecker", "I'm out of fuel", "battery's dead", "locked out", "something broke", "need roadside assistance"
+- send_sms — args: {"recipient":"dispatch"|"admin"|"fleet_admin"|"<person_name>","message":"<exact message to send>"}
+  Use when driver wants to send an SMS hands-free: "text dispatch I'm 30 minutes late", "message my admin I picked up the load", "tell Sarah I'm at the pickup", "send a text to fleet that I need to fuel up", "let dispatch know I'm rolling".
+  recipient values:
+    - "dispatch" or "admin" or "fleet_admin" -> first available fleet admin
+    - First name like "Sarah" -> fuzzy-matched to a fleet user by name
+    - Use "admin" as the safe fallback if unsure
+  IMPORTANT: Only send when the driver clearly states the message content. If unclear, ask "What do you want me to text them?" first.
 
 Rules for actions:
 - Only emit an ACTION marker if the driver clearly wants the action done. If unsure, ask a quick clarifying question instead.
@@ -1892,6 +1899,59 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
             })
             return result
 
+        if action_type == 'send_sms':
+            # Voice-driven SMS: driver says "text dispatch I'm late"
+            recipient_raw = str(args.get('recipient', '')).strip().lower()
+            message = str(args.get('message', '')).strip()
+            if not message:
+                result['error'] = 'Empty message body.'
+                return result
+            if len(message) > 1000:
+                message = message[:997] + '...'
+
+            # Resolve recipient -> user with phone
+            target_user = None
+            if recipient_raw in ('dispatch', 'admin', 'fleet_admin', 'fleet admin', ''):
+                target_user = await db.users.find_one(
+                    {'role': {'$in': ['fleet_admin', 'dispatcher', 'super_admin']}, 'phone': {'$exists': True, '$ne': None}},
+                    {'_id': 0},
+                )
+            else:
+                # fuzzy name match
+                regex = re.compile(re.escape(recipient_raw), re.I)
+                target_user = await db.users.find_one(
+                    {'name': {'$regex': regex}, 'phone': {'$exists': True, '$ne': None}},
+                    {'_id': 0},
+                )
+
+            if not target_user or not target_user.get('phone'):
+                result['error'] = f"No fleet contact with a phone on file matched '{recipient_raw}'. Ask your admin to add a phone number."
+                return result
+
+            sender_name = (driver or {}).get('name') or user.get('name', 'Driver')
+            sms_body = f"📱 From {sender_name} (voice): {message}\n\n— RoadBoss"
+            send_result = await notify.send_sms(
+                db, target_user['phone'], sms_body,
+                event_type='copilot_voice_sms',
+                driver_id=(driver or {}).get('id'),
+            )
+            # Drop in-app alert too so admin sees it instantly even before SMS lands
+            await db.alerts.insert_one(_make_doc({
+                'type': 'voice_sms',
+                'severity': 'info',
+                'driver_id': (driver or {}).get('id'),
+                'message': f"📱 {sender_name} (voice): {message[:200]}",
+            }))
+            result.update({
+                'executed': bool(send_result.get('ok')),
+                'recipient_name': target_user.get('name'),
+                'recipient_role': target_user.get('role'),
+                'provider_message_id': send_result.get('sid'),
+                'sms_status': send_result.get('status'),
+                'sms_error': send_result.get('error'),
+            })
+            return result
+
         # Unknown action — silently ignore
         result['error'] = f"Unknown action type: {action_type}"
         return result
@@ -2093,6 +2153,139 @@ async def send_dispatch_sms(body: DispatchSMSIn, user=Depends(require_role('flee
         'message': f"SMS to {driver.get('name', 'driver')}: {body.message.strip()[:160]}",
     }))
     return result
+
+
+# ============================================================
+# Inbound SMS webhook (Phase 2C.2) — driver replies -> admin alert feed
+# ============================================================
+
+async def _process_inbound_sms(from_phone: str, body: str, message_sid: Optional[str], num_media: int = 0) -> Dict[str, Any]:
+    """Common inbound SMS processor. Used by both the real Twilio webhook and the test endpoint."""
+    norm_phone = notify.normalize_phone(from_phone) or from_phone
+    body_clean = (body or '').strip()
+    body_upper = body_clean.upper()
+
+    # Match phone -> driver
+    driver = None
+    for candidate in [norm_phone, from_phone]:
+        if candidate:
+            d = await db.drivers.find_one({'phone': candidate}, {'_id': 0})
+            if d:
+                driver = d
+                break
+    # Fallback: match by user record (admin reply from their phone)
+    user_match = None
+    if not driver and norm_phone:
+        user_match = await db.users.find_one({'phone': norm_phone}, {'_id': 0})
+
+    sender_name = (driver or {}).get('name') or (user_match or {}).get('name') or norm_phone
+
+    # Detect opt-out keywords (FMCSA / TCPA compliance)
+    opt_out_keywords = {'STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT'}
+    opt_in_keywords = {'START', 'YES', 'UNSTOP'}
+    is_opt_out = body_upper in opt_out_keywords
+    is_opt_in = body_upper in opt_in_keywords
+
+    if is_opt_out:
+        # Mark driver/user as opted out — they won't receive future SMS
+        if driver:
+            await db.drivers.update_one({'id': driver['id']}, {'$set': {'sms_opted_out': True, 'updated_at': now_utc().isoformat()}})
+        if user_match:
+            await db.users.update_one({'id': user_match['id']}, {'$set': {'sms_opted_out': True}})
+    elif is_opt_in:
+        if driver:
+            await db.drivers.update_one({'id': driver['id']}, {'$set': {'sms_opted_out': False, 'updated_at': now_utc().isoformat()}})
+        if user_match:
+            await db.users.update_one({'id': user_match['id']}, {'$set': {'sms_opted_out': False}})
+
+    # Audit log: store inbound message for visibility
+    await db.notification_logs.insert_one({
+        'id': str(uuid.uuid4()),
+        'created_at': now_utc().isoformat(),
+        'channel': 'sms_inbound',
+        'event_type': 'opt_out' if is_opt_out else ('opt_in' if is_opt_in else 'driver_reply'),
+        'driver_id': (driver or {}).get('id'),
+        'from': norm_phone,
+        'to': os.environ.get('TWILIO_FROM_NUMBER', '+18889446859'),
+        'body': body_clean,
+        'status': 'received',
+        'provider_message_id': message_sid,
+        'num_media': num_media,
+    })
+
+    # Create alert for admin visibility (skip if opt_out/opt_in keyword - those are noise)
+    if not (is_opt_out or is_opt_in):
+        severity = 'warning' if any(k in body_upper for k in ['HELP', 'EMERGENCY', '911', 'CRASH', 'BROKE', 'FUEL OUT', 'STUCK']) else 'info'
+        await db.alerts.insert_one(_make_doc({
+            'type': 'sms_reply',
+            'severity': severity,
+            'driver_id': (driver or {}).get('id'),
+            'vehicle_id': (driver or {}).get('vehicle_id'),
+            'message': f"📱 {sender_name}: {body_clean[:240]}",
+            'meta': {'from_phone': norm_phone, 'inbound_sid': message_sid},
+        }))
+
+    return {
+        'matched_driver': bool(driver),
+        'matched_user': bool(user_match),
+        'sender_name': sender_name,
+        'is_opt_out': is_opt_out,
+        'is_opt_in': is_opt_in,
+        'body': body_clean,
+    }
+
+
+@api_router.post("/webhooks/twilio/sms-inbound")
+async def twilio_inbound_webhook(request: Request):
+    """Twilio webhook target for inbound SMS. Configured in Twilio Console under
+    Phone Numbers -> Manage -> Active Numbers -> +18889446859 -> 'A MESSAGE COMES IN'.
+
+    Returns empty TwiML so Twilio knows we received it (we don't auto-reply by default).
+    """
+    # Twilio sends form-data, not JSON
+    form = await request.form()
+    from_phone = form.get('From', '')
+    body = form.get('Body', '')
+    message_sid = form.get('MessageSid')
+    num_media = int(form.get('NumMedia', '0') or 0)
+
+    # Validate Twilio signature (skip in test mode if header absent)
+    twilio_sig = request.headers.get('X-Twilio-Signature')
+    auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+    if twilio_sig and auth_token:
+        try:
+            from twilio.request_validator import RequestValidator
+            validator = RequestValidator(auth_token)
+            full_url = str(request.url)
+            params = dict(form)
+            if not validator.validate(full_url, params, twilio_sig):
+                logger.warning(f"Twilio webhook signature invalid for {from_phone}")
+                # Don't 403 — Twilio retries on 4xx and we'd amplify the issue. Log and accept.
+        except Exception as e:
+            logger.warning(f"Twilio signature validation error: {e}")
+
+    await _process_inbound_sms(from_phone, body, message_sid, num_media)
+
+    # Return empty TwiML response (acknowledges receipt; we don't auto-reply)
+    twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>'
+    return Response(content=twiml, media_type='application/xml')
+
+
+class TestInboundSMSIn(BaseModel):
+    from_phone: str
+    body: str
+
+@api_router.post("/test/sms-inbound")
+async def test_inbound_sms(body: TestInboundSMSIn, user=Depends(require_role('fleet_admin', 'dispatcher', 'super_admin'))):
+    """Manual test endpoint to simulate an inbound SMS without configuring the Twilio webhook.
+    Useful for local development and end-to-end demos.
+    """
+    result = await _process_inbound_sms(
+        from_phone=body.from_phone,
+        body=body.body,
+        message_sid=f'TEST{uuid.uuid4().hex[:24]}',
+    )
+    return {'ok': True, **result}
 
 
 class FleetInviteIn(BaseModel):
