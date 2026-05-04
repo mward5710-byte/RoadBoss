@@ -20,7 +20,7 @@
     "status": "completed"
   },
   {
-    "content": "PHASE 1: Frontend — Driver Job Cockpit (status timeline, photos by stage, action row, vehicle details)",
+    "content": "PHASE 1: Frontend — Driver Job Cockpit",
     "status": "completed"
   },
   {
@@ -28,15 +28,15 @@
     "status": "completed"
   },
   {
-    "content": "PHASE 3: Frontend — Charges editor (rate × qty), Payments screen, Email Receipt with toggles",
+    "content": "PHASE 3: Frontend — Charges editor + Payments + Email Receipt",
     "status": "completed"
   },
   {
-    "content": "Run backend tests via testing agent (new endpoints)",
-    "status": "in_progress"
+    "content": "Backend tests via testing agent (33/34 passed, 1 medium bug fixed)",
+    "status": "completed"
   },
   {
     "content": "Final UI screenshots for Mike",
-    "status": "pending"
+    "status": "completed"
   }
 ]

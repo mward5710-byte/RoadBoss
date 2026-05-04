@@ -1005,11 +1005,13 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         }
         if existing:
             await db.fleet_waiver_templates.update_one({'fleet_id': 'default'}, {'$set': doc})
+            doc['id'] = existing.get('id') or _new_id()
+            doc['created_at'] = existing.get('created_at') or _now()
         else:
             doc['id'] = _new_id()
             doc['created_at'] = _now()
             await db.fleet_waiver_templates.insert_one(doc)
-        return doc
+        return serialize_doc(doc)
 
     @router.get('/jobs/{job_id}/waiver')
     async def get_waiver(job_id: str, user=Depends(require_wrecker)):
@@ -1062,11 +1064,13 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         doc = {'fleet_id': 'default', 'items': items, 'updated_at': _now()}
         if existing:
             await db.fleet_rate_sheets.update_one({'fleet_id': 'default'}, {'$set': doc})
+            doc['id'] = existing.get('id') or _new_id()
+            doc['created_at'] = existing.get('created_at') or _now()
         else:
             doc['id'] = _new_id()
             doc['created_at'] = _now()
             await db.fleet_rate_sheets.insert_one(doc)
-        return doc
+        return serialize_doc(doc)
 
     # ---------- Receipts (Email + SMS via SendGrid/Twilio) ----------
     def _format_receipt_html(job: Dict[str, Any], totals: Dict[str, float], opts: ReceiptSendIn, company_name: str) -> str:
