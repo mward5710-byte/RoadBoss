@@ -8,11 +8,15 @@
     "status": "completed"
   },
   {
-    "content": "PHASE 6: Time Clock (clock in/out, lunch, crew view, payroll preview) — DONE",
+    "content": "PHASE 6: Time Clock + Crew + Payroll Preview — DONE",
     "status": "completed"
   },
   {
-    "content": "Test + screenshots verified all phases live",
+    "content": "PHASE 7: Trucks Fleet + Maintenance Work Orders + Truck Expenses — DONE",
     "status": "completed"
+  },
+  {
+    "content": "PHASE 8: Square POS — PAUSED until Mike grabs Square API keys",
+    "status": "pending"
   }
 ]

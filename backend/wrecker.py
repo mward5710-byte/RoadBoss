@@ -873,6 +873,176 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
             'total_gross': round(sum(d['gross_pay'] for d in out), 2),
         }
 
+    # =========================================================
+    # Trucks Fleet — maintenance work orders + driver-side expense logging
+    # =========================================================
+    class TruckIn(BaseModel):
+        number: str                                    # display number (e.g. "66")
+        year: Optional[int] = None
+        make: Optional[str] = None
+        model: Optional[str] = None
+        vin: Optional[str] = None
+        plate: Optional[str] = None
+        state: Optional[str] = None
+        current_mileage: Optional[int] = None
+        status: str = 'active'                         # active | oos (out of service) | sold | retired
+        assigned_driver_id: Optional[str] = None
+        duty_class: Optional[str] = None               # Light / Medium / Heavy / Rotator
+        notes: Optional[str] = None
+
+    class WorkOrderIn(BaseModel):
+        truck_id: str
+        kind: str = 'repair'                           # oil_change | tire_rotation | brake | transmission | engine | inspection | repair | other
+        description: str
+        cost: float = 0.0
+        labor_hours: Optional[float] = None
+        vendor: Optional[str] = None
+        invoice_number: Optional[str] = None
+        mileage_at_service: Optional[int] = None
+        scheduled_date: Optional[datetime] = None
+        completed_date: Optional[datetime] = None
+        status: str = 'pending'                        # pending | in_progress | completed | cancelled
+        parts: Optional[str] = None
+        notes: Optional[str] = None
+
+    class ExpenseIn(BaseModel):
+        truck_id: Optional[str] = None
+        driver_id: Optional[str] = None
+        kind: str = 'fuel'                             # fuel | parts | tolls | repair | misc
+        amount: float
+        gallons: Optional[float] = None
+        vendor: Optional[str] = None
+        receipt_data_url: Optional[str] = None         # base64 photo of receipt
+        mileage: Optional[int] = None
+        notes: Optional[str] = None
+        reimbursable: bool = True
+        date: Optional[datetime] = None
+
+    @router.get('/trucks')
+    async def list_trucks(user=Depends(require_wrecker)):
+        out = []
+        async for t in db.trucks.find({}, {'_id': 0}).sort('number', 1):
+            doc = serialize_doc(t)
+            # Aggregate stats per truck
+            doc['ytd_maintenance'] = 0.0
+            doc['ytd_expenses'] = 0.0
+            doc['last_service_at'] = None
+            since = datetime(_now().year, 1, 1, tzinfo=timezone.utc)
+            async for wo in db.truck_work_orders.find({'truck_id': t['id'], 'status': 'completed', 'completed_date': {'$gte': since}}):
+                doc['ytd_maintenance'] += float(wo.get('cost', 0) or 0)
+                ld = wo.get('completed_date')
+                if ld and (not doc['last_service_at'] or ld > doc['last_service_at']):
+                    doc['last_service_at'] = ld
+            async for ex in db.truck_expenses.find({'truck_id': t['id'], 'date': {'$gte': since}}):
+                doc['ytd_expenses'] += float(ex.get('amount', 0) or 0)
+            doc['ytd_maintenance'] = round(doc['ytd_maintenance'], 2)
+            doc['ytd_expenses'] = round(doc['ytd_expenses'], 2)
+            doc['open_work_orders'] = await db.truck_work_orders.count_documents({'truck_id': t['id'], 'status': {'$in': ['pending', 'in_progress']}})
+            if doc.get('last_service_at'):
+                doc['last_service_at'] = doc['last_service_at'].isoformat()
+            out.append(doc)
+        return out
+
+    @router.post('/trucks')
+    async def create_truck(body: TruckIn, user=Depends(require_dispatcher)):
+        existing = await db.trucks.find_one({'number': body.number})
+        if existing:
+            raise HTTPException(409, f'Truck #{body.number} already exists')
+        doc = body.model_dump()
+        doc.update({'id': _new_id(), 'created_at': _now(), 'updated_at': _now()})
+        await db.trucks.insert_one(doc)
+        return serialize_doc(doc)
+
+    @router.put('/trucks/{truck_id}')
+    async def update_truck(truck_id: str, body: TruckIn, user=Depends(require_dispatcher)):
+        existing = await db.trucks.find_one({'id': truck_id})
+        if not existing:
+            raise HTTPException(404, 'Truck not found')
+        update = body.model_dump()
+        update['updated_at'] = _now()
+        await db.trucks.update_one({'id': truck_id}, {'$set': update})
+        return serialize_doc(await db.trucks.find_one({'id': truck_id}, {'_id': 0}))
+
+    @router.get('/trucks/{truck_id}/work-orders')
+    async def list_work_orders(truck_id: str, user=Depends(require_wrecker)):
+        out = []
+        async for wo in db.truck_work_orders.find({'truck_id': truck_id}).sort('created_at', -1):
+            out.append(serialize_doc(wo))
+        return out
+
+    @router.post('/work-orders')
+    async def create_work_order(body: WorkOrderIn, user=Depends(require_wrecker)):
+        # Verify truck exists
+        truck = await db.trucks.find_one({'id': body.truck_id})
+        if not truck:
+            raise HTTPException(404, 'Truck not found')
+        doc = body.model_dump()
+        doc.update({
+            'id': _new_id(),
+            'created_at': _now(),
+            'updated_at': _now(),
+            'created_by': user['id'],
+        })
+        if body.status == 'completed' and not body.completed_date:
+            doc['completed_date'] = _now()
+        await db.truck_work_orders.insert_one(doc)
+        return serialize_doc(doc)
+
+    @router.put('/work-orders/{wo_id}')
+    async def update_work_order(wo_id: str, body: WorkOrderIn, user=Depends(require_wrecker)):
+        existing = await db.truck_work_orders.find_one({'id': wo_id})
+        if not existing:
+            raise HTTPException(404, 'Work order not found')
+        update = body.model_dump()
+        update['updated_at'] = _now()
+        if update['status'] == 'completed' and not update.get('completed_date') and existing.get('status') != 'completed':
+            update['completed_date'] = _now()
+        await db.truck_work_orders.update_one({'id': wo_id}, {'$set': update})
+        return serialize_doc(await db.truck_work_orders.find_one({'id': wo_id}, {'_id': 0}))
+
+    @router.delete('/work-orders/{wo_id}')
+    async def delete_work_order(wo_id: str, user=Depends(require_dispatcher)):
+        await db.truck_work_orders.delete_one({'id': wo_id})
+        return {'ok': True}
+
+    @router.get('/expenses')
+    async def list_expenses(truck_id: Optional[str] = None, driver_id: Optional[str] = None, user=Depends(require_wrecker)):
+        flt: Dict[str, Any] = {}
+        if truck_id: flt['truck_id'] = truck_id
+        if driver_id: flt['driver_id'] = driver_id
+        # Drivers can only see their own expenses
+        if _is_driver(user) and not flt.get('driver_id'):
+            flt['driver_id'] = user['id']
+        out = []
+        async for ex in db.truck_expenses.find(flt, {'_id': 0}).sort('date', -1).limit(200):
+            out.append(serialize_doc(ex))
+        return out
+
+    @router.post('/expenses')
+    async def create_expense(body: ExpenseIn, user=Depends(require_wrecker)):
+        doc = body.model_dump()
+        doc.update({
+            'id': _new_id(),
+            'driver_id': body.driver_id or user['id'],
+            'date': body.date or _now(),
+            'created_at': _now(),
+            'created_by': user['id'],
+            'created_by_name': user.get('name'),
+        })
+        await db.truck_expenses.insert_one(doc)
+        return serialize_doc(doc)
+
+    @router.delete('/expenses/{exp_id}')
+    async def delete_expense(exp_id: str, user=Depends(require_wrecker)):
+        existing = await db.truck_expenses.find_one({'id': exp_id})
+        if not existing:
+            raise HTTPException(404, 'Expense not found')
+        # Drivers can only delete their own; dispatchers can delete any
+        if _is_driver(user) and existing.get('created_by') != user['id']:
+            raise HTTPException(403, 'You can only delete your own expenses')
+        await db.truck_expenses.delete_one({'id': exp_id})
+        return {'ok': True}
+
     @router.post('/drivers/{driver_id}/duty')
     async def set_duty(driver_id: str, body: Dict[str, bool], user=Depends(require_dispatcher)):
         """Toggle a driver on/off duty (affects rotation eligibility)."""
