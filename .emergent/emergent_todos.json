@@ -1,38 +1,26 @@
 [
   {
-    "content": "Backend: install pywebpush + generate VAPID keys + add to .env",
+    "content": "Backend: emergency_contacts CRUD endpoints (admin-only)",
     "status": "completed"
   },
   {
-    "content": "Backend: push_notifications.py module (subscribe/unsubscribe/send helpers + audit log)",
+    "content": "Backend: rewire crash pipeline to read contacts from DB (fallback to .env)",
     "status": "completed"
   },
   {
-    "content": "Backend: /api/push/config, /status, /subscribe, /unsubscribe, /test endpoints",
+    "content": "Frontend: AdminSettings page with CRUD UI",
     "status": "completed"
   },
   {
-    "content": "Backend: wire push into crash, roadside, dispatch SMS, inbound SMS flows",
+    "content": "Frontend: add Settings link to AppShell sidebar + App.js route",
     "status": "completed"
   },
   {
-    "content": "Frontend: service worker /sw.js + manifest.json + SW registration in index.js",
+    "content": "Smoke tests (auth, duplicate, invalid, driver-forbidden, update, delete) all green",
     "status": "completed"
   },
   {
-    "content": "Frontend: usePushNotifications hook + PushNotificationToggle component",
-    "status": "completed"
-  },
-  {
-    "content": "Frontend: mount toggle in DriverSettings + AdminNotifications",
-    "status": "completed"
-  },
-  {
-    "content": "End-to-end verification: config, subscribe, status, test-push, stale cleanup",
-    "status": "completed"
-  },
-  {
-    "content": "Backend testing agent: 40/41 passed (98%) — 0 blockers",
-    "status": "completed"
+    "content": "Backend testing agent validation of Phase 2G.3",
+    "status": "in_progress"
   }
 ]

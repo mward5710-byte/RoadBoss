@@ -1429,8 +1429,8 @@ async def create_crash_event(body: CrashEventIn, user=Depends(get_current_user))
             'message': f"CRASH DETECTED — {(driver or {}).get('name') or 'Driver'} — {sev} severity, {body.g_force or 'n/a'}g{f', {body.speed_mph} mph' if body.speed_mph else ''}.",
         }))
         # Phase 2C: auto-SMS emergency contacts on confirmed crash
-        contacts_env = os.environ.get('NOTIFY_CRASH_CONTACTS', '').strip()
-        emergency_contacts = [c.strip() for c in contacts_env.split(',') if c.strip()] if contacts_env else []
+        # Phase 2G.3: emergency contacts now read from DB (with env fallback)
+        emergency_contacts = await _load_crash_contact_phones()
         # Also notify any fleet_admin / super_admin user with a phone in profile
         admins = await db.users.find({'role': {'$in': ['fleet_admin', 'super_admin']}, 'phone': {'$exists': True, '$ne': None}}, {'_id': 0, 'phone': 1}).to_list(20)
         emergency_contacts.extend([a['phone'] for a in admins if a.get('phone')])
@@ -2463,6 +2463,116 @@ async def trigger_hos_warning(body: HOSWarningTriggerIn, user=Depends(require_ro
             r = await notify.send_sms(db, a['phone'], admin_msg, event_type='hos_warning', driver_id=driver['id'])
             results.append({'recipient': 'admin', 'phone': a['phone'], 'result': r})
     return {'ok': True, 'sent': len(results), 'details': results}
+
+
+# ============================================================
+# Emergency Contacts — Phase 2G.3
+# A DB-backed replacement for the NOTIFY_CRASH_CONTACTS env variable. Admins can add/edit/delete
+# emergency contacts via the /app/settings UI. Crash alert pipeline reads from DB first, then
+# falls back to the env variable for backward compatibility.
+# ============================================================
+
+class EmergencyContactIn(BaseModel):
+    name: str
+    phone: str
+    role: Optional[str] = None  # e.g. "Safety Director", "Night Dispatch", "Spouse"
+    notes: Optional[str] = None
+    channels: Optional[List[str]] = None  # ["sms"] (future: "email","push")
+    active: Optional[bool] = True
+
+
+@api_router.get("/emergency-contacts")
+async def list_emergency_contacts(user=Depends(require_role('fleet_admin', 'super_admin', 'dispatcher'))):
+    rows = await db.emergency_contacts.find({}, {'_id': 0}).sort('created_at', -1).to_list(500)
+    return rows
+
+
+@api_router.post("/emergency-contacts")
+async def create_emergency_contact(body: EmergencyContactIn, user=Depends(require_role('fleet_admin', 'super_admin'))):
+    name = (body.name or '').strip()
+    if not name:
+        raise HTTPException(400, "Contact name is required.")
+    normalized = notify.normalize_phone(body.phone)
+    if not normalized:
+        raise HTTPException(400, "Phone number must be a valid 10-digit US number or E.164 format.")
+    # Reject duplicates by normalized phone for clarity
+    existing = await db.emergency_contacts.find_one({'phone': normalized}, {'_id': 0})
+    if existing:
+        raise HTTPException(409, f"That phone is already on file as {existing.get('name')}.")
+    channels = body.channels or ['sms']
+    doc = _make_doc({
+        'name': name,
+        'phone': normalized,
+        'role': (body.role or '').strip() or None,
+        'notes': (body.notes or '').strip() or None,
+        'channels': channels,
+        'active': True if body.active is None else bool(body.active),
+        'created_by': user.get('email'),
+    })
+    await db.emergency_contacts.insert_one(dict(doc))
+    return doc
+
+
+@api_router.put("/emergency-contacts/{contact_id}")
+async def update_emergency_contact(contact_id: str, body: EmergencyContactIn, user=Depends(require_role('fleet_admin', 'super_admin'))):
+    existing = await db.emergency_contacts.find_one({'id': contact_id}, {'_id': 0})
+    if not existing:
+        raise HTTPException(404, "Emergency contact not found")
+    normalized = notify.normalize_phone(body.phone)
+    if not normalized:
+        raise HTTPException(400, "Phone number must be valid.")
+    # If changing to a phone that another contact already has → block
+    clash = await db.emergency_contacts.find_one({'phone': normalized, 'id': {'$ne': contact_id}}, {'_id': 0})
+    if clash:
+        raise HTTPException(409, f"That phone is already on file as {clash.get('name')}.")
+    update = {
+        'name': (body.name or existing.get('name') or '').strip(),
+        'phone': normalized,
+        'role': (body.role or '').strip() or None,
+        'notes': (body.notes or '').strip() or None,
+        'channels': body.channels or existing.get('channels') or ['sms'],
+        'active': True if body.active is None else bool(body.active),
+        'updated_at': now_utc().isoformat(),
+        'updated_by': user.get('email'),
+    }
+    await db.emergency_contacts.update_one({'id': contact_id}, {'$set': update})
+    merged = {**existing, **update}
+    return merged
+
+
+@api_router.delete("/emergency-contacts/{contact_id}")
+async def delete_emergency_contact(contact_id: str, user=Depends(require_role('fleet_admin', 'super_admin'))):
+    res = await db.emergency_contacts.delete_one({'id': contact_id})
+    if not res.deleted_count:
+        raise HTTPException(404, "Emergency contact not found")
+    return {'ok': True}
+
+
+async def _load_crash_contact_phones() -> List[str]:
+    """Emergency crash contact phones — DB first, .env fallback for legacy deployments."""
+    phones: List[str] = []
+    try:
+        rows = await db.emergency_contacts.find(
+            {'active': {'$ne': False}, 'channels': {'$in': ['sms']}},
+            {'_id': 0, 'phone': 1}
+        ).to_list(500)
+        for r in rows:
+            p = (r.get('phone') or '').strip()
+            if p and p not in phones:
+                phones.append(p)
+    except Exception as e:
+        logger.warning(f"Emergency contacts DB read failed: {e}")
+    # Always merge in legacy env-defined contacts so existing deployments don't lose coverage.
+    contacts_env = os.environ.get('NOTIFY_CRASH_CONTACTS', '').strip()
+    if contacts_env:
+        for raw in contacts_env.split(','):
+            p = (raw or '').strip()
+            if not p:
+                continue
+            norm = notify.normalize_phone(p) or p
+            if norm not in phones:
+                phones.append(norm)
+    return phones
 
 
 # ============================================================
