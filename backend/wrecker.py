@@ -179,6 +179,18 @@ class ImpoundReleaseIn(BaseModel):
     payment_method: str = 'cash'
     amount_paid: float
 
+class ImpoundNoteIn(BaseModel):
+    note: str
+
+class CertifiedMailIn(BaseModel):
+    recipient_name: str
+    address: Optional[str] = None
+    tracking_number: Optional[str] = None
+    mail_type: str = 'notification'   # notification | first_notice | final_notice | title_application
+    status: str = 'sent'              # sent | delivered | returned | undeliverable
+    sent_at: Optional[datetime] = None
+    notes: Optional[str] = None
+
 class MotorClubIn(BaseModel):
     name: str
     contact_phone: Optional[str] = None
@@ -617,6 +629,250 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
             await db.fleet_business_hours.insert_one(doc)
         return serialize_doc(doc)
 
+    # =========================================================
+    # Accounts CRM — customer / motor club / fleet directory
+    # =========================================================
+    class AccountIn(BaseModel):
+        name: str
+        type: str = 'other'                       # motor_club | dealership | fleet | service_shop | property_removal | police | other
+        contact_name: Optional[str] = None
+        phone: Optional[str] = None
+        email: Optional[str] = None
+        address: Optional[str] = None
+        billing_email: Optional[str] = None
+        notes: Optional[str] = None
+        custom_reasons: List[str] = []           # per-account reason dropdown (e.g. AAA: ["Tow", "Lockout w/o Key", "Jumpstart", "Tire Change", ...])
+        default_rate_overrides: Optional[Dict[str, float]] = None    # {key: rate}
+        active: bool = True
+
+    DEFAULT_ACCOUNT_REASONS = [
+        'Tow', 'Lockout w/o Key', 'Lockout w/ Key', 'Jumpstart', 'Tire Change',
+        'Fuel Delivery', 'Winch Out', 'Extrication', 'Mobile Mechanic', 'Battery Service', 'Other',
+    ]
+
+    @router.get('/accounts')
+    async def list_accounts(q: Optional[str] = None, type: Optional[str] = None, active_only: bool = True, user=Depends(require_wrecker)):
+        flt: Dict[str, Any] = {}
+        if active_only:
+            flt['active'] = {'$ne': False}
+        if type:
+            flt['type'] = type
+        if q:
+            flt['$or'] = [
+                {'name': {'$regex': q, '$options': 'i'}},
+                {'contact_name': {'$regex': q, '$options': 'i'}},
+                {'phone': {'$regex': q, '$options': 'i'}},
+            ]
+        out = []
+        async for a in db.accounts.find(flt, {'_id': 0}).sort('name', 1):
+            out.append(serialize_doc(a))
+        return out
+
+    @router.post('/accounts')
+    async def create_account(body: AccountIn, user=Depends(require_dispatcher)):
+        existing = await db.accounts.find_one({'name': {'$regex': f'^{body.name}$', '$options': 'i'}})
+        if existing:
+            raise HTTPException(409, 'Account with that name already exists')
+        doc = body.model_dump()
+        if not doc.get('custom_reasons'):
+            doc['custom_reasons'] = DEFAULT_ACCOUNT_REASONS.copy()
+        doc.update({
+            'id': _new_id(),
+            'created_at': _now(),
+            'updated_at': _now(),
+            'created_by': user['id'],
+        })
+        await db.accounts.insert_one(doc)
+        return serialize_doc(doc)
+
+    @router.get('/accounts/{account_id}')
+    async def get_account(account_id: str, user=Depends(require_wrecker)):
+        rec = await db.accounts.find_one({'id': account_id}, {'_id': 0})
+        if not rec:
+            raise HTTPException(404, 'Account not found')
+        return serialize_doc(rec)
+
+    @router.put('/accounts/{account_id}')
+    async def update_account(account_id: str, body: AccountIn, user=Depends(require_dispatcher)):
+        existing = await db.accounts.find_one({'id': account_id})
+        if not existing:
+            raise HTTPException(404, 'Account not found')
+        update = body.model_dump()
+        update['updated_at'] = _now()
+        await db.accounts.update_one({'id': account_id}, {'$set': update})
+        rec = await db.accounts.find_one({'id': account_id}, {'_id': 0})
+        return serialize_doc(rec)
+
+    @router.delete('/accounts/{account_id}')
+    async def delete_account(account_id: str, user=Depends(require_dispatcher)):
+        # Soft-delete via active flag
+        await db.accounts.update_one({'id': account_id}, {'$set': {'active': False, 'updated_at': _now()}})
+        return {'ok': True}
+
+    # =========================================================
+    # Time Clock — clock in/out + lunch break tracking + payroll preview
+    # =========================================================
+    class ClockActionIn(BaseModel):
+        action: str                                     # in | out | lunch_start | lunch_end
+        driver_id: Optional[str] = None                 # if dispatcher is clocking on someone else's behalf
+        note: Optional[str] = None
+
+    @router.get('/clock/today')
+    async def clock_today(driver_id: Optional[str] = None, user=Depends(require_wrecker)):
+        """Get today's open & closed clock entries for a driver (defaults to me)."""
+        target_id = driver_id or user['id']
+        if driver_id and not _is_dispatcher(user) and target_id != user['id']:
+            raise HTTPException(403, 'Only dispatchers can read others\' time clock')
+        # Find today's entries (since 4am local UTC for now — naive but works for demo)
+        since = _now() - timedelta(hours=24)
+        cursor = db.clock_entries.find({'driver_id': target_id, 'clocked_in_at': {'$gte': since}}).sort('clocked_in_at', -1)
+        entries = []
+        async for e in cursor:
+            entries.append(serialize_doc(e))
+        return entries
+
+    @router.get('/clock/active')
+    async def clock_active_all(user=Depends(require_dispatcher)):
+        """Dispatcher view: every driver who's currently clocked in (no clocked_out_at)."""
+        cursor = db.clock_entries.find({'clocked_out_at': None}).sort('clocked_in_at', -1)
+        out = []
+        async for e in cursor:
+            doc = serialize_doc(e)
+            # Pull driver's display name + truck
+            u = await db.users.find_one({'id': e['driver_id']}, {'name': 1, 'truck_number': 1})
+            if u:
+                doc['driver_name'] = u.get('name')
+                doc['truck_number'] = u.get('truck_number')
+            out.append(doc)
+        return out
+
+    @router.post('/clock')
+    async def clock_action(body: ClockActionIn, user=Depends(require_wrecker)):
+        """Atomic clock action: in / out / lunch_start / lunch_end."""
+        target_id = body.driver_id or user['id']
+        # Only dispatchers can clock for others
+        if body.driver_id and body.driver_id != user['id'] and not _is_dispatcher(user):
+            raise HTTPException(403, 'Only dispatchers can clock for other drivers')
+        now = _now()
+
+        # Find current open shift
+        open_shift = await db.clock_entries.find_one({'driver_id': target_id, 'clocked_out_at': None})
+
+        if body.action == 'in':
+            if open_shift:
+                raise HTTPException(409, 'Already clocked in')
+            doc = {
+                'id': _new_id(),
+                'driver_id': target_id,
+                'clocked_in_at': now,
+                'clocked_in_by': user['id'],
+                'clocked_in_note': body.note,
+                'clocked_out_at': None,
+                'lunches': [],          # [{start, end}]
+                'created_at': now,
+            }
+            await db.clock_entries.insert_one(doc)
+            return {'ok': True, 'shift': serialize_doc(doc)}
+
+        if not open_shift:
+            raise HTTPException(409, 'Not currently clocked in')
+
+        if body.action == 'out':
+            # Close any open lunch
+            lunches = open_shift.get('lunches') or []
+            if lunches and lunches[-1].get('end') is None:
+                lunches[-1]['end'] = now
+            # Compute total worked minutes (excluding lunch)
+            in_t = open_shift['clocked_in_at']
+            if hasattr(in_t, 'tzinfo') and in_t.tzinfo is None:
+                in_t = in_t.replace(tzinfo=timezone.utc)
+            total_min = (now - in_t).total_seconds() / 60.0
+            lunch_min = 0
+            for l in lunches:
+                if l.get('start') and l.get('end'):
+                    s = l['start']; e = l['end']
+                    if hasattr(s, 'tzinfo') and s.tzinfo is None: s = s.replace(tzinfo=timezone.utc)
+                    if hasattr(e, 'tzinfo') and e.tzinfo is None: e = e.replace(tzinfo=timezone.utc)
+                    lunch_min += (e - s).total_seconds() / 60.0
+            worked_min = max(0, total_min - lunch_min)
+            await db.clock_entries.update_one(
+                {'id': open_shift['id']},
+                {'$set': {
+                    'clocked_out_at': now,
+                    'clocked_out_by': user['id'],
+                    'clocked_out_note': body.note,
+                    'lunches': lunches,
+                    'total_minutes': round(total_min, 2),
+                    'lunch_minutes': round(lunch_min, 2),
+                    'worked_minutes': round(worked_min, 2),
+                }}
+            )
+            return {'ok': True, 'worked_minutes': round(worked_min, 2)}
+
+        if body.action == 'lunch_start':
+            lunches = open_shift.get('lunches') or []
+            if lunches and lunches[-1].get('end') is None:
+                raise HTTPException(409, 'Lunch already in progress')
+            lunches.append({'start': now, 'end': None, 'started_by': user['id']})
+            await db.clock_entries.update_one({'id': open_shift['id']}, {'$set': {'lunches': lunches}})
+            return {'ok': True, 'lunch': lunches[-1]}
+
+        if body.action == 'lunch_end':
+            lunches = open_shift.get('lunches') or []
+            if not lunches or lunches[-1].get('end') is not None:
+                raise HTTPException(409, 'No lunch in progress')
+            lunches[-1]['end'] = now
+            lunches[-1]['ended_by'] = user['id']
+            await db.clock_entries.update_one({'id': open_shift['id']}, {'$set': {'lunches': lunches}})
+            return {'ok': True, 'lunch': lunches[-1]}
+
+        raise HTTPException(400, 'Invalid action')
+
+    @router.get('/payroll/preview')
+    async def payroll_preview(start: Optional[str] = None, end: Optional[str] = None, user=Depends(require_dispatcher)):
+        """Build a simple payroll preview: totals per driver between dates (defaults: last 14 days)."""
+        end_dt = datetime.fromisoformat(end) if end else _now()
+        start_dt = datetime.fromisoformat(start) if start else (_now() - timedelta(days=14))
+        if hasattr(start_dt, 'tzinfo') and start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        if hasattr(end_dt, 'tzinfo') and end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=timezone.utc)
+        # Aggregate by driver
+        cursor = db.clock_entries.find({
+            'clocked_in_at': {'$gte': start_dt, '$lt': end_dt},
+            'clocked_out_at': {'$ne': None},
+        })
+        totals: Dict[str, Dict[str, Any]] = {}
+        async for e in cursor:
+            did = e['driver_id']
+            d = totals.setdefault(did, {'driver_id': did, 'shifts': 0, 'total_worked_min': 0.0, 'total_lunch_min': 0.0})
+            d['shifts'] += 1
+            d['total_worked_min'] += float(e.get('worked_minutes', 0) or 0)
+            d['total_lunch_min'] += float(e.get('lunch_minutes', 0) or 0)
+        # Add driver names + completed jobs count for commission preview
+        out = []
+        for did, agg in totals.items():
+            u = await db.users.find_one({'id': did}, {'name': 1, 'truck_number': 1, 'pay_rate': 1})
+            agg['driver_name'] = (u or {}).get('name') or 'Unknown'
+            agg['truck_number'] = (u or {}).get('truck_number')
+            agg['pay_rate'] = (u or {}).get('pay_rate') or 18.00
+            agg['hours'] = round(agg['total_worked_min'] / 60.0, 2)
+            agg['gross_pay'] = round(agg['hours'] * agg['pay_rate'], 2)
+            agg['completed_jobs'] = await db.tow_jobs.count_documents({
+                'assigned_driver_id': did,
+                'status': 'completed',
+                'completed_at': {'$gte': start_dt, '$lt': end_dt},
+            })
+            out.append(agg)
+        out.sort(key=lambda x: -x['hours'])
+        return {
+            'start': start_dt.isoformat(),
+            'end': end_dt.isoformat(),
+            'drivers': out,
+            'total_hours': round(sum(d['hours'] for d in out), 2),
+            'total_gross': round(sum(d['gross_pay'] for d in out), 2),
+        }
+
     @router.post('/drivers/{driver_id}/duty')
     async def set_duty(driver_id: str, body: Dict[str, bool], user=Depends(require_dispatcher)):
         """Toggle a driver on/off duty (affects rotation eligibility)."""
@@ -752,26 +1008,116 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
                 else:
                     doc['days_stored'] = 1
                     doc['accrued_storage_fee'] = float(it.get('daily_rate', 0))
-            except Exception as e:
+            except Exception:
                 doc['days_stored'] = 1
                 doc['accrued_storage_fee'] = float(it.get('daily_rate', 0))
+            # Backfill stock_number for legacy records (one-time on read)
+            if not doc.get('stock_number'):
+                doc['stock_number'] = (it.get('id') or '')[:8].upper()
             items.append(doc)
         return items
 
     @router.post('/impounds')
     async def create_impound(body: ImpoundIn, user=Depends(require_wrecker)):
+        # Auto-assign next stock number (8-digit, mimics Towbook style)
+        ctr = await db.counters.find_one_and_update(
+            {'_id': 'impound_stock'},
+            {'$inc': {'value': 1}},
+            upsert=True,
+            return_document=True,
+        )
+        # Start at 27500000 to look like real Towbook stock #s
+        seed = 27500000
+        next_val = (ctr.get('value') if ctr else 1) or 1
+        stock_number = str(seed + next_val)
         doc = body.model_dump()
         doc.update({
             'id': _new_id(),
+            'stock_number': stock_number,
             'created_at': _now(),
             'impounded_at': body.impounded_at or _now(),
             'released_at': None,
             'released_to': None,
             'amount_paid': 0.0,
             'created_by': user['id'],
+            'notes_log': [],
+            'certified_mail': [],
         })
         await db.impounds.insert_one(doc)
         return serialize_doc(doc)
+
+    @router.get('/impounds/{impound_id}')
+    async def get_impound(impound_id: str, user=Depends(require_wrecker)):
+        rec = await db.impounds.find_one({'id': impound_id}, {'_id': 0})
+        if not rec:
+            raise HTTPException(404, 'Impound record not found')
+        # Compute live storage fee
+        try:
+            start = rec.get('impounded_at') or rec.get('created_at')
+            if start:
+                if hasattr(start, 'tzinfo') and start.tzinfo is None:
+                    start = start.replace(tzinfo=timezone.utc)
+                delta_days = (_now() - start).days
+                days = max(1, delta_days + 1)
+                rec['days_stored'] = days
+                rec['accrued_storage_fee'] = round(days * float(rec.get('daily_rate', 0)), 2)
+            else:
+                rec['days_stored'] = 1
+                rec['accrued_storage_fee'] = float(rec.get('daily_rate', 0))
+        except Exception:
+            rec['days_stored'] = 1
+        return serialize_doc(rec)
+
+    @router.post('/impounds/{impound_id}/notes')
+    async def add_impound_note(impound_id: str, body: ImpoundNoteIn, user=Depends(require_wrecker)):
+        if not body.note or not body.note.strip():
+            raise HTTPException(400, 'Note required')
+        existing = await db.impounds.find_one({'id': impound_id})
+        if not existing:
+            raise HTTPException(404, 'Impound not found')
+        entry = {
+            'id': _new_id(),
+            'note': body.note.strip(),
+            'by_user_id': user['id'],
+            'by_name': user.get('name'),
+            'at': _now(),
+        }
+        await db.impounds.update_one(
+            {'id': impound_id},
+            {'$push': {'notes_log': entry}, '$set': {'updated_at': _now()}}
+        )
+        return {'ok': True, 'note': serialize_doc(entry)}
+
+    @router.post('/impounds/{impound_id}/certified-mail')
+    async def add_certified_mail(impound_id: str, body: CertifiedMailIn, user=Depends(require_wrecker)):
+        existing = await db.impounds.find_one({'id': impound_id})
+        if not existing:
+            raise HTTPException(404, 'Impound not found')
+        entry = body.model_dump()
+        entry.update({
+            'id': _new_id(),
+            'sent_at': body.sent_at or _now(),
+            'logged_at': _now(),
+            'logged_by': user['id'],
+        })
+        await db.impounds.update_one(
+            {'id': impound_id},
+            {'$push': {'certified_mail': entry}, '$set': {'updated_at': _now()}}
+        )
+        return {'ok': True, 'entry': serialize_doc(entry)}
+
+    @router.put('/impounds/{impound_id}/certified-mail/{entry_id}/status')
+    async def update_mail_status(impound_id: str, entry_id: str, body: Dict[str, str], user=Depends(require_wrecker)):
+        new_status = body.get('status')
+        if new_status not in ('sent', 'delivered', 'returned', 'undeliverable'):
+            raise HTTPException(400, 'Invalid status')
+        res = await db.impounds.update_one(
+            {'id': impound_id, 'certified_mail.id': entry_id},
+            {'$set': {'certified_mail.$.status': new_status, 'certified_mail.$.status_updated_at': _now(), 'updated_at': _now()}}
+        )
+        if res.matched_count == 0:
+            raise HTTPException(404, 'Impound or mail entry not found')
+        return {'ok': True}
 
     @router.post('/impounds/{impound_id}/release')
     async def release_impound(impound_id: str, body: ImpoundReleaseIn, user=Depends(require_wrecker)):

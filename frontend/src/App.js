@@ -54,6 +54,8 @@ import WreckerWaiver from '@/pages/wrecker/WreckerWaiver';
 import WreckerReceipt from '@/pages/wrecker/WreckerReceipt';
 import WreckerImpound from '@/pages/wrecker/WreckerImpound';
 import WreckerMotorClubs from '@/pages/wrecker/WreckerMotorClubs';
+import WreckerAccounts from '@/pages/wrecker/WreckerAccounts';
+import WreckerClock from '@/pages/wrecker/WreckerClock';
 import WreckerFuel from '@/pages/wrecker/WreckerFuel';
 import WreckerBilling from '@/pages/wrecker/WreckerBilling';
 import { getUser } from '@/lib/api';
@@ -137,6 +139,8 @@ function App() {
             <Route path="jobs/new" element={<WreckerJobNew />} />
             <Route path="jobs/:id" element={<WreckerJobCockpit />} />
             <Route path="impound" element={<WreckerImpound />} />
+            <Route path="accounts" element={<WreckerAccounts />} />
+            <Route path="clock" element={<WreckerClock />} />
             <Route path="clubs" element={<WreckerMotorClubs />} />
             <Route path="fuel" element={<WreckerFuel />} />
             <Route path="billing" element={<WreckerBilling />} />

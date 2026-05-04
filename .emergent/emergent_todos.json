@@ -1,26 +1,18 @@
 [
   {
-    "content": "Backend: rotation_rank field on driver + endpoint to set rank",
+    "content": "PHASE 4: Impounds (Stock #, Notes Log, Certified Mail) — DONE",
     "status": "completed"
   },
   {
-    "content": "Backend: fleet business_hours config (start/end/timezone) + endpoints",
+    "content": "PHASE 5: Accounts CRM (search/filter/edit/per-account reasons) — DONE",
     "status": "completed"
   },
   {
-    "content": "Frontend: DriversPanel mode toggle + mode pill",
+    "content": "PHASE 6: Time Clock (clock in/out, lunch, crew view, payroll preview) — DONE",
     "status": "completed"
   },
   {
-    "content": "Frontend: After-hours sort logic (rank, busy bumped, ON CALL badge)",
-    "status": "completed"
-  },
-  {
-    "content": "Frontend: Inline rank editor (hover → pencil → number input → save)",
-    "status": "completed"
-  },
-  {
-    "content": "Test + screenshot both modes — verified Steve (rank #2 free) bumps Jake (rank #1 busy)",
+    "content": "Test + screenshots verified all phases live",
     "status": "completed"
   }
 ]
