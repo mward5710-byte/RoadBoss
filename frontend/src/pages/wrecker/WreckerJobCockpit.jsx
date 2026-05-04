@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { openCameraAsDataUrl } from '@/lib/photoCapture';
+import { NAV_APPS, getNavApp, setNavApp, navUrl } from '@/lib/navPref';
 
 // 7-stage Towbook-style flow + colors
 const STATUS_FLOW = ['pending', 'assigned', 'en_route', 'on_scene', 'towing', 'dest_arrival', 'completed'];
@@ -339,10 +340,13 @@ export default function WreckerJobCockpit() {
 
           {/* Locations */}
           <Card className="p-5 bg-[#0a0e14] border-white/5 space-y-3">
-            <div className="text-xs uppercase tracking-wider text-slate-400">Locations</div>
-            <LocationRow label="Pick up" address={job.pickup?.address} icon={<MapPin className="w-4 h-4 text-amber-300" />} />
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs uppercase tracking-wider text-slate-400">Locations</div>
+              <NavAppPicker />
+            </div>
+            <LocationRow label="Pick up" address={job.pickup?.address} lat={job.pickup?.lat} lng={job.pickup?.lng} icon={<MapPin className="w-4 h-4 text-amber-300" />} />
             {job.dropoff?.address && (
-              <LocationRow label="Drop off" address={job.dropoff.address} icon={<Truck className="w-4 h-4 text-emerald-300" />} />
+              <LocationRow label="Drop off" address={job.dropoff.address} lat={job.dropoff?.lat} lng={job.dropoff?.lng} icon={<Truck className="w-4 h-4 text-emerald-300" />} />
             )}
           </Card>
 
@@ -629,9 +633,9 @@ function Field({ label, value, icon, mono, full }) {
   );
 }
 
-function LocationRow({ label, address, icon }) {
+function LocationRow({ label, address, lat, lng, icon }) {
   if (!address) return null;
-  const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+  const mapsUrl = navUrl(address, lat, lng);
   return (
     <div className="flex items-start gap-3">
       <div className="shrink-0 mt-0.5">{icon}</div>
@@ -639,10 +643,39 @@ function LocationRow({ label, address, icon }) {
         <div className="text-[10px] uppercase tracking-wider text-slate-500">{label}</div>
         <div className="text-sm text-white">{address}</div>
       </div>
-      <a href={mapsUrl} target="_blank" rel="noreferrer" data-testid={`directions-${label.toLowerCase().replace(/\s+/g, '-')}`} className="shrink-0 text-sky-300 hover:text-sky-200 p-1">
+      <a href={mapsUrl} target="_blank" rel="noreferrer" data-testid={`directions-${label.toLowerCase().replace(/\s+/g, '-')}`} className="shrink-0 text-sky-300 hover:text-sky-200 p-1 hover:bg-sky-500/10 rounded transition" title={`Open in ${NAV_APPS.find((n) => n.key === getNavApp())?.label || 'Maps'}`}>
         <ExternalLink className="w-4 h-4" />
       </a>
     </div>
+  );
+}
+
+function NavAppPicker() {
+  const [current, setCurrent] = useState(getNavApp());
+  useEffect(() => {
+    const handler = (e) => setCurrent(e.detail);
+    window.addEventListener('hp-nav-app-change', handler);
+    return () => window.removeEventListener('hp-nav-app-change', handler);
+  }, []);
+  const cycle = () => {
+    const idx = NAV_APPS.findIndex((n) => n.key === current);
+    const next = NAV_APPS[(idx + 1) % NAV_APPS.length];
+    setNavApp(next.key);
+    setCurrent(next.key);
+    toast.success(`Nav app: ${next.label}`);
+  };
+  const meta = NAV_APPS.find((n) => n.key === current) || NAV_APPS[0];
+  return (
+    <button
+      type="button"
+      onClick={cycle}
+      data-testid="nav-app-picker"
+      className="flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] uppercase tracking-wider border border-white/10 bg-white/[0.03] text-slate-300 hover:text-white hover:bg-white/5 transition"
+      title="Tap to change nav app"
+    >
+      <ExternalLink className="w-3 h-3 text-sky-300" />
+      <span>Nav: {meta.short}</span>
+    </button>
   );
 }
 

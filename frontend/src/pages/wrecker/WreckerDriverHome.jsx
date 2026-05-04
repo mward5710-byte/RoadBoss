@@ -4,9 +4,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Mic, MapPin, Phone, Clock, ArrowRight, Truck, RefreshCw, AlertTriangle, CheckCircle2, Zap } from 'lucide-react';
+import { Mic, MapPin, Phone, Clock, ArrowRight, Truck, RefreshCw, AlertTriangle, CheckCircle2, Zap, Navigation } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
+import { navUrl, NAV_APPS, getNavApp, setNavApp } from '@/lib/navPref';
 
 const STATUS_ORDER = ['assigned', 'en_route', 'on_scene', 'in_progress', 'completed'];
 const STATUS_LABEL = { pending: 'Pending', assigned: 'Assigned', en_route: 'En Route', on_scene: 'On Scene', in_progress: 'In Progress', completed: 'Completed', cancelled: 'Cancelled' };
@@ -75,6 +76,7 @@ export default function WreckerDriverHome() {
           </p>
         </div>
         <div className="flex gap-2">
+          <NavAppQuickPicker />
           <Button data-testid="driver-refresh" variant="outline" size="sm" onClick={load} className="border-white/10 text-slate-300">
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
           </Button>
@@ -124,7 +126,19 @@ export default function WreckerDriverHome() {
 
           <div className="mt-3 flex items-start gap-2 text-sm text-slate-300">
             <MapPin className="w-4 h-4 text-amber-300 mt-0.5 shrink-0" />
-            <div>{current.pickup?.address}</div>
+            <div className="flex-1">{current.pickup?.address}</div>
+            {current.pickup?.address && (
+              <a
+                href={navUrl(current.pickup.address, current.pickup.lat, current.pickup.lng)}
+                target="_blank"
+                rel="noreferrer"
+                data-testid="navigate-to-pickup"
+                className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-md bg-sky-500/15 border border-sky-500/30 text-sky-300 hover:bg-sky-500/25 hover:text-sky-200 transition text-xs font-semibold"
+                title={`Open in ${NAV_APPS.find((n) => n.key === getNavApp())?.label || 'Maps'}`}
+              >
+                <Navigation className="w-3.5 h-3.5" /> Navigate
+              </a>
+            )}
           </div>
 
           {current.notes && (
@@ -223,3 +237,33 @@ export default function WreckerDriverHome() {
     </div>
   );
 }
+
+function NavAppQuickPicker() {
+  const [current, setCurrent] = useState(getNavApp());
+  useEffect(() => {
+    const handler = (e) => setCurrent(e.detail);
+    window.addEventListener('hp-nav-app-change', handler);
+    return () => window.removeEventListener('hp-nav-app-change', handler);
+  }, []);
+  const cycle = () => {
+    const idx = NAV_APPS.findIndex((n) => n.key === current);
+    const next = NAV_APPS[(idx + 1) % NAV_APPS.length];
+    setNavApp(next.key);
+    setCurrent(next.key);
+    toast.success(`Nav app: ${next.label}`);
+  };
+  const meta = NAV_APPS.find((n) => n.key === current) || NAV_APPS[0];
+  return (
+    <Button
+      data-testid="driver-nav-picker"
+      onClick={cycle}
+      variant="outline"
+      size="sm"
+      className="border-white/10 text-slate-300 hover:text-white"
+      title="Tap to change navigation app"
+    >
+      <Navigation className="w-4 h-4 mr-1 text-sky-300" /> {meta.short}
+    </Button>
+  );
+}
+
