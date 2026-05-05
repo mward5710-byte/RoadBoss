@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   ArrowLeft, Phone, MapPin, MessageSquare, Clock, DollarSign, Truck,
   AlertTriangle, UserPlus, Crown, Camera, FileSignature, FileText, Receipt,
-  Send, Plus, X, Check, Key, Car, Edit3, ExternalLink, ChevronRight,
+  Send, Plus, X, Check, Key, Car, Edit3, ExternalLink, ChevronRight, Printer,
+  Paperclip, Download, Upload, File as FileIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { openCameraAsDataUrl } from '@/lib/photoCapture';
@@ -108,7 +109,12 @@ export default function WreckerJobCockpit() {
   const [photoStage, setPhotoStage] = useState('all');
   const [captureStage, setCaptureStage] = useState('on_scene');
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState('overview'); // overview | photos | charges | payments
+  const [tab, setTab] = useState('overview'); // overview | photos | charges | payments | files
+
+  // Files tab state
+  const [files, setFiles] = useState([]);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [fileCategory, setFileCategory] = useState('other');
 
   // Add charge form
   const [chargeKey, setChargeKey] = useState('');
@@ -178,6 +184,88 @@ export default function WreckerJobCockpit() {
     try {
       await api.delete(`/wrecker/jobs/${id}/photo/${photoId}`);
       load();
+    } catch (e) { toast.error('Delete failed'); }
+  };
+
+  // ---------- Files (PDFs / docs) ----------
+  const loadFiles = useCallback(async () => {
+    setFilesLoading(true);
+    try {
+      const r = await api.get(`/wrecker/jobs/${id}/files`);
+      setFiles(r.data?.files || []);
+    } catch (e) { /* 404 on fresh jobs is fine */ }
+    finally { setFilesLoading(false); }
+  }, [id]);
+
+  useEffect(() => {
+    if (tab === 'files') loadFiles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, id]);
+
+  const uploadFile = async (file, category) => {
+    if (!file) return;
+    // 15 MB cap matches backend
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error('File too large (max 15 MB)');
+      return;
+    }
+    try {
+      setBusy(true);
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      await api.post(`/wrecker/jobs/${id}/files`, {
+        data_url: dataUrl,
+        name: file.name,
+        mime_type: file.type || 'application/octet-stream',
+        size: file.size,
+        category: category || 'other',
+      });
+      toast.success(`Uploaded ${file.name}`);
+      await loadFiles();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Upload failed');
+    } finally { setBusy(false); }
+  };
+
+  const downloadFile = async (fileId, fileName) => {
+    try {
+      const r = await api.get(`/wrecker/jobs/${id}/files/${fileId}`);
+      const dataUrl = r.data?.data_url;
+      if (!dataUrl) { toast.error('File data unavailable'); return; }
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = fileName || 'download';
+      a.click();
+    } catch (e) { toast.error('Download failed'); }
+  };
+
+  const viewFile = async (fileId) => {
+    try {
+      const r = await api.get(`/wrecker/jobs/${id}/files/${fileId}`);
+      const dataUrl = r.data?.data_url;
+      if (!dataUrl) { toast.error('File data unavailable'); return; }
+      const w = window.open('', '_blank', 'noopener');
+      if (w) {
+        if ((r.data?.mime_type || '').startsWith('image/')) {
+          w.document.write(`<html><head><title>${r.data.name || 'file'}</title></head><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${dataUrl}" style="max-width:100%;max-height:100vh;object-fit:contain" alt="file"/></body></html>`);
+          w.document.close();
+        } else {
+          // For PDFs and other, redirect the window to the data URL directly
+          w.location.href = dataUrl;
+        }
+      }
+    } catch (e) { toast.error('Open failed'); }
+  };
+
+  const deleteFile = async (fileId) => {
+    if (!window.confirm('Delete this file?')) return;
+    try {
+      await api.delete(`/wrecker/jobs/${id}/files/${fileId}`);
+      await loadFiles();
     } catch (e) { toast.error('Delete failed'); }
   };
 
@@ -261,6 +349,8 @@ export default function WreckerJobCockpit() {
         <ActionPill icon={Receipt} label="Charges" badge={charges.length} active={tab === 'charges'} onClick={() => setTab('charges')} testId="action-charges" />
         <ActionPill icon={DollarSign} label="Payments" badge={payments.length} active={tab === 'payments'} onClick={() => setTab('payments')} testId="action-payments" />
         <ActionPill icon={Send} label="Email Receipt" onClick={() => navigate(`/wrecker/jobs/${id}/receipt`)} testId="action-receipt" />
+        <ActionPill icon={Printer} label="Print Receipt" onClick={() => window.open(`/wrecker/jobs/${id}/print`, '_blank', 'noopener')} testId="action-print" />
+        <ActionPill icon={Paperclip} label="Files" badge={files.length} active={tab === 'files'} onClick={() => setTab('files')} testId="action-files" />
       </div>
 
       {/* Quick advance */}
@@ -600,8 +690,92 @@ export default function WreckerJobCockpit() {
           </div>
         </Card>
       )}
+
+      {tab === 'files' && (
+        <Card className="p-5 bg-[#0a0e14] border-white/5 space-y-4" data-testid="files-tab">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-slate-400">Files & Documents</div>
+              <div className="text-xs text-slate-500 mt-0.5">Attach PDFs, police reports, insurance docs, dispatch sheets. 15 MB per file.</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Select value={fileCategory} onValueChange={setFileCategory}>
+                <SelectTrigger data-testid="file-category-select" className="bg-[#07090d] border-white/10 text-white w-40 h-9 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="police_report">Police Report</SelectItem>
+                  <SelectItem value="insurance">Insurance</SelectItem>
+                  <SelectItem value="dispatch_sheet">Dispatch Sheet</SelectItem>
+                  <SelectItem value="invoice">Invoice</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+              <label className="inline-flex items-center gap-1 bg-amber-500 text-black hover:bg-amber-400 rounded-md px-3 h-9 cursor-pointer text-sm font-semibold transition" data-testid="file-upload-btn">
+                <Upload className="w-4 h-4" />
+                <span>Upload</span>
+                <input
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.doc,.docx,.txt"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) uploadFile(f, fileCategory);
+                    e.target.value = '';
+                  }}
+                  disabled={busy}
+                />
+              </label>
+            </div>
+          </div>
+
+          {filesLoading ? (
+            <div className="py-8 text-center text-slate-500 text-sm">Loading files…</div>
+          ) : files.length === 0 ? (
+            <div className="py-12 text-center text-slate-500 text-sm" data-testid="files-empty">
+              <Paperclip className="w-10 h-10 mx-auto mb-2 text-slate-700" />
+              No files attached yet. Tap <span className="text-amber-400 font-semibold">Upload</span> to add one.
+            </div>
+          ) : (
+            <div className="divide-y divide-white/5">
+              {files.map((f) => (
+                <div key={f.id} className="flex items-center gap-3 py-2.5" data-testid={`job-file-${f.id}`}>
+                  <div className="w-10 h-10 rounded-lg bg-white/[0.04] border border-white/10 flex items-center justify-center shrink-0">
+                    <FileIcon className="w-5 h-5 text-sky-300" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm text-white truncate font-medium">{f.name}</div>
+                    <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap">
+                      <span className="uppercase tracking-wider">{(f.category || 'other').replace(/_/g, ' ')}</span>
+                      {f.size ? <span>· {formatBytes(f.size)}</span> : null}
+                      {f.uploaded_at ? <span>· {new Date(f.uploaded_at).toLocaleString()}</span> : null}
+                      {f.uploaded_by_name ? <span>· by {f.uploaded_by_name}</span> : null}
+                    </div>
+                  </div>
+                  <button data-testid={`file-view-${f.id}`} onClick={() => viewFile(f.id)} title="View" className="p-2 text-slate-400 hover:text-sky-300 hover:bg-white/5 rounded transition">
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
+                  <button data-testid={`file-download-${f.id}`} onClick={() => downloadFile(f.id, f.name)} title="Download" className="p-2 text-slate-400 hover:text-emerald-300 hover:bg-white/5 rounded transition">
+                    <Download className="w-4 h-4" />
+                  </button>
+                  <button data-testid={`file-delete-${f.id}`} onClick={() => deleteFile(f.id)} title="Delete" className="p-2 text-slate-500 hover:text-red-400 hover:bg-white/5 rounded transition">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   );
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 // Subcomponents

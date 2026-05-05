@@ -33,6 +33,9 @@ bearer = HTTPBearer(auto_error=False)
 # Wrecker Mode (tow operator surface) — see /app/backend/wrecker.py
 from wrecker import build_wrecker_router, seed_wrecker_demo, WRECKER_VOICE_INTENTS  # noqa: E402
 
+# Third-party integrations (multi-tenant OAuth — each company connects their own)
+from integrations.square_oauth import build_square_router  # noqa: E402
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -3481,6 +3484,9 @@ async def seed(force: bool = False):
 
 # Mount Wrecker Mode router under /api/wrecker
 _wrecker_router = build_wrecker_router(db, get_current_user, require_role, serialize_doc, notifications=notify)
+# Mount Square OAuth integration under /api/wrecker/integrations/square
+_square_router = build_square_router(db, get_current_user, require_role)
+_wrecker_router.include_router(_square_router)
 api_router.include_router(_wrecker_router)
 
 app.include_router(api_router)
@@ -3509,6 +3515,15 @@ async def on_startup():
         logger.info(f'Wrecker seed: {result}')
     except Exception as e:
         logger.error(f'Wrecker seed failed: {e}')
+    # Indexes for OAuth state cleanup + tenant_integrations uniqueness
+    try:
+        await db.square_oauth_states.create_index('expires_at', expireAfterSeconds=0)
+        await db.square_oauth_states.create_index('state', unique=True)
+        await db.tenant_integrations.create_index(
+            [('tenant_id', 1), ('provider', 1)], unique=True
+        )
+    except Exception as e:
+        logger.error(f'Integration index setup failed: {e}')
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

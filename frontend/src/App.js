@@ -52,6 +52,7 @@ import WreckerJobCockpit from '@/pages/wrecker/WreckerJobCockpit';
 import WreckerDamageForm from '@/pages/wrecker/WreckerDamageForm';
 import WreckerWaiver from '@/pages/wrecker/WreckerWaiver';
 import WreckerReceipt from '@/pages/wrecker/WreckerReceipt';
+import WreckerPrintReceipt from '@/pages/wrecker/WreckerPrintReceipt';
 import WreckerImpound from '@/pages/wrecker/WreckerImpound';
 import WreckerMotorClubs from '@/pages/wrecker/WreckerMotorClubs';
 import WreckerAccounts from '@/pages/wrecker/WreckerAccounts';
@@ -59,6 +60,7 @@ import WreckerClock from '@/pages/wrecker/WreckerClock';
 import WreckerTrucks from '@/pages/wrecker/WreckerTrucks';
 import WreckerFuel from '@/pages/wrecker/WreckerFuel';
 import WreckerBilling from '@/pages/wrecker/WreckerBilling';
+import WreckerSettings from '@/pages/wrecker/WreckerSettings';
 import { getUser } from '@/lib/api';
 
 const WRECKER_ROLES = ['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'dispatcher'];
@@ -146,11 +148,13 @@ function App() {
             <Route path="clubs" element={<WreckerMotorClubs />} />
             <Route path="fuel" element={<WreckerFuel />} />
             <Route path="billing" element={<WreckerBilling />} />
+            <Route path="settings" element={<WreckerSettings />} />
           </Route>
           {/* Full-screen wrecker sub-pages (no sidebar) */}
           <Route path="/wrecker/jobs/:id/damage-form" element={<RequireAuth roles={WRECKER_ROLES}><WreckerDamageForm /></RequireAuth>} />
           <Route path="/wrecker/jobs/:id/waiver" element={<RequireAuth roles={WRECKER_ROLES}><WreckerWaiver /></RequireAuth>} />
           <Route path="/wrecker/jobs/:id/receipt" element={<RequireAuth roles={WRECKER_ROLES}><WreckerReceipt /></RequireAuth>} />
+          <Route path="/wrecker/jobs/:id/print" element={<RequireAuth roles={WRECKER_ROLES}><WreckerPrintReceipt /></RequireAuth>} />
           {/* Wrecker hands-free voice page reuses the Co-Pilot UI but lives outside the shell so it can be full-screen */}
           <Route path="/wrecker/voice" element={<RequireAuth roles={WRECKER_ROLES}><Copilot /></RequireAuth>} />
 

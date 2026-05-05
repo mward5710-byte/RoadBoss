@@ -16,7 +16,8 @@ export default function WreckerReceipt() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
 
-  const [channel, setChannel] = useState('email'); // email | sms | both
+  const [channel, setChannel] = useState('email'); // email | sms | both — auto-derived from recipients
+  const [recipients, setRecipients] = useState(''); // single smart field — Towbook-style
   const [toEmail, setToEmail] = useState('');
   const [toPhone, setToPhone] = useState('');
   const [hideCharges, setHideCharges] = useState(false);
@@ -25,20 +26,56 @@ export default function WreckerReceipt() {
   const [includeLink, setIncludeLink] = useState(true);
   const [message, setMessage] = useState('');
 
+  // ---- Smart recipient parser: single field accepts email, phone, or comma-separated combo
+  const parseRecipients = useCallback((raw) => {
+    if (!raw) return { email: '', phone: '', channel: 'email' };
+    const tokens = raw.split(/[,;]+/).map((t) => t.trim()).filter(Boolean);
+    let email = '';
+    let phone = '';
+    for (const t of tokens) {
+      if (t.includes('@')) {
+        if (!email) email = t;
+      } else if (/\d/.test(t)) {
+        // Strip everything that isn't a digit or leading '+'
+        const digits = t.replace(/[^\d+]/g, '');
+        if (!phone) phone = digits.startsWith('+') ? digits : `+1${digits}`;
+      }
+    }
+    let ch = 'email';
+    if (email && phone) ch = 'both';
+    else if (phone && !email) ch = 'sms';
+    else ch = 'email';
+    return { email, phone, channel: ch };
+  }, []);
+
+  // Whenever recipients change, derive email/phone/channel
+  useEffect(() => {
+    const parsed = parseRecipients(recipients);
+    setToEmail(parsed.email);
+    setToPhone(parsed.phone);
+    setChannel(parsed.channel);
+  }, [recipients, parseRecipients]);
+
   const load = useCallback(async () => {
     try {
       const r = await api.get(`/wrecker/jobs/${id}`);
       setJob(r.data);
-      setToEmail(r.data?.customer?.email || '');
-      setToPhone(r.data?.customer?.phone || '');
+      // Pre-fill the smart-recipient field with whatever the customer record has.
+      // Email + phone both? Comma-join so Towbook-style "send to both" just works.
+      const cEmail = r.data?.customer?.email || '';
+      const cPhone = r.data?.customer?.phone || '';
+      const combined = [cEmail, cPhone].filter(Boolean).join(', ');
+      setRecipients(combined);
     } catch (e) { toast.error('Job not found'); navigate(`/wrecker`); }
     finally { setLoading(false); }
   }, [id, navigate]);
   useEffect(() => { load(); }, [load]);
 
   const send = async () => {
-    if (channel !== 'sms' && !toEmail) { toast.error('Email required'); return; }
-    if (channel !== 'email' && !toPhone) { toast.error('Phone required'); return; }
+    if (!toEmail && !toPhone) {
+      toast.error('Enter an email or phone number to send to');
+      return;
+    }
     setSending(true);
     try {
       const r = await api.post(`/wrecker/jobs/${id}/receipt`, {
@@ -106,33 +143,44 @@ export default function WreckerReceipt() {
           </div>
         </Card>
 
-        {/* Channel */}
-        <Card className="p-5 bg-[#0a0e14] border-white/5 space-y-4">
-          <div className="text-xs uppercase tracking-wider text-slate-400">Channel</div>
-          <div className="flex gap-2">
-            {[
-              { key: 'email', label: 'Email', icon: Mail },
-              { key: 'sms',   label: 'SMS',   icon: MessageCircle },
-              { key: 'both',  label: 'Both',  icon: Send },
-            ].map((c) => (
-              <button key={c.key} data-testid={`channel-${c.key}`} onClick={() => setChannel(c.key)}
-                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border text-sm transition ${channel === c.key ? 'bg-amber-500 text-black border-amber-400 font-semibold' : 'bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/5'}`}>
-                <c.icon className="w-4 h-4" /> {c.label}
-              </button>
-            ))}
+        {/* Recipients — Towbook-style smart single field (auto-detects email vs phone) */}
+        <Card className="p-5 bg-[#0a0e14] border-white/5 space-y-3">
+          <div className="text-xs uppercase tracking-wider text-slate-400">Recipients</div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5 block">Email or Phone #</label>
+            <Input
+              data-testid="receipt-recipients"
+              value={recipients}
+              onChange={(e) => setRecipients(e.target.value)}
+              placeholder="customer@example.com, 7654808889"
+              className="bg-[#07090d] border-white/10 text-white h-11"
+            />
+            <div className="flex items-center gap-3 mt-2 text-[11px] text-slate-500">
+              <span>Tip: separate with comma to send to both. We auto-detect the channel.</span>
+            </div>
           </div>
-          {channel !== 'sms' && (
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 block">Email or phone #</label>
-              <Input data-testid="receipt-email" value={toEmail} onChange={(e) => setToEmail(e.target.value)} placeholder="customer@example.com" className="bg-[#07090d] border-white/10 text-white" />
-            </div>
-          )}
-          {channel !== 'email' && (
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 block">Phone (E.164)</label>
-              <Input data-testid="receipt-phone" value={toPhone} onChange={(e) => setToPhone(e.target.value)} placeholder="+13175550199" className="bg-[#07090d] border-white/10 text-white" />
-            </div>
-          )}
+          {/* Live channel preview chip — confirms what we'll do */}
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-slate-500 uppercase tracking-wider text-[10px]">Will send via</span>
+            {channel === 'email' && (
+              <span data-testid="channel-preview" className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-sky-500/15 border border-sky-500/30 text-sky-300 font-medium">
+                <Mail className="w-3 h-3" /> Email{toEmail ? ` · ${toEmail}` : ''}
+              </span>
+            )}
+            {channel === 'sms' && (
+              <span data-testid="channel-preview" className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-medium">
+                <MessageCircle className="w-3 h-3" /> SMS{toPhone ? ` · ${toPhone}` : ''}
+              </span>
+            )}
+            {channel === 'both' && (
+              <span data-testid="channel-preview" className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 font-medium">
+                <Send className="w-3 h-3" /> Email + SMS
+              </span>
+            )}
+            {!toEmail && !toPhone && (
+              <span className="text-slate-500 italic">— add a recipient —</span>
+            )}
+          </div>
         </Card>
 
         {/* Toggles */}

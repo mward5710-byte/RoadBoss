@@ -1,22 +1,42 @@
 [
   {
-    "content": "PHASE 4: Impounds (Stock #, Notes Log, Certified Mail) — DONE",
+    "content": "Phase 8a — Backend Square OAuth scaffolding",
     "status": "completed"
   },
   {
-    "content": "PHASE 5: Accounts CRM (search/filter/edit/per-account reasons) — DONE",
+    "content": "Phase 8a — tenant_integrations Mongo collection + helper",
     "status": "completed"
   },
   {
-    "content": "PHASE 6: Time Clock + Crew + Payroll Preview — DONE",
+    "content": "Phase 8b — WreckerSettings.jsx page with 'Connect with Square' button",
     "status": "completed"
   },
   {
-    "content": "PHASE 7: Trucks Fleet + Maintenance Work Orders + Truck Expenses — DONE",
+    "content": "Phase 8b — Add Settings nav item to WreckerShell sidebar",
     "status": "completed"
   },
   {
-    "content": "PHASE 8: Square POS — PAUSED until Mike grabs Square API keys",
+    "content": "Refactor WreckerReceipt.jsx to Towbook-style smart-field UX",
+    "status": "completed"
+  },
+  {
+    "content": "Quick Win — Print Receipt action pill + printable receipt page",
+    "status": "completed"
+  },
+  {
+    "content": "Quick Win — Files tab in Job Cockpit (PDF upload, list, download, view, delete)",
+    "status": "completed"
+  },
+  {
+    "content": "Backend testing of Square OAuth + Files endpoints via testing_agent_v3",
+    "status": "in_progress"
+  },
+  {
+    "content": "Phase 8c — Square Web Payments SDK wiring (BLOCKED until Mike provides Square Developer App OAuth keys)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 8d — Customer-facing /pay/:token page using Square Web Payments SDK",
     "status": "pending"
   }
 ]

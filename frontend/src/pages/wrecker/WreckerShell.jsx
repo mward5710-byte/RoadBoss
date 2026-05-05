@@ -2,7 +2,7 @@ import React from 'react';
 import { Outlet, NavLink, useNavigate, Link, Navigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Truck, Lock, Building2, Fuel, CreditCard, LogOut,
-  User, BookOpen, Mic, Wrench, Users, Briefcase, Clock
+  User, BookOpen, Mic, Wrench, Users, Briefcase, Clock, Settings,
 } from 'lucide-react';
 import { auth, getUser } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ const ALL_NAV = [
   { to: '/wrecker/clubs',      icon: Building2,       label: 'Motor Clubs',                   roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
   { to: '/wrecker/fuel',       icon: Fuel,            label: 'Fuel',                          roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_operator'] },
   { to: '/wrecker/billing',    icon: CreditCard,      label: 'Billing',                       roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+  { to: '/wrecker/settings',   icon: Settings,        label: 'Settings',                      roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
 ];
 
 const ROLE_LABEL = {

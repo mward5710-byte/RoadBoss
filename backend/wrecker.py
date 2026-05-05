@@ -272,6 +272,15 @@ class ReceiptSendIn(BaseModel):
     include_payment_link: bool = True
     message: Optional[str] = None
 
+# ---- Files (Towbook parity — police reports, insurance docs, AAA dispatch sheets)
+class JobFileIn(BaseModel):
+    data_url: str                       # base64 data URL: 'data:application/pdf;base64,...'
+    name: str                           # original filename e.g. 'police_report.pdf'
+    mime_type: Optional[str] = None     # 'application/pdf', 'image/jpeg', etc.
+    size: Optional[int] = None          # bytes (pre-encoded)
+    category: Optional[str] = 'other'   # 'police_report', 'insurance', 'dispatch_sheet', 'other'
+    note: Optional[str] = None
+
 class RateSheetItemIn(BaseModel):
     key: str
     label: str
@@ -1500,6 +1509,86 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         )
         if res.modified_count == 0:
             raise HTTPException(404, 'Photo not found on job')
+        return {'ok': True}
+
+    # ---------- Files (PDFs, police reports, insurance docs — Towbook parity) ----------
+    JOB_FILE_CATEGORIES = {'police_report', 'insurance', 'dispatch_sheet', 'invoice', 'photo', 'other'}
+    MAX_FILE_BYTES = 15 * 1024 * 1024  # 15 MB cap per file (base64 inflates ~33%)
+
+    @router.get('/jobs/{job_id}/files')
+    async def list_job_files(job_id: str, user=Depends(require_wrecker)):
+        job = await _get_job_for_driver(job_id, user)
+        # Strip the heavy data_url from the list response — client fetches individually
+        files = []
+        for f in (job.get('files') or []):
+            f2 = {k: v for k, v in f.items() if k != 'data_url'}
+            if isinstance(f2.get('uploaded_at'), datetime):
+                f2['uploaded_at'] = f2['uploaded_at'].isoformat()
+            files.append(f2)
+        return {'files': files, 'count': len(files)}
+
+    @router.post('/jobs/{job_id}/files')
+    async def add_job_file(job_id: str, body: JobFileIn, user=Depends(require_wrecker)):
+        """Attach a base64 file (PDF/image/doc) to a job. 15 MB max."""
+        await _get_job_for_driver(job_id, user)
+        if not body.data_url.startswith('data:'):
+            raise HTTPException(400, 'data_url must be a base64 data URL')
+        # Rough size check — base64 payload length ≈ 4/3 * actual bytes
+        approx_bytes = int(len(body.data_url) * 0.75)
+        if approx_bytes > MAX_FILE_BYTES:
+            raise HTTPException(413, f'File too large ({approx_bytes // 1024} KB). Max 15 MB.')
+        category = body.category or 'other'
+        if category not in JOB_FILE_CATEGORIES:
+            category = 'other'
+        # Try to infer mime type from the data URL prefix if not given
+        mime = body.mime_type
+        if not mime and body.data_url.startswith('data:'):
+            try:
+                mime = body.data_url.split(';', 1)[0].replace('data:', '', 1) or None
+            except Exception:
+                mime = None
+        file_doc = {
+            'id': _new_id(),
+            'name': body.name,
+            'mime_type': mime,
+            'size': body.size or approx_bytes,
+            'category': category,
+            'note': body.note,
+            'data_url': body.data_url,
+            'uploaded_at': _now(),
+            'uploaded_by': user['id'],
+            'uploaded_by_name': user.get('name'),
+        }
+        await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$push': {'files': file_doc}, '$set': {'updated_at': _now()}}
+        )
+        # Return without the heavy data_url
+        resp = {k: v for k, v in file_doc.items() if k != 'data_url'}
+        resp['uploaded_at'] = resp['uploaded_at'].isoformat()
+        return resp
+
+    @router.get('/jobs/{job_id}/files/{file_id}')
+    async def get_job_file(job_id: str, file_id: str, user=Depends(require_wrecker)):
+        """Returns the full file record including the base64 data_url for download/view."""
+        job = await _get_job_for_driver(job_id, user)
+        for f in (job.get('files') or []):
+            if f.get('id') == file_id:
+                out = dict(f)
+                if isinstance(out.get('uploaded_at'), datetime):
+                    out['uploaded_at'] = out['uploaded_at'].isoformat()
+                return out
+        raise HTTPException(404, 'File not found on job')
+
+    @router.delete('/jobs/{job_id}/files/{file_id}')
+    async def delete_job_file(job_id: str, file_id: str, user=Depends(require_wrecker)):
+        await _get_job_for_driver(job_id, user)
+        res = await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$pull': {'files': {'id': file_id}}, '$set': {'updated_at': _now()}}
+        )
+        if res.modified_count == 0:
+            raise HTTPException(404, 'File not found on job')
         return {'ok': True}
 
     # ---------- Charges (line items) ----------
