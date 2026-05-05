@@ -200,6 +200,12 @@ class AlertIn(BaseModel):
 async def root():
     return {"service": "Highway Pilot API", "status": "ok", "version": "0.1.0"}
 
+@api_router.get("/health")
+async def health():
+    """Fast liveness probe. NO DB, NO logic. Returns immediately so K8s
+    knows the pod is alive even while heavy startup work runs in the background."""
+    return {"status": "ok"}
+
 @api_router.post("/auth/register", response_model=TokenOut)
 async def register(body: RegisterIn):
     existing = await db.users.find_one({'email': body.email.lower()})
@@ -3505,33 +3511,47 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def on_startup():
-    # Auto-seed on first boot for demo readiness
-    user_count = await db.users.count_documents({})
-    if user_count == 0:
+    """Kick off heavy work (seeding, index creation) in a background task so the
+    HTTP server starts accepting traffic IMMEDIATELY. This prevents Kubernetes
+    startup-probe timeouts on production Atlas (which has higher network
+    latency than local sandbox Mongo)."""
+    import asyncio as _asyncio
+
+    async def _bootstrap():
+        # Auto-seed on first boot for demo readiness
         try:
-            await _seed_demo()
-            logger.info('Auto-seeded demo data on startup')
+            user_count = await db.users.count_documents({})
+            if user_count == 0:
+                try:
+                    await _seed_demo()
+                    logger.info('Auto-seeded demo data on startup')
+                except Exception as e:
+                    logger.error(f'Seed failed: {e}')
         except Exception as e:
-            logger.error(f'Seed failed: {e}')
-    # Always ensure Wrecker Mode demo data exists (idempotent)
-    try:
-        result = await seed_wrecker_demo(db, hash_password)
-        logger.info(f'Wrecker seed: {result}')
-    except Exception as e:
-        logger.error(f'Wrecker seed failed: {e}')
-    # Indexes for OAuth state cleanup + tenant_integrations uniqueness
-    try:
-        await db.square_oauth_states.create_index('expires_at', expireAfterSeconds=0)
-        await db.square_oauth_states.create_index('state', unique=True)
-        await db.tenant_integrations.create_index(
-            [('tenant_id', 1), ('provider', 1)], unique=True
-        )
-        # Public pay-link indexes (token unique + auto-expire after 30 days)
-        await db.tow_pay_links.create_index('token', unique=True)
-        await db.tow_pay_links.create_index('expires_at', expireAfterSeconds=0)
-        await db.tow_pay_links.create_index('job_id')
-    except Exception as e:
-        logger.error(f'Integration index setup failed: {e}')
+            logger.error(f'User count check failed (non-fatal): {e}')
+        # Always ensure Wrecker Mode demo data exists (idempotent)
+        try:
+            result = await seed_wrecker_demo(db, hash_password)
+            logger.info(f'Wrecker seed: {result}')
+        except Exception as e:
+            logger.error(f'Wrecker seed failed: {e}')
+        # Indexes for OAuth state cleanup + tenant_integrations uniqueness
+        try:
+            await db.square_oauth_states.create_index('expires_at', expireAfterSeconds=0)
+            await db.square_oauth_states.create_index('state', unique=True)
+            await db.tenant_integrations.create_index(
+                [('tenant_id', 1), ('provider', 1)], unique=True
+            )
+            # Public pay-link indexes (token unique + auto-expire after 30 days)
+            await db.tow_pay_links.create_index('token', unique=True)
+            await db.tow_pay_links.create_index('expires_at', expireAfterSeconds=0)
+            await db.tow_pay_links.create_index('job_id')
+        except Exception as e:
+            logger.error(f'Integration index setup failed: {e}')
+        logger.info('Startup bootstrap complete')
+
+    # Fire-and-forget — does NOT block FastAPI from accepting connections
+    _asyncio.create_task(_bootstrap())
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
