@@ -1819,7 +1819,7 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         return serialize_doc(doc)
 
     # ---------- Receipts (Email + SMS via SendGrid/Twilio) ----------
-    def _format_receipt_html(job: Dict[str, Any], totals: Dict[str, float], opts: ReceiptSendIn, company_name: str) -> str:
+    def _format_receipt_html(job: Dict[str, Any], totals: Dict[str, float], opts: ReceiptSendIn, company_name: str, pay_url: Optional[str] = None) -> str:
         veh = job.get('vehicle') or {}
         veh_str = ' '.join(str(x) for x in [veh.get('year'), veh.get('color'), veh.get('make'), veh.get('model')] if x)
         rows = ''
@@ -1835,9 +1835,16 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
                     photos_html += f"<img src='{p.get('data_url','')}' alt='{p.get('stage','photo')}' style='max-width:240px;margin:4px;border-radius:6px' />"
                 photos_html += "</div>"
         msg_html = f"<p style='color:#475569'>{opts.message}</p>" if opts.message else ''
-        pay_link = ''
-        if opts.include_payment_link and totals.get('balance_due', 0) > 0:
-            pay_link = f"<p style='margin-top:16px'><a href='#' style='background:#f59e0b;color:#0f172a;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:bold'>Pay ${totals['balance_due']:.2f} Online</a></p>"
+        pay_link_html = ''
+        if opts.include_payment_link and totals.get('balance_due', 0) > 0 and pay_url:
+            pay_link_html = (
+                f"<p style='margin-top:20px;text-align:center'>"
+                f"<a href='{pay_url}' style='display:inline-block;background:#f59e0b;color:#0f172a;"
+                f"padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px'>"
+                f"Pay ${totals['balance_due']:.2f} Now</a></p>"
+                f"<p style='text-align:center;color:#94a3b8;font-size:11px;margin-top:8px'>"
+                f"Tap the button to pay securely with credit card or Apple Pay.</p>"
+            )
         return f"""
 <div style='font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;max-width:560px;margin:0 auto'>
   <div style='background:#0f172a;color:white;padding:20px;border-radius:12px 12px 0 0'>
@@ -1855,30 +1862,71 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
       <tr><td style='padding:4px 0;color:#16a34a'>Payments</td><td style='padding:4px 0;text-align:right;color:#16a34a'>−${totals['amount_paid']:.2f}</td></tr>
       <tr><td style='padding:8px 0;color:#dc2626;font-weight:bold'>Balance Due</td><td style='padding:8px 0;text-align:right;color:#dc2626;font-weight:bold'>${totals['balance_due']:.2f}</td></tr>
     </table>
-    {pay_link}
+    {pay_link_html}
     {photos_html}
     <div style='margin-top:24px;color:#94a3b8;font-size:11px'>Thanks for choosing {company_name}. Powered by RoadBoss · Wrecker Mode.</div>
   </div>
 </div>
 """
 
-    def _format_receipt_sms(job: Dict[str, Any], totals: Dict[str, float], company_name: str) -> str:
+    def _format_receipt_sms(job: Dict[str, Any], totals: Dict[str, float], company_name: str, pay_url: Optional[str] = None) -> str:
         veh = job.get('vehicle') or {}
         veh_str = ' '.join(str(x) for x in [veh.get('year'), veh.get('make'), veh.get('model')] if x)
-        return (
+        balance = totals.get('balance_due', 0)
+        body = (
             f"{company_name} receipt\n"
             f"Job #{job.get('id','')[:8].upper()} · {veh_str}\n"
             f"Total ${totals['invoice_total']:.2f} · Paid ${totals['amount_paid']:.2f}\n"
-            f"Balance Due ${totals['balance_due']:.2f}"
+            f"Balance Due ${balance:.2f}"
         )
+        if balance > 0 and pay_url:
+            body += f"\n\nPay now: {pay_url}"
+        return body
 
     @router.post('/jobs/{job_id}/receipt')
     async def send_receipt(job_id: str, body: ReceiptSendIn, user=Depends(require_wrecker)):
+        import os
         existing = await _get_job_for_driver(job_id, user)
         totals = _recompute_totals(existing)
         # Pull company name from waiver template
         tpl = await db.fleet_waiver_templates.find_one({'fleet_id': 'default'})
         company_name = (tpl or {}).get('company_name') or 'Martin Wrecker Service Inc'
+
+        # ---- Pay-link generation ----------------------------------------
+        # If the operator opted in AND there's a balance, mint a token-based
+        # public pay URL the customer can tap from their SMS/email.
+        pay_url = None
+        if body.include_payment_link and totals.get('balance_due', 0) > 0:
+            # Reuse an existing unexpired link for this job to keep one tap-link per receipt
+            existing_link = await db.tow_pay_links.find_one(
+                {
+                    'job_id': job_id,
+                    'expires_at': {'$gt': _now()},
+                    'voided': {'$ne': True},
+                },
+                sort=[('created_at', -1)],
+            )
+            if existing_link:
+                token = existing_link['token']
+            else:
+                import secrets as _secrets
+                token = _secrets.token_urlsafe(24)
+                await db.tow_pay_links.insert_one({
+                    'id': _new_id(),
+                    'token': token,
+                    'job_id': job_id,
+                    'tenant_id': 'default',
+                    'amount': totals['balance_due'],
+                    'created_at': _now(),
+                    'expires_at': _now() + timedelta(days=30),
+                    'created_by': user['id'],
+                    'voided': False,
+                })
+            base = os.environ.get(
+                'PUBLIC_BASE_URL',
+                'https://build-forge-49.preview.emergentagent.com'
+            ).rstrip('/')
+            pay_url = f"{base}/pay/{token}"
 
         sent = {'email': None, 'sms': None}
 
@@ -1886,13 +1934,13 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
             to_email = body.to_email or (existing.get('customer') or {}).get('email')
             if not to_email:
                 raise HTTPException(400, 'No customer email on file. Provide to_email.')
-            html = _format_receipt_html(existing, totals, body, company_name)
+            html = _format_receipt_html(existing, totals, body, company_name, pay_url=pay_url)
             if notifications is not None:
                 res = await notifications.send_email(
                     db, to_email,
                     subject=f"{company_name} — Receipt for Job #{job_id[:8].upper()}",
                     html=html,
-                    plain_text=_format_receipt_sms(existing, totals, company_name),
+                    plain_text=_format_receipt_sms(existing, totals, company_name, pay_url=pay_url),
                     event_type='tow_receipt',
                     event_ref_id=job_id,
                 )
@@ -1904,7 +1952,7 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
             to_phone = body.to_phone or (existing.get('customer') or {}).get('phone')
             if not to_phone:
                 raise HTTPException(400, 'No customer phone on file. Provide to_phone.')
-            text = _format_receipt_sms(existing, totals, company_name)
+            text = _format_receipt_sms(existing, totals, company_name, pay_url=pay_url)
             if notifications is not None:
                 res = await notifications.send_sms(
                     db, to_phone, text,
@@ -1920,7 +1968,7 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
             {'id': job_id},
             {'$set': {'receipt_last_sent_at': _now(), 'updated_at': _now()}}
         )
-        return {'ok': True, 'sent': sent, 'totals': totals}
+        return {'ok': True, 'sent': sent, 'totals': totals, 'pay_url': pay_url}
 
     # ---------- Square Payments (Web Payments SDK token → charge) ----------
     @router.post('/jobs/{job_id}/square-charge')

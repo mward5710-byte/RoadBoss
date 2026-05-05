@@ -1,26 +1,22 @@
 [
   {
-    "content": "Phase 8c — Backend square-charge + square-refund endpoints",
+    "content": "Phase 8a — Backend Square OAuth",
     "status": "completed"
   },
   {
-    "content": "Phase 8c — Frontend SquareCardCharge component (Card form + tokenization + charge flow)",
+    "content": "Phase 8b — Settings page + Connect with Square",
     "status": "completed"
   },
   {
-    "content": "Phase 8c — Apple Pay button (auto-shown on iOS Safari/macOS Safari only)",
+    "content": "Phase 8c — Web Payments SDK in Cockpit (Card + Apple Pay)",
     "status": "completed"
   },
   {
-    "content": "Phase 8c — Google Pay button (auto-shown when supported)",
-    "status": "in_progress"
+    "content": "Phase 8d — Customer-facing /pay/:token page (SMS/email tap-to-pay)",
+    "status": "completed"
   },
   {
-    "content": "Phase 8c — Mike tests Apple Pay on his iPhone (real-money or skip)",
-    "status": "pending"
-  },
-  {
-    "content": "Phase 8d — Customer-facing /pay/:token page using Square Web Payments SDK (the 'Online Payment Link' from receipts)",
-    "status": "pending"
+    "content": "Receipt sender now generates real pay-link URL when include_payment_link=true",
+    "status": "completed"
   }
 ]

@@ -53,6 +53,7 @@ import WreckerDamageForm from '@/pages/wrecker/WreckerDamageForm';
 import WreckerWaiver from '@/pages/wrecker/WreckerWaiver';
 import WreckerReceipt from '@/pages/wrecker/WreckerReceipt';
 import WreckerPrintReceipt from '@/pages/wrecker/WreckerPrintReceipt';
+import WreckerPublicPay from '@/pages/wrecker/WreckerPublicPay';
 import WreckerImpound from '@/pages/wrecker/WreckerImpound';
 import WreckerMotorClubs from '@/pages/wrecker/WreckerMotorClubs';
 import WreckerAccounts from '@/pages/wrecker/WreckerAccounts';
@@ -99,6 +100,9 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/auth/google-callback" element={<GoogleCallback />} />
+
+          {/* PUBLIC customer-facing pay link (NO auth) — sent via SMS/email */}
+          <Route path="/pay/:token" element={<WreckerPublicPay />} />
 
           <Route path="/app" element={<RequireAuth roles={['fleet_admin', 'dispatcher', 'super_admin']}><AppShell /></RequireAuth>}>
             <Route index element={<Overview />} />

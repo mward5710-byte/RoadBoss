@@ -35,6 +35,7 @@ from wrecker import build_wrecker_router, seed_wrecker_demo, WRECKER_VOICE_INTEN
 
 # Third-party integrations (multi-tenant OAuth — each company connects their own)
 from integrations.square_oauth import build_square_router  # noqa: E402
+from integrations.public_pay import build_public_pay_router  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -3488,6 +3489,9 @@ _wrecker_router = build_wrecker_router(db, get_current_user, require_role, seria
 _square_router = build_square_router(db, get_current_user, require_role)
 _wrecker_router.include_router(_square_router)
 api_router.include_router(_wrecker_router)
+# Mount the PUBLIC (no-auth) pay-link router so customers can pay via SMS/email link
+_public_pay_router = build_public_pay_router(db)
+api_router.include_router(_public_pay_router)
 
 app.include_router(api_router)
 
@@ -3522,6 +3526,10 @@ async def on_startup():
         await db.tenant_integrations.create_index(
             [('tenant_id', 1), ('provider', 1)], unique=True
         )
+        # Public pay-link indexes (token unique + auto-expire after 30 days)
+        await db.tow_pay_links.create_index('token', unique=True)
+        await db.tow_pay_links.create_index('expires_at', expireAfterSeconds=0)
+        await db.tow_pay_links.create_index('job_id')
     except Exception as e:
         logger.error(f'Integration index setup failed: {e}')
 
