@@ -301,11 +301,15 @@ def build_square_router(db, get_current_user, require_role) -> APIRouter:
                 status_code=302,
             )
         expires_at = state_doc.get("expires_at")
-        if isinstance(expires_at, datetime) and expires_at < datetime.now(timezone.utc):
-            return RedirectResponse(
-                _settings_redirect(cfg, "error", "OAuth state expired — please retry"),
-                status_code=302,
-            )
+        if isinstance(expires_at, datetime):
+            # Mongo can return offset-naive datetimes — coerce to UTC for safe comparison
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at < datetime.now(timezone.utc):
+                return RedirectResponse(
+                    _settings_redirect(cfg, "error", "OAuth state expired — please retry"),
+                    status_code=302,
+                )
 
         tenant_id = state_doc["tenant_id"]
         user_id = state_doc.get("user_id")
