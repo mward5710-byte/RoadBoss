@@ -1922,11 +1922,13 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
                     'created_by': user['id'],
                     'voided': False,
                 })
-            base = os.environ.get(
-                'PUBLIC_BASE_URL',
-                'https://build-forge-49.preview.emergentagent.com'
-            ).rstrip('/')
-            pay_url = f"{base}/pay/{token}"
+            base = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
+            if not base:
+                # Pay-link generation requires a public URL — skip silently if
+                # not configured rather than minting broken links.
+                pay_url = None
+            else:
+                pay_url = f"{base}/pay/{token}"
 
         sent = {'email': None, 'sms': None}
 

@@ -178,13 +178,17 @@ def build_square_router(db, get_current_user, require_role) -> APIRouter:
     )
 
     def _cfg() -> Dict[str, str]:
+        public_base = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+        if not public_base:
+            logger.warning(
+                "PUBLIC_BASE_URL is not set — Square OAuth callbacks will fail. "
+                "Set this env var to your production domain (e.g. https://wreckerlogix.com)."
+            )
         return {
             "app_id": os.environ.get("SQUARE_OAUTH_APPLICATION_ID", ""),
             "app_secret": os.environ.get("SQUARE_OAUTH_APPLICATION_SECRET", ""),
             "env": os.environ.get("SQUARE_OAUTH_ENVIRONMENT", "sandbox"),
-            "public_base_url": os.environ.get(
-                "PUBLIC_BASE_URL", "https://build-forge-49.preview.emergentagent.com"
-            ).rstrip("/"),
+            "public_base_url": public_base,
         }
 
     def _redirect_uri(cfg: Dict[str, str]) -> str:
