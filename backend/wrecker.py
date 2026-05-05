@@ -281,6 +281,15 @@ class JobFileIn(BaseModel):
     category: Optional[str] = 'other'   # 'police_report', 'insurance', 'dispatch_sheet', 'other'
     note: Optional[str] = None
 
+# ---- Square Web Payments SDK — tokenize on frontend, charge here on backend
+class SquareChargeIn(BaseModel):
+    source_id: str                      # token returned by Square Web Payments SDK
+    amount: float                       # dollar amount (we convert to cents for Square)
+    verification_token: Optional[str] = None  # 3DS / SCA token (verifyBuyer flow)
+    note: Optional[str] = None
+    autocomplete: bool = True           # complete the payment immediately (vs auth+capture later)
+    save_card: bool = False             # placeholder — would store card on file via Square Customers API
+
 class RateSheetItemIn(BaseModel):
     key: str
     label: str
@@ -1912,6 +1921,234 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
             {'$set': {'receipt_last_sent_at': _now(), 'updated_at': _now()}}
         )
         return {'ok': True, 'sent': sent, 'totals': totals}
+
+    # ---------- Square Payments (Web Payments SDK token → charge) ----------
+    @router.post('/jobs/{job_id}/square-charge')
+    async def square_charge(job_id: str, body: SquareChargeIn, user=Depends(require_wrecker)):
+        """Charge a tokenized card via Square's Payments API.
+
+        The frontend tokenizes the card with Square's Web Payments SDK
+        (PCI-compliant — card data never touches our server) and sends us
+        the `source_id` (token). We use the connected tenant's encrypted
+        access_token to call Square's POST /v2/payments endpoint.
+        """
+        import os
+        import uuid as _uuid
+        import httpx as _httpx
+        # Lazy import to avoid circular dependency
+        from integrations.square_oauth import (
+            get_tenant_square_credentials,
+            resolve_tenant_id,
+            _square_base_urls,
+        )
+
+        await _get_job_for_driver(job_id, user)
+        tenant_id = resolve_tenant_id(user)
+        creds = await get_tenant_square_credentials(db, tenant_id)
+        if not creds:
+            raise HTTPException(
+                400,
+                "Square is not connected. An admin must visit Settings → Payments and click 'Connect with Square'.",
+            )
+        if not creds.get('location_id'):
+            raise HTTPException(
+                400,
+                "No Square location selected. Pick one in Settings → Payments.",
+            )
+        if body.amount <= 0:
+            raise HTTPException(400, "Charge amount must be greater than zero")
+
+        # Square wants amount in CENTS as an integer
+        amount_cents = int(round(body.amount * 100))
+        urls = _square_base_urls(creds.get('environment') or os.environ.get('SQUARE_OAUTH_ENVIRONMENT', 'sandbox'))
+        idempotency_key = str(_uuid.uuid4())
+
+        payload = {
+            'source_id': body.source_id,
+            'idempotency_key': idempotency_key,
+            'amount_money': {
+                'amount': amount_cents,
+                'currency': 'USD',
+            },
+            'autocomplete': body.autocomplete,
+            'location_id': creds['location_id'],
+            'reference_id': job_id[:40],   # Square caps at 40 chars
+            'note': (body.note or f"Wreckerlogix Job #{job_id[:8].upper()}")[:500],
+        }
+        if body.verification_token:
+            payload['verification_token'] = body.verification_token
+
+        try:
+            async with _httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"{urls['api']}/v2/payments",
+                    headers={
+                        'Authorization': f"Bearer {creds['access_token']}",
+                        'Square-Version': '2024-12-18',
+                        'Content-Type': 'application/json',
+                    },
+                    json=payload,
+                )
+        except Exception as e:
+            raise HTTPException(502, f"Square API request failed: {e}")
+
+        # Square returns errors with a structured `errors` array
+        if resp.status_code >= 400:
+            try:
+                data = resp.json()
+                detail = (data.get('errors') or [{}])[0].get('detail') or resp.text[:300]
+            except Exception:
+                detail = resp.text[:300]
+            raise HTTPException(resp.status_code, f"Square: {detail}")
+
+        data = resp.json()
+        payment = data.get('payment') or {}
+        sq_status = payment.get('status')                # APPROVED / COMPLETED / PENDING / FAILED
+        sq_payment_id = payment.get('id')
+        receipt_url = payment.get('receipt_url')
+        card_details = payment.get('card_details') or {}
+        card = card_details.get('card') or {}
+
+        # Record as a payment on the job
+        payment_record = {
+            'id': _new_id(),
+            'amount': body.amount,
+            'method': 'square',
+            'reference': sq_payment_id,
+            'note': body.note,
+            'at': _now(),
+            'by': user['id'],
+            'by_name': user.get('name'),
+            'square': {
+                'payment_id': sq_payment_id,
+                'status': sq_status,
+                'receipt_url': receipt_url,
+                'card_brand': card.get('card_brand'),
+                'last_4': card.get('last_4'),
+                'entry_method': card_details.get('entry_method'),  # KEYED, SWIPED, CONTACTLESS, EMV
+                'environment': creds.get('environment'),
+                'merchant_id': creds.get('merchant_id'),
+                'location_id': creds.get('location_id'),
+            },
+        }
+
+        await db.tow_jobs.update_one(
+            {'id': job_id},
+            {
+                '$push': {'payments': payment_record},
+                '$set': {'updated_at': _now()},
+            },
+        )
+
+        # Recompute totals so the frontend can show updated balance
+        refreshed = await db.tow_jobs.find_one({'id': job_id}, {'_id': 0})
+        totals = _recompute_totals(refreshed)
+        await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$set': {**totals, 'updated_at': _now()}},
+        )
+
+        return {
+            'ok': True,
+            'payment': {
+                'id': payment_record['id'],
+                'amount': payment_record['amount'],
+                'method': payment_record['method'],
+                'square': payment_record['square'],
+                'at': payment_record['at'].isoformat(),
+            },
+            'totals': totals,
+            'square_status': sq_status,
+            'receipt_url': receipt_url,
+        }
+
+    @router.post('/payments/{payment_id}/square-refund')
+    async def square_refund(payment_id: str, user=Depends(require_dispatcher)):
+        """Refund a Square payment (full refund). Looks up the payment by its
+        record id, finds the job it belongs to, and calls Square's Refunds API.
+        """
+        import os
+        import uuid as _uuid
+        import httpx as _httpx
+        from integrations.square_oauth import (
+            get_tenant_square_credentials,
+            resolve_tenant_id,
+            _square_base_urls,
+        )
+
+        # Find the job containing this payment
+        job = await db.tow_jobs.find_one({'payments.id': payment_id}, {'_id': 0})
+        if not job:
+            raise HTTPException(404, 'Payment not found on any job')
+        pay = next((p for p in (job.get('payments') or []) if p.get('id') == payment_id), None)
+        if not pay or pay.get('method') != 'square':
+            raise HTTPException(400, 'Not a Square payment — cannot refund via Square API')
+        sq_payment_id = (pay.get('square') or {}).get('payment_id')
+        if not sq_payment_id:
+            raise HTTPException(400, 'Missing Square payment id on this record')
+
+        tenant_id = resolve_tenant_id(user)
+        creds = await get_tenant_square_credentials(db, tenant_id)
+        if not creds:
+            raise HTTPException(400, 'Square is not connected')
+
+        amount_cents = int(round(pay['amount'] * 100))
+        urls = _square_base_urls(creds.get('environment') or os.environ.get('SQUARE_OAUTH_ENVIRONMENT', 'sandbox'))
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{urls['api']}/v2/refunds",
+                headers={
+                    'Authorization': f"Bearer {creds['access_token']}",
+                    'Square-Version': '2024-12-18',
+                    'Content-Type': 'application/json',
+                },
+                json={
+                    'idempotency_key': str(uuid.uuid4()),
+                    'payment_id': sq_payment_id,
+                    'amount_money': {
+                        'amount': amount_cents,
+                        'currency': 'USD',
+                    },
+                    'reason': f"Wreckerlogix refund — Job #{job['id'][:8].upper()}",
+                },
+            )
+        if resp.status_code >= 400:
+            try:
+                detail = (resp.json().get('errors') or [{}])[0].get('detail') or resp.text[:300]
+            except Exception:
+                detail = resp.text[:300]
+            raise HTTPException(resp.status_code, f"Square refund: {detail}")
+        data = resp.json().get('refund') or {}
+
+        # Record a NEGATIVE payment so totals net out
+        refund_record = {
+            'id': _new_id(),
+            'amount': -abs(pay['amount']),
+            'method': 'square_refund',
+            'reference': data.get('id'),
+            'note': f"Refund of payment {sq_payment_id}",
+            'at': _now(),
+            'by': user['id'],
+            'by_name': user.get('name'),
+            'square': {
+                'refund_id': data.get('id'),
+                'status': data.get('status'),
+                'environment': creds.get('environment'),
+            },
+        }
+        await db.tow_jobs.update_one(
+            {'id': job['id']},
+            {'$push': {'payments': refund_record}, '$set': {'updated_at': _now()}}
+        )
+        # Recompute
+        refreshed = await db.tow_jobs.find_one({'id': job['id']}, {'_id': 0})
+        totals = _recompute_totals(refreshed)
+        await db.tow_jobs.update_one(
+            {'id': job['id']},
+            {'$set': {**totals, 'updated_at': _now()}},
+        )
+        return {'ok': True, 'refund': refund_record, 'totals': totals, 'square_status': data.get('status')}
 
     return router
 

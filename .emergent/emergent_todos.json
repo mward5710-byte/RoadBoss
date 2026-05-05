@@ -8,11 +8,11 @@
     "status": "completed"
   },
   {
-    "content": "Phase 8b — WreckerSettings.jsx page with 'Connect with Square' button",
+    "content": "Phase 8b — WreckerSettings.jsx page with 'Connect with Square'",
     "status": "completed"
   },
   {
-    "content": "Phase 8b — Add Settings nav item to WreckerShell sidebar",
+    "content": "Phase 8b — Add Settings nav item",
     "status": "completed"
   },
   {
@@ -20,23 +20,35 @@
     "status": "completed"
   },
   {
-    "content": "Quick Win — Print Receipt action pill + printable receipt page",
+    "content": "Quick Win — Print Receipt page",
     "status": "completed"
   },
   {
-    "content": "Quick Win — Files tab in Job Cockpit",
+    "content": "Quick Win — Files tab",
     "status": "completed"
   },
   {
-    "content": "Backend testing of Square OAuth + Files endpoints (19/21 passed, 2 bugs fixed)",
+    "content": "Backend testing of Square OAuth + Files endpoints",
     "status": "completed"
   },
   {
-    "content": "Phase 8c — Square Web Payments SDK wiring (BLOCKED until Mike provides Square Developer App OAuth keys)",
+    "content": "Mike's Square Production credentials connected via OAuth (Apex Epoxy & Flooring LLC)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 8c — Backend: POST /api/wrecker/jobs/:id/square-charge endpoint (Square Payments API)",
+    "status": "in_progress"
+  },
+  {
+    "content": "Phase 8c — Frontend: WreckerPayments.jsx tab with Square Web Payments SDK (Card + Apple Pay + Google Pay)",
     "status": "pending"
   },
   {
-    "content": "Phase 8d — Customer-facing /pay/:token page using Square Web Payments SDK",
+    "content": "Phase 8c — Verify-only test ($0 card validation) + $1 round-trip refund test",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 8d — Customer-facing /pay/:token page with Square SDK",
     "status": "pending"
   }
 ]

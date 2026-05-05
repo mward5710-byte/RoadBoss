@@ -16,6 +16,7 @@ import {
 import { toast } from 'sonner';
 import { openCameraAsDataUrl } from '@/lib/photoCapture';
 import { NAV_APPS, getNavApp, setNavApp, navUrl } from '@/lib/navPref';
+import SquareCardCharge from '@/components/SquareCardCharge';
 
 // 7-stage Towbook-style flow + colors
 const STATUS_FLOW = ['pending', 'assigned', 'en_route', 'on_scene', 'towing', 'dest_arrival', 'completed'];
@@ -641,8 +642,29 @@ export default function WreckerJobCockpit() {
             </div>
           </div>
 
-          {/* Add payment */}
-          <div className="flex items-end gap-2 flex-wrap p-3 rounded-lg bg-white/[0.02] border border-white/5">
+          {/* Square Card Charge — preferred, card data never touches our server */}
+          {totals.balance_due > 0 && (
+            <div className="p-4 rounded-xl bg-gradient-to-br from-white/[0.04] to-white/[0.01] border border-white/10" data-testid="square-charge-section">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                    <DollarSign className="w-3.5 h-3.5" /> Pay with Card · Square
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">Visa, Mastercard, Amex, Discover. Tokenized PCI-safe.</div>
+                </div>
+              </div>
+              <SquareCardCharge
+                jobId={id}
+                defaultAmount={totals.balance_due}
+                onSuccess={() => load()}
+              />
+            </div>
+          )}
+
+          {/* Add payment — manual fallback for cash/check/motor club */}
+          <div>
+            <div className="text-[11px] uppercase tracking-widest text-slate-500 mb-2">Or record a non-card payment</div>
+            <div className="flex items-end gap-2 flex-wrap p-3 rounded-lg bg-white/[0.02] border border-white/5">
             <div className="w-28">
               <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Amount</div>
               <Input data-testid="payment-amount-input" type="number" step="0.01" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0.00" className="bg-[#07090d] border-white/10 text-white" />
@@ -663,6 +685,7 @@ export default function WreckerJobCockpit() {
             <Button data-testid="payment-add-btn" onClick={addPayment} className="bg-emerald-500 text-black hover:bg-emerald-400">
               <Plus className="w-4 h-4 mr-1" /> Mark Paid
             </Button>
+            </div>
           </div>
 
           {payments.length === 0 ? (
