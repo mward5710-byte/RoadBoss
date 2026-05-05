@@ -1,54 +1,26 @@
 [
   {
-    "content": "Phase 8a — Backend Square OAuth scaffolding",
+    "content": "Phase 8c — Backend square-charge + square-refund endpoints",
     "status": "completed"
   },
   {
-    "content": "Phase 8a — tenant_integrations Mongo collection + helper",
+    "content": "Phase 8c — Frontend SquareCardCharge component (Card form + tokenization + charge flow)",
     "status": "completed"
   },
   {
-    "content": "Phase 8b — WreckerSettings.jsx page with 'Connect with Square'",
+    "content": "Phase 8c — Apple Pay button (auto-shown on iOS Safari/macOS Safari only)",
     "status": "completed"
   },
   {
-    "content": "Phase 8b — Add Settings nav item",
-    "status": "completed"
-  },
-  {
-    "content": "Refactor WreckerReceipt.jsx to Towbook-style smart-field UX",
-    "status": "completed"
-  },
-  {
-    "content": "Quick Win — Print Receipt page",
-    "status": "completed"
-  },
-  {
-    "content": "Quick Win — Files tab",
-    "status": "completed"
-  },
-  {
-    "content": "Backend testing of Square OAuth + Files endpoints",
-    "status": "completed"
-  },
-  {
-    "content": "Mike's Square Production credentials connected via OAuth (Apex Epoxy & Flooring LLC)",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 8c — Backend: POST /api/wrecker/jobs/:id/square-charge endpoint (Square Payments API)",
+    "content": "Phase 8c — Google Pay button (auto-shown when supported)",
     "status": "in_progress"
   },
   {
-    "content": "Phase 8c — Frontend: WreckerPayments.jsx tab with Square Web Payments SDK (Card + Apple Pay + Google Pay)",
+    "content": "Phase 8c — Mike tests Apple Pay on his iPhone (real-money or skip)",
     "status": "pending"
   },
   {
-    "content": "Phase 8c — Verify-only test ($0 card validation) + $1 round-trip refund test",
-    "status": "pending"
-  },
-  {
-    "content": "Phase 8d — Customer-facing /pay/:token page with Square SDK",
+    "content": "Phase 8d — Customer-facing /pay/:token page using Square Web Payments SDK (the 'Online Payment Link' from receipts)",
     "status": "pending"
   }
 ]

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Loader2, CreditCard, Lock, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Loader2, CreditCard, Lock, AlertCircle, CheckCircle2, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -24,6 +24,9 @@ export default function SquareCardCharge({ jobId, defaultAmount = 0, onSuccess }
   const containerRef = useRef(null);
   const cardRef = useRef(null);
   const paymentsRef = useRef(null);
+  const applePayBtnRef = useRef(null);
+  const applePayRef = useRef(null);
+  const lastPaymentReqRef = useRef(null);
 
   const [config, setConfig] = useState(null);
   const [loadingSdk, setLoadingSdk] = useState(true);
@@ -33,6 +36,21 @@ export default function SquareCardCharge({ jobId, defaultAmount = 0, onSuccess }
   );
   const [charging, setCharging] = useState(false);
   const [lastResult, setLastResult] = useState(null);
+  const [applePayAvailable, setApplePayAvailable] = useState(false);
+  const [applePayLoading, setApplePayLoading] = useState(false);
+
+  // ---- Charge handler shared by card form AND Apple Pay flow ----
+  const sendChargeToBackend = useCallback(async (sourceId, amt, methodLabel = 'card') => {
+    const r = await api.post(`/wrecker/jobs/${jobId}/square-charge`, {
+      source_id: sourceId,
+      amount: amt,
+      autocomplete: true,
+    });
+    setLastResult(r.data);
+    toast.success(`Charged $${amt.toFixed(2)} via ${methodLabel}`);
+    if (onSuccess) onSuccess(r.data);
+    return r.data;
+  }, [jobId, onSuccess]);
 
   // Fetch the per-tenant Square config from our backend
   const loadConfig = useCallback(async () => {
@@ -111,6 +129,76 @@ export default function SquareCardCharge({ jobId, defaultAmount = 0, onSuccess }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ---- Apple Pay init / re-init whenever the amount changes ----
+  // Square's paymentRequest needs the dollar amount baked in, so we destroy
+  // and re-create the Apple Pay button each time the amount changes.
+  useEffect(() => {
+    let cancelled = false;
+    const setup = async () => {
+      const payments = paymentsRef.current;
+      if (!payments) return;
+      const amt = parseFloat(amount);
+      if (!amt || amt <= 0) {
+        // Clean up any existing button
+        if (applePayRef.current?.destroy) {
+          try { await applePayRef.current.destroy(); } catch (_) { /* */ }
+        }
+        applePayRef.current = null;
+        setApplePayAvailable(false);
+        return;
+      }
+      try {
+        // Destroy any previous instance
+        if (applePayRef.current?.destroy) {
+          try { await applePayRef.current.destroy(); } catch (_) { /* */ }
+          applePayRef.current = null;
+        }
+        const paymentRequest = payments.paymentRequest({
+          countryCode: 'US',
+          currencyCode: 'USD',
+          total: { amount: amt.toFixed(2), label: 'Total' },
+        });
+        lastPaymentReqRef.current = paymentRequest;
+        const apple = await payments.applePay(paymentRequest);
+        if (cancelled) {
+          if (apple?.destroy) await apple.destroy().catch(() => {});
+          return;
+        }
+        applePayRef.current = apple;
+        setApplePayAvailable(true);
+      } catch (e) {
+        // Apple Pay not available on this browser/device — silently hide
+        applePayRef.current = null;
+        setApplePayAvailable(false);
+      }
+    };
+    setup();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amount, loadingSdk]);
+
+  const payWithApplePay = async () => {
+    if (!applePayRef.current) { toast.error('Apple Pay not ready'); return; }
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) { toast.error('Enter an amount greater than $0'); return; }
+    setApplePayLoading(true);
+    setLastResult(null);
+    try {
+      const tokenResult = await applePayRef.current.tokenize();
+      if (tokenResult.status !== 'OK') {
+        const errs = (tokenResult.errors || []).map((x) => x.message || x.detail).filter(Boolean);
+        throw new Error(errs.join('; ') || 'Apple Pay tokenization failed');
+      }
+      await sendChargeToBackend(tokenResult.token, amt, 'Apple Pay');
+    } catch (e) {
+      const detail = e?.response?.data?.detail || e?.message || 'Apple Pay charge failed';
+      toast.error(detail);
+      setLastResult({ ok: false, error: detail });
+    } finally {
+      setApplePayLoading(false);
+    }
+  };
+
   const charge = async () => {
     if (!cardRef.current) return;
     const amt = parseFloat(amount);
@@ -123,16 +211,9 @@ export default function SquareCardCharge({ jobId, defaultAmount = 0, onSuccess }
         const errs = (tokenResult.errors || []).map((x) => x.message || x.detail).filter(Boolean);
         throw new Error(errs.join('; ') || 'Card tokenization failed');
       }
-      const r = await api.post(`/wrecker/jobs/${jobId}/square-charge`, {
-        source_id: tokenResult.token,
-        amount: amt,
-        autocomplete: true,
-      });
-      setLastResult(r.data);
-      toast.success(`Charged $${amt.toFixed(2)} to card`);
+      await sendChargeToBackend(tokenResult.token, amt, 'Card');
       // Reset card form for next charge
       try { await cardRef.current.clear(); } catch (_) { /* sdk version may not have clear */ }
-      if (onSuccess) onSuccess(r.data);
     } catch (e) {
       const detail = e?.response?.data?.detail || e?.message || 'Charge failed';
       toast.error(detail);
@@ -191,10 +272,43 @@ export default function SquareCardCharge({ jobId, defaultAmount = 0, onSuccess }
             onChange={(e) => setAmount(e.target.value)}
             placeholder="0.00"
             className="bg-transparent border-0 text-white text-lg h-12 focus-visible:ring-0 tabular-nums"
-            disabled={charging}
+            disabled={charging || applePayLoading}
           />
         </div>
       </div>
+
+      {/* Apple Pay — shown only when supported on this browser/device */}
+      {applePayAvailable && (
+        <div data-testid="apple-pay-section">
+          <button
+            ref={applePayBtnRef}
+            type="button"
+            onClick={payWithApplePay}
+            disabled={applePayLoading || charging || !amount || parseFloat(amount) <= 0}
+            data-testid="apple-pay-btn"
+            className="w-full h-12 rounded-lg bg-black text-white font-medium flex items-center justify-center gap-2 hover:bg-zinc-800 active:scale-[0.99] transition disabled:opacity-50 disabled:cursor-not-allowed border border-white/10"
+            aria-label="Pay with Apple Pay"
+          >
+            {applePayLoading ? (
+              <><Loader2 className="w-5 h-5 animate-spin" /> Authorizing…</>
+            ) : (
+              <>
+                <Smartphone className="w-4 h-4" />
+                <span className="text-[15px]">Pay</span>
+                {/*  Apple logo via SVG path so we don't need an image asset */}
+                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor" aria-hidden="true">
+                  <path d="M16.365 1.43c0 1.14-.46 2.23-1.21 3.04-.81.86-2.1 1.51-3.16 1.43-.13-1.13.43-2.31 1.16-3.07.83-.85 2.21-1.48 3.21-1.4Zm3.5 16.18c-.6 1.39-.88 2.01-1.66 3.24-1.08 1.71-2.61 3.84-4.51 3.86-1.69.01-2.12-1.1-4.41-1.08-2.29.01-2.76 1.1-4.45 1.08-1.9-.02-3.34-1.94-4.42-3.65C-.7 17.31-.97 12.78 1.13 9.71 2.59 7.5 4.78 6.16 6.83 6.16c2.09 0 3.41 1.16 5.14 1.16 1.68 0 2.7-1.16 5.12-1.16 1.83 0 3.78 1 5.16 2.74-4.54 2.49-3.81 9.01-1.39 9.71Z" />
+                </svg>
+              </>
+            )}
+          </button>
+          <div className="flex items-center gap-3 my-3">
+            <div className="flex-1 h-px bg-white/5" />
+            <span className="text-[10px] uppercase tracking-widest text-slate-600">or pay with card</span>
+            <div className="flex-1 h-px bg-white/5" />
+          </div>
+        </div>
+      )}
 
       {/* Card element */}
       <div>
