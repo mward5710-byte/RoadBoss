@@ -1559,10 +1559,22 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
             'uploaded_by': user['id'],
             'uploaded_by_name': user.get('name'),
         }
-        await db.tow_jobs.update_one(
-            {'id': job_id},
-            {'$push': {'files': file_doc}, '$set': {'updated_at': _now()}}
-        )
+        try:
+            await db.tow_jobs.update_one(
+                {'id': job_id},
+                {'$push': {'files': file_doc}, '$set': {'updated_at': _now()}}
+            )
+        except Exception as e:
+            # MongoDB caps a single document at 16 MB. Huge base64 files or many
+            # accumulated files on one job can push us past it — return a clean 413.
+            err_str = str(e).lower()
+            if 'larger than' in err_str or 'document' in err_str and 'size' in err_str:
+                raise HTTPException(
+                    413,
+                    "This job has too many files attached. Delete an older file and try again, "
+                    "or split the upload. (Job document exceeds 16 MB MongoDB limit.)"
+                )
+            raise
         # Return without the heavy data_url
         resp = {k: v for k, v in file_doc.items() if k != 'data_url'}
         resp['uploaded_at'] = resp['uploaded_at'].isoformat()

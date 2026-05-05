@@ -24,12 +24,12 @@
     "status": "completed"
   },
   {
-    "content": "Quick Win — Files tab in Job Cockpit (PDF upload, list, download, view, delete)",
+    "content": "Quick Win — Files tab in Job Cockpit",
     "status": "completed"
   },
   {
-    "content": "Backend testing of Square OAuth + Files endpoints via testing_agent_v3",
-    "status": "in_progress"
+    "content": "Backend testing of Square OAuth + Files endpoints (19/21 passed, 2 bugs fixed)",
+    "status": "completed"
   },
   {
     "content": "Phase 8c — Square Web Payments SDK wiring (BLOCKED until Mike provides Square Developer App OAuth keys)",

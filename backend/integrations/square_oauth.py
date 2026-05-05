@@ -163,6 +163,10 @@ class SquareDisconnectResponse(BaseModel):
     message: str
 
 
+class SquareLocationIn(BaseModel):
+    location_id: str
+
+
 def build_square_router(db, get_current_user, require_role) -> APIRouter:
     router = APIRouter(prefix="/integrations/square", tags=["integrations:square"])
 
@@ -433,11 +437,8 @@ def build_square_router(db, get_current_user, require_role) -> APIRouter:
     # ------------------------------------------------------------
     # POST /location — change the active billing location
     # ------------------------------------------------------------
-    class LocationIn(BaseModel):
-        location_id: str
-
     @router.post("/location")
-    async def set_location(body: LocationIn, user=Depends(require_admin)):
+    async def set_location(body: SquareLocationIn, user=Depends(require_admin)):
         tenant_id = resolve_tenant_id(user)
         rec = await db.tenant_integrations.find_one(
             {"tenant_id": tenant_id, "provider": "square"}
