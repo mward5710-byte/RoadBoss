@@ -91,6 +91,21 @@ export default function Copilot() {
           toast.success(`${main.name}: ${main.current_gallons} gal (${main.percent}%)`);
         }
         if (t === 'impound_quick') toast.success('Impound record created');
+        if (t === 'navigate' && action.redirect) {
+          toast.success(`Opening ${action.label || action.target || 'screen'}…`);
+          // Speak first, then route — keeps it truly hands-free.
+          if (mutedRef.current) {
+            setMode('idle');
+            setTimeout(() => navigate(action.redirect), 400);
+          } else {
+            setMode('speaking');
+            speak(reply, () => {
+              setMode('idle');
+              navigate(action.redirect);
+            });
+          }
+          return;
+        }
         if (t === 'start_inspection' && action.redirect) {
           toast.success(`${action.inspection_type === 'pre_trip' ? 'Pre' : 'Post'}-trip inspection started`);
           // Speak first, then navigate to the inspection page (it auto-runs voice walkthrough)
@@ -152,12 +167,37 @@ export default function Copilot() {
       const r = new Recog();
       r.lang = 'en-US';
       r.interimResults = true;
-      r.continuous = false;
+      // Continuous listening so drivers can speak full thoughts with natural pauses.
+      // We use a silence timer (below) to auto-flush when they actually stop talking.
+      r.continuous = true;
       r.maxAlternatives = 1;
+
+      // Per-recognizer state (lives on the recognizer object so multiple instances don't collide)
+      let finalAccum = '';
+      let silenceTimer = null;
+      const clearSilence = () => { if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; } };
+      const flushAndStop = () => {
+        clearSilence();
+        const text = (finalAccum || '').trim();
+        finalAccum = '';
+        try { r.stop(); } catch {}
+        if (text) sendToCopilot(text);
+      };
+
       r.onstart = () => { setMode('listening'); setPartial(''); };
+
       r.onerror = (ev) => {
-        setMode('idle');
+        clearSilence();
         const errCode = ev?.error || 'unknown';
+        // 'no-speech' / 'aborted' aren't real errors — driver was just thinking. Auto-restart in hands-free.
+        if (errCode === 'no-speech' || errCode === 'aborted') {
+          setMode('idle');
+          if (handsFreeRef.current) {
+            setTimeout(() => beginListen(), 400);
+          }
+          return;
+        }
+        setMode('idle');
         if (errCode === 'not-allowed' || errCode === 'service-not-allowed') {
           toast.error('Mic permission denied. Tap the address-bar lock → Microphone → Allow, then reload.', { duration: 8000 });
         } else if (errCode === 'audio-capture') {
@@ -165,26 +205,47 @@ export default function Copilot() {
             action: { label: 'Open in tab', onClick: () => window.open(window.location.href, '_blank') },
             duration: 10000,
           });
-        } else if (errCode !== 'aborted' && errCode !== 'no-speech') {
+        } else if (errCode === 'network') {
+          // Web Speech API uses a cloud service — flaky on bad cell signal. Quietly retry in hands-free.
+          if (handsFreeRef.current) {
+            setTimeout(() => beginListen(), 800);
+          } else {
+            toast.error('Mic network hiccup. Tap the mic to try again.');
+          }
+        } else {
           toast.error(`Mic error: ${errCode}`);
         }
       };
+
       r.onend = () => {
-        if (mode === 'listening') setMode('idle');
+        clearSilence();
+        // If we ended without a flush (e.g., browser auto-stopped), push whatever we caught.
+        const text = (finalAccum || '').trim();
+        finalAccum = '';
+        if (text) {
+          sendToCopilot(text);
+          return;
+        }
+        // Use functional update so we don't depend on stale `mode` from closure.
+        setMode((m) => (m === 'listening' ? 'idle' : m));
       };
+
       r.onresult = (e) => {
-        let interim = ''; let final = '';
+        let interim = '';
         for (let i = e.resultIndex; i < e.results.length; i++) {
           const txt = e.results[i][0].transcript;
-          if (e.results[i].isFinal) final += txt; else interim += txt;
+          if (e.results[i].isFinal) {
+            finalAccum = (finalAccum + ' ' + txt).trim();
+          } else {
+            interim += txt;
+          }
         }
-        if (interim) setPartial(interim);
-        if (final) {
-          setPartial('');
-          recogRef.current?.stop?.();
-          sendToCopilot(final);
-        }
+        if (interim || finalAccum) setPartial((interim || finalAccum).trim());
+        // Reset the silence timer on every speech event. Once the driver stops for 1.4s, flush.
+        clearSilence();
+        silenceTimer = setTimeout(flushAndStop, 1400);
       };
+
       recogRef.current = r;
       r.start();
     } catch (e) {

@@ -2240,9 +2240,11 @@ PERSONA
 - Address the driver by first name when known.
 
 SAFETY RULES (NON-NEGOTIABLE)
-- NEVER tell the driver to look at, tap, or read the screen while driving.
-- All answers must be designed to be HEARD, not seen.
-- If something requires the screen (e.g., signing a document), say so but suggest doing it at the next safe stop.
+- NEVER tell the driver to look at, tap, type, or read the screen while driving.
+- NEVER tell the driver to "pull over" or "wait until you stop" just to use the dashboard. You ARE the hands-free dashboard. Driving and using you is the SAFE path — that's the entire reason this product exists.
+- You CAN and SHOULD navigate between app screens for the driver hands-free using the `navigate` action — they don't have to touch anything.
+- You CAN and SHOULD READ ALOUD the data that's on the screen so the driver hears it instead of looking. If a screen has information they want, narrate it to them — don't tell them to look at it.
+- The ONLY tasks that truly require a stop are physical-screen interactions like signing a damage waiver with their finger, taking a photo of a vehicle, or reviewing a document visually. For those — and only those — calmly suggest taking care of it at the next safe stop.
 - If the driver sounds tired, stressed, or reports a serious problem (crash, breakdown, medical), prioritize their safety above all else.
 
 RESPONSE STYLE
@@ -2288,6 +2290,28 @@ Available actions:
     - First name like "Sarah" -> fuzzy-matched to a fleet user by name
     - Use "admin" as the safe fallback if unsure
   IMPORTANT: Only send when the driver clearly states the message content. If unclear, ask "What do you want me to text them?" first.
+
+- navigate — args: {"target":"<screen_key>"}
+  Use when the driver wants to OPEN, GO TO, PULL UP, SHOW, or NAVIGATE TO a screen in the app. You navigate for them hands-free — they never have to touch the dashboard.
+  Allowed targets (use these exact keys):
+    Wrecker / dispatch screens:
+    - "dispatch_board" → the main wrecker dispatch board (pending/assigned/en route columns)
+    - "active_call" → the operator's currently active tow job cockpit
+    - "new_tow_job" → the new tow job intake form
+    - "impound" → impound yard / vehicles in storage
+    - "billing" → invoices, today revenue, completed jobs
+    - "accounts" → customer accounts (motor clubs, police departments, etc)
+    - "trucks" → fleet trucks
+    - "motor_clubs" → motor club accounts (AAA, Agero, etc)
+    - "fuel" → fuel tanks
+    - "settings" → integrations & payments / business profile
+    Driver / fleet screens:
+    - "cab" or "driver_home" → driver's cab dashboard
+    - "trip" → current active trip detail
+    - "alerts" → fleet alerts
+    - "inspections" → DVIR inspection history
+  Use when driver/operator says: "open dispatch", "pull up the board", "go to my impound list", "show me billing", "open my next call", "navigate to settings", "take me to accounts", "what's on my dashboard".
+  After you navigate, on the SAME turn, briefly summarize what they'll see when they get a moment to glance — but never tell them to look. Example: "Pulling up your dispatch board. You've got four pending and one en route." Then emit the marker.
 
 WRECKER MODE actions (only relevant when role is "wrecker_operator" or when LIVE WRECKER CONTEXT is provided):
 - tow_job_status — args: {"status":"en_route"|"on_scene"|"in_progress"|"completed"|"cancelled"}
@@ -2337,6 +2361,14 @@ You: "Pulling up your active call now.
 Operator: "How much fuel left in the main tank?"
 You: "Let me check that for you.
 <<<ACTION:{"type":"fuel_check","args":{}}>>>"
+
+Operator: "Pull up my dispatch board."
+You: "On it, opening the dispatch board now.
+<<<ACTION:{"type":"navigate","args":{"target":"dispatch_board"}}>>>"
+
+Driver: "Open my cab."
+You: "Pulling up the cab dashboard, boss.
+<<<ACTION:{"type":"navigate","args":{"target":"cab"}}>>>"
 
 SIGN-OFF
 - End assertive actions with a brief confirmation ("Logged it." "Done." "Rolling.").
@@ -2737,6 +2769,64 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
                 second = tanks[1]
                 spoken += f" {second['name']}: {int(second['current_gallons'])} gallons."
             result.update({'executed': True, 'tanks': tanks, 'spoken_addendum': spoken})
+            return result
+
+        if action_type == 'navigate':
+            # Hands-free in-app navigation. We never refuse — Co-Pilot IS the dashboard.
+            target_raw = str(args.get('target') or '').strip().lower().replace('-', '_').replace(' ', '_')
+            role = (user or {}).get('role', 'driver')
+            is_wrecker = role in ('wrecker_operator', 'wrecker_dispatcher', 'fleet_admin', 'super_admin')
+            # Map of allowed target keys -> route + spoken label
+            nav_map = {
+                # Wrecker / dispatch
+                'dispatch_board': ('/wrecker', 'dispatch board'),
+                'board': ('/wrecker', 'dispatch board'),
+                'dispatch': ('/wrecker', 'dispatch board'),
+                'active_call': ('/wrecker/me', 'active call'),
+                'my_call': ('/wrecker/me', 'active call'),
+                'next_call': ('/wrecker/me', 'active call'),
+                'new_tow_job': ('/wrecker/jobs/new', 'new tow job'),
+                'new_job': ('/wrecker/jobs/new', 'new tow job'),
+                'impound': ('/wrecker/impound', 'impound yard'),
+                'impounds': ('/wrecker/impound', 'impound yard'),
+                'billing': ('/wrecker/billing', 'billing'),
+                'invoices': ('/wrecker/billing', 'billing'),
+                'accounts': ('/wrecker/accounts', 'customer accounts'),
+                'customers': ('/wrecker/accounts', 'customer accounts'),
+                'trucks': ('/wrecker/trucks', 'trucks'),
+                'fleet': ('/wrecker/trucks', 'trucks'),
+                'motor_clubs': ('/wrecker/clubs', 'motor clubs'),
+                'clubs': ('/wrecker/clubs', 'motor clubs'),
+                'fuel': ('/wrecker/fuel', 'fuel tanks'),
+                'fuel_tanks': ('/wrecker/fuel', 'fuel tanks'),
+                'settings': ('/wrecker/settings', 'settings'),
+                'integrations': ('/wrecker/settings', 'settings'),
+                # Driver / fleet
+                'cab': ('/driver', 'cab dashboard'),
+                'driver_home': ('/driver', 'cab dashboard'),
+                'home': ('/wrecker' if is_wrecker else '/driver', 'home'),
+                'trip': ('/driver/trip', 'active trip'),
+                'alerts': ('/app/alerts', 'fleet alerts'),
+                'inspections': ('/driver/inspections', 'inspections'),
+                'dvir': ('/driver/inspections', 'inspections'),
+            }
+            route_label = nav_map.get(target_raw)
+            if not route_label:
+                # Fuzzy fallback — find best key
+                for k, v in nav_map.items():
+                    if target_raw and (target_raw in k or k in target_raw):
+                        route_label = v
+                        break
+            if not route_label:
+                result['error'] = f"I don't have a screen called '{target_raw}'. Try dispatch board, impound, billing, or settings."
+                return result
+            redirect, label = route_label
+            result.update({
+                'executed': True,
+                'target': target_raw,
+                'label': label,
+                'redirect': redirect,
+            })
             return result
 
         if action_type == 'impound_quick':
