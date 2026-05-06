@@ -36,6 +36,7 @@ from wrecker import build_wrecker_router, seed_wrecker_demo, WRECKER_VOICE_INTEN
 # Third-party integrations (multi-tenant OAuth — each company connects their own)
 from integrations.square_oauth import build_square_router  # noqa: E402
 from integrations.public_pay import build_public_pay_router  # noqa: E402
+from integrations.navigation import register_navigation_routes  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -3588,6 +3589,13 @@ api_router.include_router(_wrecker_router)
 # Mount the PUBLIC (no-auth) pay-link router so customers can pay via SMS/email link
 _public_pay_router = build_public_pay_router(db)
 api_router.include_router(_public_pay_router)
+# Truck-aware navigation (free OSRM + hazard overlay; flips to live Mapbox when MAPBOX_TOKEN is set)
+register_navigation_routes(
+    api_router,
+    db,
+    require_role('wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'),
+    now_utc,
+)
 
 app.include_router(api_router)
 

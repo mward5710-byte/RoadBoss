@@ -1,26 +1,38 @@
 [
   {
-    "content": "Backend: Photo Vault driver filter + force driver-scope for wrecker_operator + per-driver counts",
+    "content": "Install maplibre-gl frontend dependency",
     "status": "completed"
   },
   {
-    "content": "Backend: Photo metadata CSV export endpoint (office only, 403 for drivers)",
+    "content": "Backend: navigation router — geocoding, route planning with truck params, hazard data",
     "status": "completed"
   },
   {
-    "content": "Frontend: Photo Vault driver filter dropdown + per-driver count chips at top",
+    "content": "Backend: seed Indiana hazard data (real low bridges, weight restrictions, hazmat zones)",
     "status": "completed"
   },
   {
-    "content": "Frontend: Driver attribution badge on every photo card + prominent in lightbox",
+    "content": "Frontend: /wrecker/navigation page with Mapbox + truck profile + route panel",
     "status": "completed"
   },
   {
-    "content": "Frontend: Add 'My Photos' link to driver sidebar (MY STUFF group)",
+    "content": "Frontend: TurnByTurn directions component + HazardAlerts cards",
     "status": "completed"
   },
   {
-    "content": "Verify driver scope enforcement (driver can't see other driver's photos even with manual filter)",
+    "content": "Sidebar: add Navigation entry to OPERATIONS group",
     "status": "completed"
+  },
+  {
+    "content": "Investor polish: route avoidance toast, REROUTED badges, fuel estimate, restriction count",
+    "status": "completed"
+  },
+  {
+    "content": "End-to-end visual test — map + route + hazards verified",
+    "status": "completed"
+  },
+  {
+    "content": "Future: embedded mini-map in Job Cockpit auto-routing truck → pickup → drop-off (deferred for next session)",
+    "status": "pending"
   }
 ]

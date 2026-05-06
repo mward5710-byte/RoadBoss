@@ -64,6 +64,7 @@ import WreckerBilling from '@/pages/wrecker/WreckerBilling';
 import WreckerSettings from '@/pages/wrecker/WreckerSettings';
 import WreckerAccounting from '@/pages/wrecker/WreckerAccounting';
 import WreckerPhotoVault from '@/pages/wrecker/WreckerPhotoVault';
+import WreckerNavigation from '@/pages/wrecker/WreckerNavigation';
 import { getUser } from '@/lib/api';
 
 const WRECKER_ROLES = ['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'dispatcher'];
@@ -156,6 +157,7 @@ function App() {
             <Route path="billing" element={<WreckerBilling />} />
             <Route path="accounting" element={<WreckerAccounting />} />
             <Route path="photos" element={<WreckerPhotoVault />} />
+            <Route path="navigation" element={<WreckerNavigation />} />
             <Route path="settings" element={<WreckerSettings />} />
           </Route>
           {/* Full-screen wrecker sub-pages (no sidebar) */}
