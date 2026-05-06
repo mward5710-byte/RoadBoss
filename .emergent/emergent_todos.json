@@ -24,7 +24,7 @@
     "status": "completed"
   },
   {
-    "content": "Test the voice walkthrough + regressions with testing agent",
-    "status": "in_progress"
+    "content": "Test the voice walkthrough + regressions with testing agent (95% pass, bug in WreckerShell auto-fixed)",
+    "status": "completed"
   }
 ]
