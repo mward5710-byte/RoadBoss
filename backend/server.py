@@ -3954,6 +3954,49 @@ async def on_startup():
             logger.info(f'Wrecker seed: {result}')
         except Exception as e:
             logger.error(f'Wrecker seed failed: {e}')
+        # FOUNDER BOOTSTRAP — guarantees Mike (or whoever owns FOUNDER_EMAIL)
+        # can always log in to production as super_admin even if the DB was
+        # wiped, migrated, or freshly deployed. Idempotent: creates if missing,
+        # promotes to super_admin + resets password if the env vars change.
+        try:
+            founder_email = os.environ.get('FOUNDER_EMAIL', 'mward5710@gmail.com').lower().strip()
+            founder_password = os.environ.get('FOUNDER_PASSWORD', 'HighwayPilot2026!')
+            founder_name = os.environ.get('FOUNDER_NAME', 'Mike Ward')
+            if founder_email and founder_password:
+                existing = await db.users.find_one({'email': founder_email})
+                if not existing:
+                    new_user = {
+                        'id': str(uuid.uuid4()),
+                        'email': founder_email,
+                        'name': founder_name,
+                        'role': 'super_admin',
+                        'password_hash': hash_password(founder_password),
+                        'created_at': now_utc().isoformat(),
+                    }
+                    await db.users.insert_one(new_user)
+                    logger.info(f'Founder bootstrap: created super_admin {founder_email}')
+                else:
+                    # Force-sync role + password every boot so Mike is never
+                    # locked out. If you want to STOP the auto-reset of the
+                    # password (e.g. after Mike picks his own), set the env
+                    # var FOUNDER_LOCK=1 in production.
+                    if os.environ.get('FOUNDER_LOCK') != '1':
+                        await db.users.update_one(
+                            {'email': founder_email},
+                            {'$set': {
+                                'role': 'super_admin',
+                                'password_hash': hash_password(founder_password),
+                            }}
+                        )
+                        logger.info(f'Founder bootstrap: synced super_admin role + password for {founder_email}')
+                    elif existing.get('role') != 'super_admin':
+                        await db.users.update_one(
+                            {'email': founder_email},
+                            {'$set': {'role': 'super_admin'}}
+                        )
+                        logger.info(f'Founder bootstrap: promoted {founder_email} to super_admin (lock active)')
+        except Exception as e:
+            logger.error(f'Founder bootstrap failed (non-fatal): {e}')
         # Indexes for OAuth state cleanup + tenant_integrations uniqueness
         try:
             await db.square_oauth_states.create_index('expires_at', expireAfterSeconds=0)
