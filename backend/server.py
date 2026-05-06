@@ -333,6 +333,84 @@ async def list_waitlist(user=Depends(require_role('super_admin', 'fleet_admin'))
     rows = await db.waitlist.find({}, {'_id': 0}).sort('created_at', -1).to_list(1000)
     return rows
 
+
+# ============================================================
+# Investor Inquiries — public form for backers to reach Mike
+# ============================================================
+
+class InvestorInquiryIn(BaseModel):
+    name: str = Field(..., min_length=2, max_length=120)
+    email: str = Field(..., min_length=4, max_length=160)
+    phone: Optional[str] = Field(None, max_length=40)
+    organization: Optional[str] = Field(None, max_length=160)
+    investment_range: Optional[str] = Field(None, max_length=60)  # e.g. "$50k-$250k"
+    role: Optional[str] = Field(None, max_length=60)  # e.g. "Angel", "VC", "Strategic"
+    message: str = Field(..., min_length=8, max_length=2000)
+    referral_source: Optional[str] = Field(None, max_length=120)
+
+
+@api_router.post("/investor-inquiry")
+async def submit_investor_inquiry(body: InvestorInquiryIn):
+    """Public endpoint — no auth. Stores investor inquiry; Mike sees these on his dashboard."""
+    doc = body.model_dump()
+    doc['id'] = str(uuid.uuid4())
+    doc['created_at'] = now_utc()
+    doc['status'] = 'new'  # new | contacted | meeting_scheduled | closed
+    doc['ip_hash'] = ''  # could capture for spam tracking (not now)
+    await db.investor_inquiries.insert_one(doc)
+    logger.info(f"INVESTOR INQUIRY received from {body.name} <{body.email}>")
+    return {
+        'ok': True,
+        'message': "Thank you. Michael will reach out personally within 24 hours.",
+    }
+
+
+@api_router.get("/investor-inquiries")
+async def list_investor_inquiries(user=Depends(require_role('super_admin', 'fleet_admin'))):
+    """Mike's view — see every backer that's reached out."""
+    rows = await db.investor_inquiries.find({}, {'_id': 0}).sort('created_at', -1).to_list(500)
+    # Convert datetime to iso string for JSON
+    for r in rows:
+        if isinstance(r.get('created_at'), datetime):
+            r['created_at'] = r['created_at'].isoformat()
+    return {'count': len(rows), 'items': rows}
+
+
+@api_router.put("/investor-inquiries/{inquiry_id}/status")
+async def update_investor_inquiry_status(inquiry_id: str, body: Dict[str, str],
+                                          user=Depends(require_role('super_admin', 'fleet_admin'))):
+    """Mark an inquiry as contacted, meeting_scheduled, or closed."""
+    new_status = (body.get('status') or '').strip()
+    allowed = {'new', 'contacted', 'meeting_scheduled', 'closed'}
+    if new_status not in allowed:
+        raise HTTPException(400, f"Status must be one of: {sorted(allowed)}")
+    res = await db.investor_inquiries.update_one(
+        {'id': inquiry_id},
+        {'$set': {'status': new_status, 'updated_at': now_utc()}}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Inquiry not found")
+    return {'ok': True, 'status': new_status}
+
+
+@api_router.get("/business-profile/public")
+async def public_business_profile():
+    """Public, safe subset of the Business Profile — used by the marketing &
+    investor pages so they show real company info without requiring login.
+    NEVER returns internal fields like updated_by or unrelated metadata."""
+    doc = await db.tenant_settings.find_one({'tenant_id': 'default'}, {'_id': 0}) or {}
+    return {
+        'company_name': doc.get('company_name') or 'Apex Epoxy Flooring LLC',
+        'dba_name': doc.get('dba_name') or 'RoadBoss · Wreckerlogix',
+        'owner_name': doc.get('owner_name') or 'Michael Ward',
+        'phone': doc.get('phone') or '',
+        'email': doc.get('email') or '',
+        'website': doc.get('website') or '',
+        'city': doc.get('city') or 'Kokomo',
+        'state': doc.get('state') or 'IN',
+    }
+
+
 # ============================================================
 # Generic CRUD factory
 # ============================================================

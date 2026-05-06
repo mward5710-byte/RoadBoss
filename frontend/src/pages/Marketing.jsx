@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Mic, MapPin, Shield, Truck, Wrench, Camera, Radio, Activity, ArrowRight, CheckCircle2, Sparkles, Zap, Lock, Phone, Bot } from 'lucide-react';
+import { Mic, MapPin, Shield, Truck, Wrench, Camera, Radio, Activity, ArrowRight, CheckCircle2, Sparkles, Zap, Lock, Phone, Bot, Briefcase } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -59,15 +59,17 @@ export default function Marketing() {
             <a href="#features" className="hover:text-white transition">Features</a>
             <a href="#roadmap" className="hover:text-white transition">Roadmap</a>
             <Link to="/pricing" className="hover:text-white transition">Pricing</Link>
-            <a href="#waitlist" className="hover:text-white transition">Waitlist</a>
             <Link to="/try" className="hover:text-white transition">Try it</Link>
             <Link to="/roi" className="hover:text-white transition hidden md:inline">Fleet ROI</Link>
             <Link to="/guide" className="hover:text-white transition hidden md:inline">Manual</Link>
-            <Link to="/deck" className="hover:text-white transition hidden md:inline">Investors</Link>
           </nav>
           <div className="flex items-center gap-2">
+            <Link to="/investors" data-testid="nav-investor-cta">
+              <Button size="sm" className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold">
+                <Briefcase className="w-3.5 h-3.5 mr-1.5" /> For Investors
+              </Button>
+            </Link>
             <Link to="/login"><Button variant="ghost" size="sm" className="text-slate-300 hover:text-white">Sign in</Button></Link>
-            <a href="#waitlist"><Button size="sm" className="bg-sky-500 hover:bg-sky-400 text-slate-950 font-medium">Get Early Access</Button></a>
           </div>
         </Section>
       </header>
@@ -87,6 +89,11 @@ export default function Marketing() {
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
             <Link to="/try"><Button size="lg" className="bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold">Try the live demo <ArrowRight className="w-4 h-4 ml-1" /></Button></Link>
+            <Link to="/investors" data-testid="hero-investor-cta">
+              <Button size="lg" className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold">
+                <Briefcase className="w-4 h-4 mr-1.5" /> For Investors: Talk to Michael
+              </Button>
+            </Link>
             <a href="#waitlist"><Button size="lg" variant="outline" className="border-white/15 text-slate-200 hover:bg-white/5">Join the waitlist</Button></a>
           </div>
           <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-400">
@@ -207,7 +214,7 @@ export default function Marketing() {
               <div className="text-center py-12">
                 <div className="w-16 h-16 rounded-full bg-sky-500/15 border border-sky-500/40 mx-auto flex items-center justify-center mb-4"><CheckCircle2 className="w-8 h-8 text-sky-300" /></div>
                 <div className="text-2xl font-semibold text-white">You're in.</div>
-                <div className="text-slate-400 mt-2">We'll reach out from a Highway Pilot address. Keep an eye out.</div>
+                <div className="text-slate-400 mt-2">We'll be in touch personally. Keep an eye out.</div>
               </div>
             ) : (
               <form onSubmit={submit} className="space-y-3">
@@ -227,11 +234,38 @@ export default function Marketing() {
                 </div>
                 <Textarea data-testid="waitlist-message" placeholder="What's the one thing about your current setup that drives you crazy? (optional)" value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} className="bg-[#0a0e14] border-white/10 min-h-[100px]" />
                 <Button data-testid="waitlist-submit" type="submit" disabled={submitting} className="w-full bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold">{submitting ? 'Sending...' : 'Reserve my spot'}</Button>
-                <div className="text-[11px] text-slate-500 text-center">By joining you agree to receive Highway Pilot updates. Unsubscribe anytime.</div>
+                <div className="text-[11px] text-slate-500 text-center">By joining you agree to receive RoadBoss updates. Unsubscribe anytime.</div>
               </form>
             )}
           </div>
         </div>
+      </Section>
+
+      {/* Investor banner — closing hook */}
+      <Section className="pb-20" id="investors-banner">
+        <Link to="/investors" className="block group" data-testid="footer-investor-banner">
+          <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent p-8 md:p-10 hover:border-amber-500/50 transition-all relative overflow-hidden">
+            <div className="absolute -right-10 -top-10 w-48 h-48 rounded-full bg-amber-500/10 blur-3xl group-hover:bg-amber-500/15 transition-colors" />
+            <div className="relative grid md:grid-cols-3 gap-6 items-center">
+              <div className="md:col-span-2">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[11px] uppercase tracking-widest mb-3">
+                  <Briefcase className="w-3 h-3" /> For Investors &amp; Strategic Partners
+                </div>
+                <h3 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
+                  Want to back a real product, in production, used today?
+                </h3>
+                <p className="mt-3 text-slate-300 max-w-xl">
+                  RoadBoss isn't a slide deck — it's running multi-tenant SaaS with payments, dispatch, and AI built by a working trucker. Skip the gatekeepers and call Michael directly.
+                </p>
+              </div>
+              <div className="flex md:justify-end">
+                <Button size="lg" className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold group-hover:translate-x-0.5 transition-transform">
+                  Talk to Michael <ArrowRight className="w-4 h-4 ml-1.5" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Link>
       </Section>
 
       <footer className="border-t border-white/5 py-8 mt-12">

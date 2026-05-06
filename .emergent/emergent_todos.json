@@ -1,38 +1,38 @@
 [
   {
-    "content": "Install maplibre-gl frontend dependency",
+    "content": "Backend: investor inquiry endpoints (submit / list / status update)",
     "status": "completed"
   },
   {
-    "content": "Backend: navigation router — geocoding, route planning with truck params, hazard data",
+    "content": "Backend: public business profile endpoint (so investor page works without login)",
     "status": "completed"
   },
   {
-    "content": "Backend: seed Indiana hazard data (real low bridges, weight restrictions, hazmat zones)",
+    "content": "Frontend: /investors page — hero, proof points, inquiry form, direct contact panel",
     "status": "completed"
   },
   {
-    "content": "Frontend: /wrecker/navigation page with Mapbox + truck profile + route panel",
+    "content": "Marketing nav: replace 'Investors' link with prominent amber 'For Investors' button",
     "status": "completed"
   },
   {
-    "content": "Frontend: TurnByTurn directions component + HazardAlerts cards",
+    "content": "Marketing hero: add prominent 'For Investors: Talk to Michael' CTA next to demo button",
     "status": "completed"
   },
   {
-    "content": "Sidebar: add Navigation entry to OPERATIONS group",
+    "content": "Marketing closing banner: add full-width 'Talk to Michael' investor section before footer",
     "status": "completed"
   },
   {
-    "content": "Investor polish: route avoidance toast, REROUTED badges, fuel estimate, restriction count",
+    "content": "Fix /investors auth redirect bug (use public business-profile endpoint)",
     "status": "completed"
   },
   {
-    "content": "End-to-end visual test — map + route + hazards verified",
+    "content": "End-to-end test: anonymous submission → success state → admin retrieval",
     "status": "completed"
   },
   {
-    "content": "Future: embedded mini-map in Job Cockpit auto-routing truck → pickup → drop-off (deferred for next session)",
+    "content": "Future: Logo redesign (RoadBoss wordmark + investor inquiry inbox on Fleet Admin dashboard)",
     "status": "pending"
   }
 ]
