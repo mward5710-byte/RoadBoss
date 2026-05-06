@@ -1,18 +1,22 @@
 [
   {
-    "content": "Add UTM tracking to investor inquiries (backend model + frontend capture)",
+    "content": "Promote Mike's real account (mward5710@gmail.com) to super_admin in DB and verify",
     "status": "completed"
   },
   {
-    "content": "Build /pitch — public investor one-pager with print-to-PDF button",
+    "content": "Build Super Admin Console at /super: list tenants, users, role-bump, impersonate, invite",
     "status": "completed"
   },
   {
-    "content": "Build /cuts — three vertical 9:16 auto-playing TikTok scenes ready to screen-record",
+    "content": "Audit Copilot.jsx TTS firing — ensure every co-pilot response speaks aloud + add Test Voice button",
     "status": "completed"
   },
   {
-    "content": "Register new routes in App.js and verify all pages render cleanly",
+    "content": "Investigate and patch the screen-freeze bug when mic is tapped (30s safety auto-reset)",
     "status": "completed"
+  },
+  {
+    "content": "Stretch: Hands-Free DVIR voice walkthrough — queued for next session",
+    "status": "pending"
   }
 ]

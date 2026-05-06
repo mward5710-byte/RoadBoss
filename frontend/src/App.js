@@ -10,6 +10,8 @@ import InvestorInquiries from '@/pages/InvestorInquiries';
 import Reel from '@/pages/Reel';
 import Intro from '@/pages/Intro';
 import Cuts from '@/pages/Cuts';
+import SuperAdmin from '@/pages/SuperAdmin';
+import ImpersonationBanner from '@/components/ImpersonationBanner';
 import TryPage from '@/pages/TryPage';
 import ShareKit from '@/pages/ShareKit';
 import UserGuide from '@/pages/UserGuide';
@@ -93,6 +95,7 @@ function App() {
     <div className="App">
       <BrowserRouter>
         <Toaster theme="dark" position="top-right" richColors closeButton />
+        <ImpersonationBanner />
         <Routes>
           <Route path="/" element={<Marketing />} />
           <Route path="/pricing" element={<Pricing />} />
@@ -113,6 +116,9 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/auth/google-callback" element={<GoogleCallback />} />
+
+          {/* SUPER ADMIN CONSOLE — Mike's god-mode console */}
+          <Route path="/super" element={<RequireAuth roles={['super_admin']}><SuperAdmin /></RequireAuth>} />
 
           {/* PUBLIC customer-facing pay link (NO auth) — sent via SMS/email */}
           <Route path="/pay/:token" element={<WreckerPublicPay />} />

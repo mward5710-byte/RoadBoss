@@ -8,14 +8,56 @@ import { toast } from 'sonner';
 import { isInIframe } from '@/hooks/useWakeWord';
 
 // Modes: idle | listening | thinking | speaking
+//
+// iOS Safari quirks:
+//  - The silent switch on iPhone MUTES Web Audio / SpeechSynthesis even at
+//    full volume. We can't detect that programmatically, so we expose a
+//    "Test Voice" button so Mike can verify in 1 second.
+//  - TTS won't fire until the user has performed at least one gesture in
+//    the page. We unlock TTS by speaking a brief silent utterance the
+//    first time the user taps anything in the cockpit.
+//  - Some iOS versions need `speechSynthesis.resume()` after pause.
+let __ttsUnlocked = false;
+function unlockTTS() {
+  if (__ttsUnlocked) return;
+  try {
+    if (!('speechSynthesis' in window)) return;
+    // A near-silent utterance that primes the TTS engine on iOS Safari.
+    const u = new SpeechSynthesisUtterance(' ');
+    u.volume = 0.01; u.rate = 1; u.pitch = 1;
+    window.speechSynthesis.speak(u);
+    __ttsUnlocked = true;
+  } catch (_) {}
+}
+
+function pickPreferredVoice() {
+  try {
+    const voices = window.speechSynthesis?.getVoices?.() || [];
+    if (!voices.length) return null;
+    // Prefer en-US, prefer male/clear voices for trucker vibe
+    const en = voices.filter((v) => /en[-_]US/i.test(v.lang) || v.lang.startsWith('en'));
+    const preferredNames = [/Daniel/i, /Aaron/i, /Fred/i, /Alex/i, /Google US English/i, /Microsoft.*David/i];
+    for (const re of preferredNames) {
+      const m = en.find((v) => re.test(v.name));
+      if (m) return m;
+    }
+    return en[0] || voices[0];
+  } catch (_) { return null; }
+}
+
 function speak(text, onEnd) {
   try {
     if (!('speechSynthesis' in window)) { onEnd && onEnd(); return null; }
+    unlockTTS();
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 1.02; u.pitch = 1; u.volume = 1; u.lang = 'en-US';
+    const voice = pickPreferredVoice();
+    if (voice) u.voice = voice;
     u.onend = () => onEnd && onEnd();
     u.onerror = () => onEnd && onEnd();
     window.speechSynthesis.cancel();
+    // Some iOS versions get stuck "paused" — resume to be safe
+    try { window.speechSynthesis.resume(); } catch (_) {}
     window.speechSynthesis.speak(u);
     return u;
   } catch (e) { console.error('TTS failed', e); onEnd && onEnd(); return null; }
@@ -42,6 +84,32 @@ export default function Copilot() {
   // Keep refs in sync
   useEffect(() => { handsFreeRef.current = handsFree; }, [handsFree]);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
+
+  // SAFETY NET: if the recognizer freezes (mode stuck on 'listening' or
+  // 'thinking' with no progress for 30s) auto-reset so the screen never
+  // appears locked. This was the bug Mike hit — no way out of a hung mic.
+  useEffect(() => {
+    if (mode !== 'listening' && mode !== 'thinking') return;
+    const t = setTimeout(() => {
+      console.warn(`[Copilot] auto-reset from stuck mode=${mode}`);
+      try { recogRef.current?.stop?.(); } catch (_) {}
+      try { window.speechSynthesis?.cancel(); } catch (_) {}
+      setMode('idle');
+      setPartial('');
+      toast.info('Co-Pilot reset — tap the mic to try again.');
+    }, 30000);
+    return () => clearTimeout(t);
+  }, [mode]);
+
+  // iOS Safari: TTS engine sometimes needs voiceschanged before it works.
+  useEffect(() => {
+    if (!('speechSynthesis' in window)) return;
+    const handle = () => { /* no-op — just triggers voice list load */ };
+    window.speechSynthesis.addEventListener?.('voiceschanged', handle);
+    // Force-load voices on mount
+    try { window.speechSynthesis.getVoices(); } catch (_) {}
+    return () => window.speechSynthesis.removeEventListener?.('voiceschanged', handle);
+  }, []);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -366,6 +434,24 @@ export default function Copilot() {
             <div className="text-sm text-slate-400 mt-2 max-w-xs mx-auto">
               I'm your hands-free partner on the road. Ask about HOS, trips, dispatch, or anything else.
             </div>
+
+            {/* TEST VOICE — Mike asked for this. One tap proves audio output is working
+                so he knows the silent switch isn't the culprit. */}
+            <button
+              onClick={() => {
+                unlockTTS();
+                speak("Hey boss, your Co-Pilot is online and loud and clear. If you can't hear me, your iPhone silent switch on the side might be on, or your volume is down. Try flipping it.", () => {});
+                toast.success('Speaking — listen for the reply.');
+              }}
+              className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-sm font-semibold hover:bg-emerald-500/25 transition-colors"
+              data-testid="copilot-test-voice-btn"
+            >
+              <Volume2 className="w-4 h-4" /> Test Voice (no mic needed)
+            </button>
+            <div className="text-[10px] text-slate-600 mt-2 max-w-xs mx-auto leading-relaxed">
+              No sound? Check your iPhone's silent switch on the side AND your volume. Web audio is muted when silent mode is on.
+            </div>
+
             <div className="mt-5 grid grid-cols-1 gap-2 max-w-xs mx-auto text-left">
               {[
                 'How much drive time do I have left?',

@@ -3407,6 +3407,197 @@ async def list_invites(user=Depends(require_role('fleet_admin', 'super_admin')))
     return rows
 
 
+# ============================================================
+# SUPER ADMIN CONSOLE — only Mike (and other super_admins)
+# Gives the platform owner god-mode over all users + impersonation.
+# Every impersonation is logged so we have an audit trail.
+# ============================================================
+
+ALLOWED_ROLES = (
+    'driver', 'dispatcher', 'fleet_admin', 'super_admin',
+    'wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor',
+)
+
+
+@api_router.get("/admin/super/stats")
+async def super_admin_stats(user=Depends(require_role('super_admin'))):
+    """Top-level platform stats for Mike's super-admin dashboard."""
+    counts = {
+        'total_users': await db.users.count_documents({}),
+        'super_admins': await db.users.count_documents({'role': 'super_admin'}),
+        'fleet_admins': await db.users.count_documents({'role': 'fleet_admin'}),
+        'wrecker_users': await db.users.count_documents({'role': {'$in': ['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor']}}),
+        'drivers': await db.users.count_documents({'role': 'driver'}),
+        'tow_jobs': await db.tow_jobs.count_documents({}) if 'tow_jobs' in await db.list_collection_names() else 0,
+        'investor_inquiries': await db.investor_inquiries.count_documents({}),
+        'pending_invites': await db.fleet_invites.count_documents({'accepted': False}),
+    }
+    return counts
+
+
+@api_router.get("/admin/super/users")
+async def super_admin_list_users(
+    q: Optional[str] = None,
+    role: Optional[str] = None,
+    limit: int = 200,
+    user=Depends(require_role('super_admin')),
+):
+    """List ALL users across the platform with optional search / role filter."""
+    flt: Dict[str, Any] = {}
+    if role and role in ALLOWED_ROLES:
+        flt['role'] = role
+    if q:
+        rx = {'$regex': q, '$options': 'i'}
+        flt['$or'] = [{'email': rx}, {'name': rx}]
+    rows = await db.users.find(flt, {'password_hash': 0, '_id': 0}).sort('created_at', -1).to_list(max(1, min(limit, 1000)))
+    return {'count': len(rows), 'items': rows}
+
+
+class SuperRoleUpdateIn(BaseModel):
+    role: str
+
+
+@api_router.put("/admin/super/users/{user_id}/role")
+async def super_admin_set_user_role(
+    user_id: str,
+    body: SuperRoleUpdateIn,
+    user=Depends(require_role('super_admin')),
+):
+    """Promote / demote any user. Only super_admin can do this."""
+    if body.role not in ALLOWED_ROLES:
+        raise HTTPException(400, f"Role must be one of: {', '.join(ALLOWED_ROLES)}")
+    target = await db.users.find_one({'id': user_id})
+    if not target:
+        raise HTTPException(404, "User not found")
+    if target.get('role') == 'super_admin' and body.role != 'super_admin':
+        # Defensive: don't accidentally demote the only super_admin
+        sa_count = await db.users.count_documents({'role': 'super_admin'})
+        if sa_count <= 1:
+            raise HTTPException(400, "Cannot demote the last super_admin. Promote another user first.")
+    await db.users.update_one({'id': user_id}, {'$set': {'role': body.role, 'role_updated_at': now_utc().isoformat(), 'role_updated_by': user['id']}})
+    logger.info(f"SUPER_ADMIN {user['email']} changed role of {target['email']} from {target.get('role')} to {body.role}")
+    return {'ok': True, 'user_id': user_id, 'new_role': body.role}
+
+
+@api_router.post("/admin/super/impersonate/{user_id}")
+async def super_admin_impersonate(user_id: str, user=Depends(require_role('super_admin'))):
+    """
+    Issue a JWT for the target user so the super-admin can 'log in as them'
+    and fix data / verify a flow without knowing their password. Every event
+    is recorded in the impersonation_log collection for audit.
+    """
+    target = await db.users.find_one({'id': user_id}, {'_id': 0, 'password_hash': 0})
+    if not target:
+        raise HTTPException(404, "User not found")
+    token = create_token(target['id'], target['email'], target['role'])
+    await db.impersonation_log.insert_one({
+        'id': str(uuid.uuid4()),
+        'super_admin_id': user['id'],
+        'super_admin_email': user['email'],
+        'target_user_id': target['id'],
+        'target_email': target['email'],
+        'target_role': target.get('role'),
+        'created_at': now_utc().isoformat(),
+    })
+    logger.warning(f"SUPER_ADMIN {user['email']} is now acting as {target['email']} ({target.get('role')})")
+    return {'access_token': token, 'token_type': 'bearer', 'user': target}
+
+
+class SuperInviteCompanyIn(BaseModel):
+    """Quick-create a brand new wrecker / fleet company in one shot."""
+    company_name: str = Field(..., min_length=2, max_length=160)
+    admin_email: EmailStr
+    admin_name: str = Field(..., min_length=2, max_length=120)
+    admin_password: Optional[str] = Field(None, min_length=6, max_length=120)
+    role: str = 'fleet_admin'  # fleet_admin | wrecker_supervisor
+
+
+@api_router.post("/admin/super/invite-company")
+async def super_admin_invite_company(body: SuperInviteCompanyIn, user=Depends(require_role('super_admin'))):
+    """
+    Create a new company admin user instantly.
+    If a password is provided, the account is ready to go (Mike can text the
+    creds to Kenny). Otherwise we generate a fleet-invite token and return the
+    one-click magic link Mike can share via SMS / email.
+    """
+    if body.role not in ('fleet_admin', 'wrecker_supervisor'):
+        raise HTTPException(400, "Role must be fleet_admin or wrecker_supervisor")
+    existing = await db.users.find_one({'email': body.admin_email.lower()})
+    if existing:
+        raise HTTPException(400, f"{body.admin_email} already exists. Use the user's role page to promote them.")
+
+    base = os.environ.get('NOTIFY_BASE_URL', '')
+    if body.admin_password:
+        # Direct create — credentials ready for Mike to hand off
+        new_user = {
+            'id': str(uuid.uuid4()),
+            'email': body.admin_email.lower(),
+            'name': body.admin_name,
+            'role': body.role,
+            'password_hash': hash_password(body.admin_password),
+            'company_name': body.company_name,
+            'created_at': now_utc().isoformat(),
+            'created_by_super_admin': user['id'],
+        }
+        await db.users.insert_one(new_user)
+        logger.info(f"SUPER_ADMIN {user['email']} created company admin {new_user['email']} for {body.company_name}")
+        return {
+            'ok': True,
+            'mode': 'created',
+            'user_id': new_user['id'],
+            'login_url': f"{base}/login" if base else '/login',
+            'email': new_user['email'],
+            'instructions': f"Account ready. Hand off these credentials to {body.admin_name}.",
+        }
+    else:
+        # Magic-link flow — invite token, expires in 7 days
+        invite_token = str(uuid.uuid4())
+        await db.fleet_invites.insert_one({
+            'id': str(uuid.uuid4()),
+            'token': invite_token,
+            'email': body.admin_email.lower(),
+            'name': body.admin_name,
+            'role': body.role,
+            'fleet_name': body.company_name,
+            'invited_by_user_id': user['id'],
+            'invited_by_name': user.get('name', 'Mike Ward'),
+            'expires_at': (now_utc() + timedelta(days=7)).isoformat(),
+            'accepted': False,
+            'created_at': now_utc().isoformat(),
+        })
+        accept_url = f"{base}/accept-invite?token={invite_token}" if base else f"/accept-invite?token={invite_token}"
+        return {
+            'ok': True,
+            'mode': 'magic_link',
+            'invite_token': invite_token,
+            'magic_link': accept_url,
+            'expires_in_days': 7,
+            'instructions': f"Send this magic link to {body.admin_name} via SMS or email. They'll set their own password on first click.",
+        }
+
+
+@api_router.get("/admin/super/impersonation-log")
+async def super_admin_impersonation_log(limit: int = 100, user=Depends(require_role('super_admin'))):
+    """View the audit trail of every impersonation event."""
+    rows = await db.impersonation_log.find({}, {'_id': 0}).sort('created_at', -1).to_list(max(1, min(limit, 500)))
+    return {'count': len(rows), 'items': rows}
+
+
+@api_router.post("/admin/super/promote-self")
+async def super_admin_bootstrap(secret: Optional[str] = None, user=Depends(get_current_user)):
+    """
+    One-shot bootstrap: if NO super_admin exists yet, promote the calling user
+    to super_admin. Only works once. After that, only an existing super_admin
+    can promote others (via the role endpoint).
+    """
+    sa_count = await db.users.count_documents({'role': 'super_admin'})
+    if sa_count > 0:
+        raise HTTPException(403, "A super_admin already exists. Ask them to promote you.")
+    await db.users.update_one({'id': user['id']}, {'$set': {'role': 'super_admin', 'role_updated_at': now_utc().isoformat()}})
+    logger.warning(f"BOOTSTRAP: {user['email']} self-promoted to super_admin (no prior super_admin existed)")
+    return {'ok': True, 'role': 'super_admin', 'user_id': user['id']}
+
+
 @api_router.get("/notifications/logs")
 async def list_notification_logs(
     channel: Optional[str] = None,  # 'sms' | 'email' | None
