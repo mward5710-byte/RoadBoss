@@ -31,8 +31,14 @@ const NAV_GROUPS = [
     items: [
       { to: '/wrecker/billing',    icon: CreditCard,      label: 'Billing',                       roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin'] },
       { to: '/wrecker/accounting', icon: BarChart3,       label: 'Accounting',                    roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-      { to: '/wrecker/photos',     icon: Camera,          label: 'Photo Vault',                   roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { to: '/wrecker/photos',     icon: Camera,          label: 'Photo Vault',                   roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_dispatcher'] },
       { to: '/wrecker/settings',   icon: Settings,        label: 'Settings',                      roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+    ],
+  },
+  {
+    section: 'My Stuff',
+    items: [
+      { to: '/wrecker/photos',     icon: Camera,          label: 'My Photos',                     roles: ['wrecker_operator'] },
     ],
   },
 ];

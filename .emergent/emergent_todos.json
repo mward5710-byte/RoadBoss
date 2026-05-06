@@ -1,38 +1,26 @@
 [
   {
-    "content": "Backend: tenant business_profile model + GET/PUT endpoints",
+    "content": "Backend: Photo Vault driver filter + force driver-scope for wrecker_operator + per-driver counts",
     "status": "completed"
   },
   {
-    "content": "Backend: accounting endpoints (overview/revenue/expenses/payroll) + CSV exports",
+    "content": "Backend: Photo metadata CSV export endpoint (office only, 403 for drivers)",
     "status": "completed"
   },
   {
-    "content": "Backend: photo vault endpoint with date/plate/stage/text filters",
+    "content": "Frontend: Photo Vault driver filter dropdown + per-driver count chips at top",
     "status": "completed"
   },
   {
-    "content": "Frontend: Business Profile card on Settings page (above Integrations)",
+    "content": "Frontend: Driver attribution badge on every photo card + prominent in lightbox",
     "status": "completed"
   },
   {
-    "content": "Frontend: /wrecker/accounting page with period picker, 4 tabs, CSV downloads",
+    "content": "Frontend: Add 'My Photos' link to driver sidebar (MY STUFF group)",
     "status": "completed"
   },
   {
-    "content": "Frontend: /wrecker/photos page — searchable gallery, lightbox, download, link to job",
-    "status": "completed"
-  },
-  {
-    "content": "Sidebar: split into OPERATIONS and OFFICE groups with section headers",
-    "status": "completed"
-  },
-  {
-    "content": "Wire business_profile into public pay page (company name + phone + email + location on header)",
-    "status": "completed"
-  },
-  {
-    "content": "End-to-end manual test (CSV download, tab switching, period changes, all 3 new pages)",
+    "content": "Verify driver scope enforcement (driver can't see other driver's photos even with manual filter)",
     "status": "completed"
   }
 ]

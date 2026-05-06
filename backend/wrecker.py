@@ -2592,10 +2592,23 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
     @router.get('/photos/vault')
     async def photo_vault(start: Optional[str] = None, end: Optional[str] = None,
                           q: Optional[str] = None, plate: Optional[str] = None,
-                          stage: Optional[str] = None, limit: int = 200,
-                          user=Depends(require_dispatcher)):
+                          stage: Optional[str] = None,
+                          driver_id: Optional[str] = None,
+                          limit: int = 200,
+                          user=Depends(require_wrecker)):
         """Aggregate every photo across every job — searchable claims-defense archive.
-        Filters: date range, free-text (customer/vehicle/job), plate, stage."""
+        Photos are LOCKED to the driver who took them via taken_by (chain of custody).
+
+        Drivers see ONLY their own photos (forced filter — can't peek at other drivers).
+        Office (dispatcher / supervisor / fleet_admin) sees everything, with optional
+        ?driver_id= filter to focus on one driver's work."""
+
+        # CHAIN-OF-CUSTODY ENFORCEMENT: drivers can ONLY see their own photos. Period.
+        if _is_driver(user):
+            forced_driver_id = user['id']
+        else:
+            forced_driver_id = driver_id  # Office may filter optionally
+
         # Build job filter
         jobq: Dict[str, Any] = {}
         if start or end:
@@ -2620,37 +2633,112 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
                 {'pickup_location.address': {'$regex': q, '$options': 'i'}},
             ]
         photos_out = []
-        # Don't pull data_url in the aggregate listing — it's huge. Client fetches /photo/{job_id}/{photo_id} on demand.
+        per_driver_counts: Dict[str, Dict[str, Any]] = {}
         cursor = db.tow_jobs.find(jobq, {
             'id': 1, 'customer': 1, 'vehicle': 1, 'created_at': 1, 'completed_at': 1,
             'pickup_location': 1, 'photos': 1, 'service_type': 1, 'status': 1,
-        }).sort('created_at', -1).limit(500)
+        }).sort('created_at', -1).limit(1000)
         async for job in cursor:
             for p in (job.get('photos') or []):
                 if stage and p.get('stage') != stage:
                     continue
+                # Driver-scope enforcement (chain of custody)
+                p_driver_id = p.get('taken_by')
+                if forced_driver_id and p_driver_id != forced_driver_id:
+                    continue
+
                 taken = p.get('taken_at')
-                photos_out.append({
-                    'photo_id': p.get('id'),
-                    'job_id': job.get('id'),
-                    'stage': p.get('stage') or 'other',
-                    'caption': p.get('caption') or '',
-                    'taken_at': taken.isoformat() if isinstance(taken, datetime) else str(taken),
-                    'taken_by_name': p.get('taken_by_name') or '',
-                    'thumb_url': p.get('data_url') or '',  # base64 — heavy but only on demand
-                    'customer_name': (job.get('customer') or {}).get('name') or '',
-                    'vehicle': f"{(job.get('vehicle') or {}).get('year','')} {(job.get('vehicle') or {}).get('make','')} {(job.get('vehicle') or {}).get('model','')}".strip(),
-                    'plate': (job.get('vehicle') or {}).get('plate') or '',
-                    'service_type': job.get('service_type') or '',
-                    'job_status': job.get('status') or '',
-                })
-                if len(photos_out) >= limit:
-                    break
-            if len(photos_out) >= limit:
-                break
-        # Sort newest first by taken_at
+                # Tally per-driver counts (only when not forcing a single driver)
+                if not forced_driver_id and p_driver_id:
+                    bucket = per_driver_counts.setdefault(p_driver_id, {
+                        'driver_id': p_driver_id,
+                        'driver_name': p.get('taken_by_name') or 'Unknown driver',
+                        'count': 0,
+                    })
+                    bucket['count'] += 1
+
+                if len(photos_out) < limit:
+                    photos_out.append({
+                        'photo_id': p.get('id'),
+                        'job_id': job.get('id'),
+                        'stage': p.get('stage') or 'other',
+                        'caption': p.get('caption') or '',
+                        'taken_at': taken.isoformat() if isinstance(taken, datetime) else str(taken),
+                        'taken_by': p_driver_id or '',
+                        'taken_by_name': p.get('taken_by_name') or 'Unknown',
+                        'thumb_url': p.get('data_url') or '',
+                        'customer_name': (job.get('customer') or {}).get('name') or '',
+                        'vehicle': f"{(job.get('vehicle') or {}).get('year','')} {(job.get('vehicle') or {}).get('make','')} {(job.get('vehicle') or {}).get('model','')}".strip(),
+                        'plate': (job.get('vehicle') or {}).get('plate') or '',
+                        'service_type': job.get('service_type') or '',
+                        'job_status': job.get('status') or '',
+                    })
         photos_out.sort(key=lambda x: x['taken_at'], reverse=True)
-        return {'count': len(photos_out), 'photos': photos_out}
+        # Sort per-driver counts descending
+        per_driver = sorted(per_driver_counts.values(), key=lambda d: -d['count'])
+        return {
+            'count': len(photos_out),
+            'photos': photos_out,
+            'per_driver': per_driver,
+            'driver_locked': bool(_is_driver(user)),
+            'viewer_driver_id': user['id'] if _is_driver(user) else None,
+        }
+
+    @router.get('/photos/export.csv')
+    async def photo_vault_export(start: Optional[str] = None, end: Optional[str] = None,
+                                  q: Optional[str] = None, plate: Optional[str] = None,
+                                  stage: Optional[str] = None,
+                                  driver_id: Optional[str] = None,
+                                  user=Depends(require_dispatcher)):
+        """Export photo metadata (no image data) as CSV for claims / insurance archive."""
+        # Reuse the same filter logic but without limit
+        jobq: Dict[str, Any] = {}
+        if start or end:
+            rng: Dict[str, Any] = {}
+            if start:
+                try: rng['$gte'] = datetime.fromisoformat(start.replace('Z', '+00:00'))
+                except Exception: pass
+            if end:
+                try: rng['$lt'] = datetime.fromisoformat(end.replace('Z', '+00:00')) + timedelta(days=1)
+                except Exception: pass
+            if rng:
+                jobq['created_at'] = rng
+        if plate:
+            jobq['vehicle.plate'] = {'$regex': plate.upper(), '$options': 'i'}
+        if q:
+            jobq['$or'] = [
+                {'customer.name': {'$regex': q, '$options': 'i'}},
+                {'vehicle.make': {'$regex': q, '$options': 'i'}},
+                {'vehicle.model': {'$regex': q, '$options': 'i'}},
+                {'vehicle.plate': {'$regex': q, '$options': 'i'}},
+                {'vehicle.vin': {'$regex': q, '$options': 'i'}},
+            ]
+        rows = [['Date Taken', 'Driver', 'Driver ID', 'Customer', 'Vehicle', 'Plate', 'Stage', 'Caption', 'Service', 'Job ID', 'Photo ID']]
+        cursor = db.tow_jobs.find(jobq, {
+            'id': 1, 'customer': 1, 'vehicle': 1, 'photos': 1, 'service_type': 1,
+        }).sort('created_at', -1).limit(5000)
+        async for job in cursor:
+            for p in (job.get('photos') or []):
+                if stage and p.get('stage') != stage:
+                    continue
+                p_driver_id = p.get('taken_by') or ''
+                if driver_id and p_driver_id != driver_id:
+                    continue
+                taken = p.get('taken_at')
+                rows.append([
+                    (taken.isoformat() if isinstance(taken, datetime) else str(taken))[:19],
+                    p.get('taken_by_name') or 'Unknown',
+                    p_driver_id,
+                    (job.get('customer') or {}).get('name') or '',
+                    f"{(job.get('vehicle') or {}).get('year','')} {(job.get('vehicle') or {}).get('make','')} {(job.get('vehicle') or {}).get('model','')}".strip(),
+                    (job.get('vehicle') or {}).get('plate') or '',
+                    p.get('stage') or 'other',
+                    p.get('caption') or '',
+                    job.get('service_type') or '',
+                    job.get('id') or '',
+                    p.get('id') or '',
+                ])
+        return _csv_response(rows, f"photo_archive_{_now().strftime('%Y%m%d')}.csv")
 
     return router
 
