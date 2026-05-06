@@ -44,6 +44,36 @@ export default function InvestorInquiries() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
+  // Capture marketing attribution on page load. Supports both standard UTM
+  // params (utm_source, utm_medium, utm_campaign, utm_content) AND the
+  // short ?ref= shortcut so Mike can blast simple links like
+  // roadboss.app/investors?ref=tiktok and still get attribution.
+  const [attribution, setAttribution] = useState({
+    utm_source: '', utm_medium: '', utm_campaign: '', utm_content: '', landing_page: '',
+  });
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get('ref') || '';
+      const next = {
+        utm_source: params.get('utm_source') || ref || '',
+        utm_medium: params.get('utm_medium') || (ref ? 'shortlink' : ''),
+        utm_campaign: params.get('utm_campaign') || '',
+        utm_content: params.get('utm_content') || '',
+        landing_page: window.location.pathname + window.location.search,
+      };
+      setAttribution(next);
+      // Persist for cross-page conversions (e.g. user reads /pitch then /investors)
+      try { sessionStorage.setItem('rb_attribution', JSON.stringify(next)); } catch (_) {}
+      // Also pre-fill the human-visible referral_source so the form shows it
+      if (next.utm_source) {
+        setForm((p) => ({ ...p, referral_source: p.referral_source || next.utm_source }));
+      }
+    } catch (_) {
+      // SSR or non-browser env — skip
+    }
+  }, []);
+
   // Pull live business profile (public endpoint — no auth needed) so contact info stays in sync with Settings page
   useEffect(() => {
     (async () => {
@@ -64,7 +94,13 @@ export default function InvestorInquiries() {
     }
     setSubmitting(true);
     try {
-      const r = await api.post('/investor-inquiry', form);
+      // Pull the most recent attribution (this page or any earlier page in the session).
+      let attr = attribution;
+      try {
+        const cached = sessionStorage.getItem('rb_attribution');
+        if (cached) attr = { ...JSON.parse(cached), ...attribution };
+      } catch (_) {}
+      const r = await api.post('/investor-inquiry', { ...form, ...attr });
       toast.success(r.data?.message || 'Inquiry received.', { duration: 8000 });
       setSubmitted(true);
     } catch (err) {

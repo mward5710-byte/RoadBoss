@@ -347,6 +347,14 @@ class InvestorInquiryIn(BaseModel):
     role: Optional[str] = Field(None, max_length=60)  # e.g. "Angel", "VC", "Strategic"
     message: str = Field(..., min_length=8, max_length=2000)
     referral_source: Optional[str] = Field(None, max_length=120)
+    # Marketing attribution — captured automatically from the URL the
+    # investor landed on. Lets Mike see which channel (TikTok, LinkedIn,
+    # podcast, cold email) is actually producing leads.
+    utm_source: Optional[str] = Field(None, max_length=80)
+    utm_medium: Optional[str] = Field(None, max_length=80)
+    utm_campaign: Optional[str] = Field(None, max_length=120)
+    utm_content: Optional[str] = Field(None, max_length=120)
+    landing_page: Optional[str] = Field(None, max_length=240)
 
 
 @api_router.post("/investor-inquiry")
@@ -374,6 +382,37 @@ async def list_investor_inquiries(user=Depends(require_role('super_admin', 'flee
         if isinstance(r.get('created_at'), datetime):
             r['created_at'] = r['created_at'].isoformat()
     return {'count': len(rows), 'items': rows}
+
+
+@api_router.get("/investor-inquiries/summary")
+async def investor_inquiries_summary(user=Depends(require_role('super_admin', 'fleet_admin'))):
+    """Channel attribution summary — which UTM source/medium is actually
+    producing investor leads. Powers the future Investor Inbox dashboard."""
+    rows = await db.investor_inquiries.find({}, {'_id': 0}).to_list(2000)
+    by_source: Dict[str, int] = {}
+    by_medium: Dict[str, int] = {}
+    by_campaign: Dict[str, int] = {}
+    by_status: Dict[str, int] = {}
+    by_range: Dict[str, int] = {}
+    for r in rows:
+        s = (r.get('utm_source') or 'direct').lower()
+        m = (r.get('utm_medium') or 'organic').lower()
+        c = (r.get('utm_campaign') or 'none').lower()
+        st = (r.get('status') or 'new').lower()
+        rg = r.get('investment_range') or 'unspecified'
+        by_source[s] = by_source.get(s, 0) + 1
+        by_medium[m] = by_medium.get(m, 0) + 1
+        by_campaign[c] = by_campaign.get(c, 0) + 1
+        by_status[st] = by_status.get(st, 0) + 1
+        by_range[rg] = by_range.get(rg, 0) + 1
+    return {
+        'total': len(rows),
+        'by_source': by_source,
+        'by_medium': by_medium,
+        'by_campaign': by_campaign,
+        'by_status': by_status,
+        'by_investment_range': by_range,
+    }
 
 
 @api_router.put("/investor-inquiries/{inquiry_id}/status")

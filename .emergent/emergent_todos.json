@@ -1,22 +1,18 @@
 [
   {
-    "content": "Build /reel — 30-second auto-playing TikTok demo reel (portrait-friendly)",
+    "content": "Add UTM tracking to investor inquiries (backend model + frontend capture)",
     "status": "completed"
   },
   {
-    "content": "Build /intro — 3-second branded TikTok opener",
+    "content": "Build /pitch — public investor one-pager with print-to-PDF button",
     "status": "completed"
   },
   {
-    "content": "Logo redesign — hex shield + custom truck silhouette + road perspective + crisp ROADBOSS wordmark",
+    "content": "Build /cuts — three vertical 9:16 auto-playing TikTok scenes ready to screen-record",
     "status": "completed"
   },
   {
-    "content": "Replace 'Highway Pilot' copy on Marketing page hero with RoadBoss messaging",
-    "status": "completed"
-  },
-  {
-    "content": "Visual verification across login, marketing, intro, reel — logo renders sharp at all sizes",
+    "content": "Register new routes in App.js and verify all pages render cleanly",
     "status": "completed"
   }
 ]
