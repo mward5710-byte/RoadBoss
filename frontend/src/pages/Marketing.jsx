@@ -85,7 +85,7 @@ export default function Marketing() {
             <span className="text-white">for the open road.</span>
           </h1>
           <p className="mt-6 text-lg md:text-xl text-slate-400 max-w-2xl">
-            Highway Pilot is the first all-in-one operating system for truckers and fleets. Hands-free voice. Truck-aware GPS. ELD compliance. Dashcam, crash detection, and an AI copilot that rides shotgun.
+            Built by truckers. Run by truckers. RoadBoss is the first all-in-one operating system for fleets — hands-free voice, truck-aware GPS that routes around low bridges and weight limits, ELD compliance, dashcam, crash detection, and an AI co-pilot that rides shotgun.
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
             <Link to="/try"><Button size="lg" className="bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold">Try the live demo <ArrowRight className="w-4 h-4 ml-1" /></Button></Link>
@@ -156,7 +156,7 @@ export default function Marketing() {
         <div className="max-w-2xl">
           <div className="text-xs uppercase tracking-widest text-sky-400/80 mb-3">One platform</div>
           <h2 className="text-3xl md:text-5xl font-bold tracking-tight text-white">Everything the cab needs. Nothing it doesn't.</h2>
-          <p className="mt-4 text-slate-400">Until now, drivers juggled five apps and a CB. Highway Pilot fuses them into a single voice-driven OS — with a fleet command center on the back end.</p>
+          <p className="mt-4 text-slate-400">Until now, drivers juggled five apps and a CB. RoadBoss fuses them into a single voice-driven OS — with a fleet command center on the back end.</p>
         </div>
         <div className="mt-12 grid md:grid-cols-2 lg:grid-cols-4 gap-4">
           {features.map((f, i) => (

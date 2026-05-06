@@ -1,38 +1,22 @@
 [
   {
-    "content": "Backend: investor inquiry endpoints (submit / list / status update)",
+    "content": "Build /reel — 30-second auto-playing TikTok demo reel (portrait-friendly)",
     "status": "completed"
   },
   {
-    "content": "Backend: public business profile endpoint (so investor page works without login)",
+    "content": "Build /intro — 3-second branded TikTok opener",
     "status": "completed"
   },
   {
-    "content": "Frontend: /investors page — hero, proof points, inquiry form, direct contact panel",
+    "content": "Logo redesign — hex shield + custom truck silhouette + road perspective + crisp ROADBOSS wordmark",
     "status": "completed"
   },
   {
-    "content": "Marketing nav: replace 'Investors' link with prominent amber 'For Investors' button",
+    "content": "Replace 'Highway Pilot' copy on Marketing page hero with RoadBoss messaging",
     "status": "completed"
   },
   {
-    "content": "Marketing hero: add prominent 'For Investors: Talk to Michael' CTA next to demo button",
+    "content": "Visual verification across login, marketing, intro, reel — logo renders sharp at all sizes",
     "status": "completed"
-  },
-  {
-    "content": "Marketing closing banner: add full-width 'Talk to Michael' investor section before footer",
-    "status": "completed"
-  },
-  {
-    "content": "Fix /investors auth redirect bug (use public business-profile endpoint)",
-    "status": "completed"
-  },
-  {
-    "content": "End-to-end test: anonymous submission → success state → admin retrieval",
-    "status": "completed"
-  },
-  {
-    "content": "Future: Logo redesign (RoadBoss wordmark + investor inquiry inbox on Fleet Admin dashboard)",
-    "status": "pending"
   }
 ]
