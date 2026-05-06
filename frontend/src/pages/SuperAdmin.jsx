@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import {
   Shield, Users, Briefcase, Truck, ChevronRight, LogOut,
   UserPlus, Eye, RefreshCw, Mail, Copy, Search,
-  ShieldCheck, Loader2, Sparkles,
+  ShieldCheck, Loader2, Sparkles, Megaphone,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,7 +81,7 @@ export default function SuperAdmin() {
       <main className="max-w-6xl mx-auto px-3 sm:px-6 py-5 pb-12">
         {/* BIG SHORTCUTS — Mike asked for this. One-tap jump straight into
             the main parts of the platform, without hunting through menus. */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
           <button
             onClick={() => navigate('/wrecker')}
             data-testid="super-shortcut-wrecker"
@@ -93,8 +93,8 @@ export default function SuperAdmin() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[10px] uppercase tracking-[0.3em] text-amber-300/80 font-bold">Open</div>
-                <div className="text-2xl font-black text-white leading-tight">WreckerLogix</div>
-                <div className="text-xs text-amber-200/80 mt-0.5">Dispatch · jobs · impound · photos</div>
+                <div className="text-xl sm:text-2xl font-black text-white leading-tight">WreckerLogix</div>
+                <div className="text-xs text-amber-200/80 mt-0.5">Dispatch · impound · photos</div>
               </div>
               <ChevronRight className="w-6 h-6 text-amber-300 group-hover:translate-x-1 transition-transform shrink-0" />
             </div>
@@ -111,10 +111,28 @@ export default function SuperAdmin() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[10px] uppercase tracking-[0.3em] text-sky-300/80 font-bold">Open</div>
-                <div className="text-2xl font-black text-white leading-tight">Fleet Admin</div>
-                <div className="text-xs text-sky-200/80 mt-0.5">Drivers · trips · alerts · ELD</div>
+                <div className="text-xl sm:text-2xl font-black text-white leading-tight">Fleet Admin</div>
+                <div className="text-xs text-sky-200/80 mt-0.5">Drivers · trips · alerts</div>
               </div>
               <ChevronRight className="w-6 h-6 text-sky-300 group-hover:translate-x-1 transition-transform shrink-0" />
+            </div>
+          </button>
+
+          <button
+            onClick={() => navigate('/media')}
+            data-testid="super-shortcut-media"
+            className="group relative overflow-hidden rounded-2xl border-2 border-purple-500/40 bg-gradient-to-br from-purple-500/15 via-purple-600/10 to-purple-900/10 p-5 sm:p-6 text-left transition-all hover:border-purple-400/70 hover:from-purple-500/25 active:scale-[0.98]"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 shrink-0 rounded-xl bg-purple-500/25 border border-purple-400/40 flex items-center justify-center">
+                <Megaphone className="w-7 h-7 text-purple-300" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] uppercase tracking-[0.3em] text-purple-300/80 font-bold">Open</div>
+                <div className="text-xl sm:text-2xl font-black text-white leading-tight">Media Hub</div>
+                <div className="text-xs text-purple-200/80 mt-0.5">Logos · cuts · captions · QR</div>
+              </div>
+              <ChevronRight className="w-6 h-6 text-purple-300 group-hover:translate-x-1 transition-transform shrink-0" />
             </div>
           </button>
         </div>

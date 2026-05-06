@@ -28,10 +28,11 @@
 - **Stage 3 Phase 3B v2(b/c/d) (Towbook parity sprint): 🚧 IN PROGRESS**
 
 **New reality / decisions from today (locked):**
-- **Tonight’s build focus (RoadBoss web/PWA): Phases 1–3 of Towbook-style driver job cockpit**.
+- **Build focus remains RoadBoss web/PWA** to onboard initial wrecker companies + impress investors.
 - **Photos must NOT save to camera roll**; we will offer a **toggle with default OFF**.
-- **App Store submission is NOT part of this repo/session**; Apple review is external and the native build is in the Flutter session per `/app/memory/wreckerlogix_master_spec.md`.
+- App Store submission is NOT part of this repo/session; native shipping is handled in the Flutter session per `/app/memory/wreckerlogix_master_spec.md`.
 - Master spec for Towbook parity is captured in **`/app/memory/wrecker_mode_spec.md`**.
+- Monetization: **Path B** (free during beta). Stripe exists but **no paywalls**.
 
 **External integration status notes (operational reality):**
 - Twilio toll-free verification submitted (1–3 weeks typical). Until approved, sends to verified destinations work best; non-verified may be carrier-filtered.
@@ -125,10 +126,45 @@ Deliverable: `/app/memory/wreckerlogix_master_spec.md`
 
 ---
 
-## Stage 3 — Phase 3B v2 (NOW) — Towbook Parity Sprint (Phases 1–3 Tonight)
+## Stage 3 — Phase 3B v2 (NOW) — Towbook Parity Sprint (Phases 1–3)
 
 > Objective: Ship a **working driver job cockpit** (Towbook-style) that supports running a tow end-to-end:
 > status timeline + photos + damage/waiver signatures + charges/payments + SMS/email receipts.
+
+### NEW: Driver DVIR Hands-Free Walkthrough (P0 Demo Feature) — ✅ SHIPPED
+**Why:** This is the core “wow” demo: a driver can complete DVIR without touching the screen.
+
+**Shipped (frontend):**
+- New page: `InspectionVoice.jsx` → `/driver/inspection/:id/voice`
+  - Reads each item aloud: “Item N of 69 — <label>. Say pass, fail, or skip.”
+  - STT loop with command classifier: pass/fail/skip + repeat/back/pause/resume/done
+  - iOS support: gesture unlock + `speechSynthesis.resume()` + 25s auto-reset
+  - Manual fallback buttons (PASS/FAIL/N/A) when mic unavailable (e.g., preview iframe)
+  - Save confirmation chip: “Last: X · PASS”
+  - End summary + CTA to Sign
+- Added header CTA on the standard inspection form: **Voice (mic)** button next to Sign.
+
+**Shipped (backend):**
+- Co-Pilot `start_inspection` action supports `voice_mode: true|false`
+  - When `voice_mode=true`, redirect routes directly to `/driver/inspection/:id/voice`
+- LLM system prompt updated with `voice_mode` rules + examples.
+
+**Definition of done:** ✅ Complete.
+
+**Remaining follow-up (NEXT SESSION P0):**
+- End-to-end testing sweep (voice page + normal inspection form + sign flow) to ensure no regressions.
+
+---
+
+### NEW: Marketing Asset Hub (P0 Growth Surface) — ✅ SHIPPED
+**Why:** Mike needs one place to grab “attention seekers” (logos, hooks, captions, QR) for TikTok/social.
+
+**Shipped:**
+- `/media` route → **Media Hub** (brand assets, videos, links, captions, QR)
+
+**Definition of done:** ✅ Complete.
+
+---
 
 ### Phase 3B v2(b) — Phase 1: 7-stage status flow + photos by stage + extended vehicle details (🚧 Next)
 **Why:** This is the core “field usability” layer: driver can progress a job, document condition, and keep dispatch informed.
@@ -218,6 +254,13 @@ Deliverable: `/app/memory/wreckerlogix_master_spec.md`
 
 ---
 
+## Next Session Priorities (RoadBoss)
+- **P0: Testing sweep** — voice DVIR walkthrough + standard DVIR form + signing flow (no regressions)
+- **P1: Square Web Payments SDK add-ons** — Google Pay + ACH
+- **P2: Public vehicle lookup** — `/lookup` for police/customers to check impound inventory by VIN/Plate
+
+---
+
 ## Deferred / Future (explicitly NOT tonight)
 ### Phase 3B v3 — Impounds + Accounts + Dispatcher Ops + Payroll + Square POS
 - Phase 4: Impounds module expansion (lot inventory, release workflow, certified mail)
@@ -267,6 +310,8 @@ Refactor discipline: extract module, keep endpoints identical, re-run backend te
 - `/app/backend/seed_data.py` — investor-grade demo seed.
 - `/app/frontend/src/pages/wrecker/*` — Wrecker Mode UI.
 - `/app/frontend/src/pages/driver/Copilot.jsx` — shared Co-Pilot voice UI.
+- `/app/frontend/src/pages/driver/InspectionVoice.jsx` — hands-free DVIR walkthrough.
+- `/app/frontend/src/pages/MediaHub.jsx` — marketing assets hub.
 - `/app/memory/test_credentials.md` — demo accounts.
 - `/app/memory/wreckerlogix_master_spec.md` — Flutter rescue + App Store shipping plan.
 - `/app/memory/wrecker_mode_spec.md` — Towbook parity sprint master spec (new, source of truth).

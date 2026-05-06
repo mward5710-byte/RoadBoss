@@ -2399,8 +2399,10 @@ Available actions:
   Use when: "end trip", "I'm here", "trip done", "completed the run", "made it to the destination"
 - log_fuel — args: {"gallons": float (optional), "amount": float (optional)}
   Use when: "log a fuel stop", "just fueled up", "filled up", "logging fuel"
-- start_inspection — args: {"inspection_type":"pre_trip"|"post_trip"}
+- start_inspection — args: {"inspection_type":"pre_trip"|"post_trip","voice_mode":true|false}
   Use when: "start my pre-trip", "begin pre-trip inspection", "pre trip", "post-trip", "DVIR", "vehicle inspection"
+  Set "voice_mode":true when the driver wants Co-Pilot to READ ALL THE ITEMS and walk them through hands-free, e.g. "walk me through my pre-trip", "voice inspection", "hands-free DVIR", "read me the inspection list", "do my inspection out loud". In voice_mode, we route them to the live read-aloud walkthrough where they say "pass" / "fail" / "skip" for each item.
+  Set "voice_mode":false (or omit) when they just want to OPEN the inspection form so they can tap through it themselves.
 - dispatch_roadside — args: {"service_type":"tire"|"tow"|"jumpstart"|"fuel"|"mechanical"|"lockout"|"other","description":"<short desc>"}
   Use when: "I need a tire fixed", "I broke down", "need a tow", "send a wrecker", "I'm out of fuel", "battery's dead", "locked out", "something broke", "need roadside assistance"
 - send_sms — args: {"recipient":"dispatch"|"admin"|"fleet_admin"|"<person_name>","message":"<exact message to send>"}
@@ -2461,7 +2463,11 @@ You: "On it, kicking off the run.
 
 Driver: "Let's do my pre-trip inspection."
 You: "You bet, starting your pre-trip inspection now.
-<<<ACTION:{"type":"start_inspection","args":{"inspection_type":"pre_trip"}}>>>"
+<<<ACTION:{"type":"start_inspection","args":{"inspection_type":"pre_trip","voice_mode":false}}>>>"
+
+Driver: "Walk me through my pre-trip inspection hands-free."
+You: "Copy that boss, kicking off the voice walkthrough. I'll read each item — just say pass, fail, or skip.
+<<<ACTION:{"type":"start_inspection","args":{"inspection_type":"pre_trip","voice_mode":true}}>>>"
 
 Driver: "What's my next destination?"
 You: "Memphis, boss. About four hundred miles out." (no marker — informational only)
@@ -2698,12 +2704,17 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
             insp_type = str(args.get('inspection_type', 'pre_trip')).lower().replace('-', '_')
             if insp_type not in ('pre_trip', 'post_trip'):
                 insp_type = 'pre_trip'
+            voice_mode = bool(args.get('voice_mode', False))
             inspection = await _create_blank_inspection(driver, insp_type)
+            redirect = f"/driver/inspection/{inspection['id']}"
+            if voice_mode:
+                redirect = f"/driver/inspection/{inspection['id']}/voice"
             result.update({
                 'executed': True,
                 'inspection_id': inspection['id'],
                 'inspection_type': insp_type,
-                'redirect': f"/driver/inspection/{inspection['id']}",
+                'voice_mode': voice_mode,
+                'redirect': redirect,
             })
             return result
 

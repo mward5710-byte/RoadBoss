@@ -11,6 +11,7 @@ import Reel from '@/pages/Reel';
 import Intro from '@/pages/Intro';
 import Cuts from '@/pages/Cuts';
 import SuperAdmin from '@/pages/SuperAdmin';
+import MediaHub from '@/pages/MediaHub';
 import ImpersonationBanner from '@/components/ImpersonationBanner';
 import TryPage from '@/pages/TryPage';
 import ShareKit from '@/pages/ShareKit';
@@ -48,6 +49,7 @@ import DriverSettings from '@/pages/driver/DriverSettings';
 import DriverProfile from '@/pages/driver/DriverProfile';
 import Copilot from '@/pages/driver/Copilot';
 import Inspection from '@/pages/driver/Inspection';
+import InspectionVoice from '@/pages/driver/InspectionVoice';
 import InspectionSign from '@/pages/driver/InspectionSign';
 import Roadside from '@/pages/driver/Roadside';
 import RoadsideDetail from '@/pages/driver/RoadsideDetail';
@@ -120,6 +122,9 @@ function App() {
           {/* SUPER ADMIN CONSOLE — Mike's god-mode console */}
           <Route path="/super" element={<RequireAuth roles={['super_admin']}><SuperAdmin /></RequireAuth>} />
 
+          {/* MEDIA HUB — TikTok hooks, QR codes, logos for Mike */}
+          <Route path="/media" element={<MediaHub />} />
+
           {/* PUBLIC customer-facing pay link (NO auth) — sent via SMS/email */}
           <Route path="/pay/:token" element={<WreckerPublicPay />} />
 
@@ -149,6 +154,7 @@ function App() {
             <Route path="copilot" element={<Copilot />} />
             <Route path="inspection/new" element={<Inspection />} />
             <Route path="inspection/:id" element={<Inspection />} />
+            <Route path="inspection/:id/voice" element={<InspectionVoice />} />
             <Route path="inspection/:id/sign" element={<InspectionSign />} />
             <Route path="roadside" element={<Roadside />} />
             <Route path="roadside/:id" element={<RoadsideDetail />} />

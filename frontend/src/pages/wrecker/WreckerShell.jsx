@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { auth, getUser } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { WreckerLogixLogo } from '@/components/WreckerLogixLogo';
 
 // Sidebar nav grouped into sections:
 //   OPERATIONS — day-to-day dispatch + driving stuff

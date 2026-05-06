@@ -365,6 +365,19 @@ export default function Inspection() {
             <div className="w-12 sm:w-20 h-1.5 rounded-full bg-white/5 overflow-hidden hidden sm:block">
               <div className="h-full bg-amber-500" style={{ width: `${totalItems ? (totalDone / totalItems) * 100 : 0}%` }} />
             </div>
+            {!isCertified && (
+              <Button
+                data-testid="voice-walkthrough-cta"
+                size="sm"
+                variant="outline"
+                onClick={() => navigate(`/driver/inspection/${doc.id}/voice`)}
+                className="bg-sky-500/10 border-sky-500/40 text-sky-200 hover:bg-sky-500/20 hover:text-white font-semibold"
+                title="Hands-free voice walkthrough"
+              >
+                <Mic className="w-4 h-4 sm:mr-1" />
+                <span className="hidden sm:inline">Voice</span>
+              </Button>
+            )}
             {!isCertified ? (
               <Button
                 data-testid="sign-cta"

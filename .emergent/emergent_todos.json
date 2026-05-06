@@ -1,30 +1,30 @@
 [
   {
-    "content": "Fix Building2 runtime crash that was bouncing super admin to /",
+    "content": "Fix App.js syntax error (DONE)",
     "status": "completed"
   },
   {
-    "content": "Add big 'Enter WreckerLogix' + 'Fleet Dashboard' shortcut tiles at top of Super Admin (mobile-first)",
+    "content": "Verify MediaHub renders at /media (DONE)",
     "status": "completed"
   },
   {
-    "content": "Replace narrow horizontal tabs with bigger stacked mobile-friendly tab bar",
+    "content": "Build InspectionVoice.jsx (full-screen hands-free DVIR walkthrough)",
     "status": "completed"
   },
   {
-    "content": "Make Invite Company form single-column on mobile — hand-off package slides in below after creation",
+    "content": "Add /driver/inspection/:id/voice route in App.js",
     "status": "completed"
   },
   {
-    "content": "Bump touch targets and font sizes across Super Admin page for phone readability",
+    "content": "Add 'Voice Walkthrough' CTA on Inspection.jsx",
     "status": "completed"
   },
   {
-    "content": "Smart 'Open the App' button on Marketing header + hero (logged-in aware)",
+    "content": "Backend: support voice_mode in start_inspection action + update prompt",
     "status": "completed"
   },
   {
-    "content": "After-login redirect: super_admin -> /super (god-mode console)",
-    "status": "completed"
+    "content": "Test the voice walkthrough + regressions with testing agent",
+    "status": "in_progress"
   }
 ]
