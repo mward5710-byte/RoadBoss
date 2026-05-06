@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  Shield, Users, Briefcase, Truck, ChevronRight, ArrowRight, LogOut,
-  UserPlus, Eye, RefreshCw, Building2, Mail, Copy, Search, AlertTriangle,
-  ShieldCheck, ChevronDown, ChevronUp, Loader2, Sparkles, ExternalLink,
+  Shield, Users, Briefcase, Truck, ChevronRight, LogOut,
+  UserPlus, Eye, RefreshCw, Mail, Copy, Search,
+  ShieldCheck, Loader2, Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,7 +14,6 @@ import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Logo } from '@/components/Logo';
 import { api, getUser, beginImpersonation, auth } from '@/lib/api';
 import { toast } from 'sonner';
@@ -79,18 +78,93 @@ export default function SuperAdmin() {
   return (
     <div className="min-h-screen bg-[#070b12] text-slate-200" data-testid="super-admin-page">
       <Header me={me} navigate={navigate} />
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
-        <Tabs defaultValue="stats">
-          <TabsList className="bg-slate-900/60 border border-slate-800">
-            <TabsTrigger value="stats" data-testid="super-tab-stats"><Sparkles className="w-3.5 h-3.5 mr-1.5" /> Stats</TabsTrigger>
-            <TabsTrigger value="users" data-testid="super-tab-users"><Users className="w-3.5 h-3.5 mr-1.5" /> Users</TabsTrigger>
-            <TabsTrigger value="invite" data-testid="super-tab-invite"><UserPlus className="w-3.5 h-3.5 mr-1.5" /> Invite Company</TabsTrigger>
-          </TabsList>
-          <TabsContent value="stats" className="mt-5"><StatsPanel /></TabsContent>
-          <TabsContent value="users"  className="mt-5"><UsersPanel navigate={navigate} /></TabsContent>
-          <TabsContent value="invite" className="mt-5"><InvitePanel /></TabsContent>
-        </Tabs>
+      <main className="max-w-6xl mx-auto px-3 sm:px-6 py-5 pb-12">
+        {/* BIG SHORTCUTS — Mike asked for this. One-tap jump straight into
+            the main parts of the platform, without hunting through menus. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+          <button
+            onClick={() => navigate('/wrecker')}
+            data-testid="super-shortcut-wrecker"
+            className="group relative overflow-hidden rounded-2xl border-2 border-amber-500/40 bg-gradient-to-br from-amber-500/20 via-amber-600/10 to-amber-900/10 p-5 sm:p-6 text-left transition-all hover:border-amber-400/70 hover:from-amber-500/30 active:scale-[0.98]"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 shrink-0 rounded-xl bg-amber-500/25 border border-amber-400/40 flex items-center justify-center">
+                <Truck className="w-7 h-7 text-amber-300" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] uppercase tracking-[0.3em] text-amber-300/80 font-bold">Open</div>
+                <div className="text-2xl font-black text-white leading-tight">WreckerLogix</div>
+                <div className="text-xs text-amber-200/80 mt-0.5">Dispatch · jobs · impound · photos</div>
+              </div>
+              <ChevronRight className="w-6 h-6 text-amber-300 group-hover:translate-x-1 transition-transform shrink-0" />
+            </div>
+          </button>
+
+          <button
+            onClick={() => navigate('/app')}
+            data-testid="super-shortcut-fleet"
+            className="group relative overflow-hidden rounded-2xl border-2 border-sky-500/40 bg-gradient-to-br from-sky-500/15 via-sky-600/10 to-sky-900/10 p-5 sm:p-6 text-left transition-all hover:border-sky-400/70 hover:from-sky-500/25 active:scale-[0.98]"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 shrink-0 rounded-xl bg-sky-500/25 border border-sky-400/40 flex items-center justify-center">
+                <Briefcase className="w-7 h-7 text-sky-300" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] uppercase tracking-[0.3em] text-sky-300/80 font-bold">Open</div>
+                <div className="text-2xl font-black text-white leading-tight">Fleet Admin</div>
+                <div className="text-xs text-sky-200/80 mt-0.5">Drivers · trips · alerts · ELD</div>
+              </div>
+              <ChevronRight className="w-6 h-6 text-sky-300 group-hover:translate-x-1 transition-transform shrink-0" />
+            </div>
+          </button>
+        </div>
+
+        <MobileTabBar navigate={navigate} />
       </main>
+    </div>
+  );
+}
+
+/**
+ * MobileTabBar — replaces the tiny default Shadcn tabs with a proper
+ * 3-button grid that's actually readable and tappable on a 390px phone.
+ * Each tab is a full card with icon + label; active tab is bold and tinted.
+ */
+function MobileTabBar({ navigate }) {
+  const [tab, setTab] = useState('stats');
+
+  const tabs = [
+    { id: 'stats',  label: 'Stats',   icon: Sparkles, tint: 'emerald' },
+    { id: 'users',  label: 'Users',   icon: Users,    tint: 'sky' },
+    { id: 'invite', label: 'Invite',  icon: UserPlus, tint: 'amber' },
+  ];
+
+  return (
+    <div>
+      <div className="grid grid-cols-3 gap-2 mb-5 sticky top-[56px] z-10 bg-[#070b12]/95 backdrop-blur py-1 -mx-1 px-1">
+        {tabs.map((t) => {
+          const active = tab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              data-testid={`super-tab-${t.id}`}
+              className={`flex flex-col items-center justify-center gap-1 px-2 py-3 rounded-xl border-2 text-[11px] sm:text-sm font-semibold uppercase tracking-wider transition-all min-h-[60px] ${
+                active
+                  ? TINT_CLASSES[t.tint] + ' shadow-lg scale-[1.02]'
+                  : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+              }`}
+            >
+              <t.icon className="w-5 h-5" />
+              <span className="leading-none">{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === 'stats'  && <StatsPanel />}
+      {tab === 'users'  && <UsersPanel navigate={navigate} />}
+      {tab === 'invite' && <InvitePanel />}
     </div>
   );
 }
@@ -149,7 +223,7 @@ function StatsPanel() {
     { label: 'Fleet Admins',    value: stats.fleet_admins,       icon: Briefcase,    tint: 'rose' },
     { label: 'Wrecker Users',   value: stats.wrecker_users,      icon: Truck,        tint: 'amber' },
     { label: 'Drivers',         value: stats.drivers,            icon: Truck,        tint: 'sky' },
-    { label: 'Tow Jobs',        value: stats.tow_jobs,           icon: Building2,    tint: 'purple' },
+    { label: 'Tow Jobs',        value: stats.tow_jobs,           icon: Truck,        tint: 'purple' },
     { label: 'Investor Leads',  value: stats.investor_inquiries, icon: Mail,         tint: 'emerald' },
     { label: 'Pending Invites', value: stats.pending_invites,    icon: UserPlus,     tint: 'amber' },
   ];
@@ -372,15 +446,15 @@ function InvitePanel() {
   };
 
   return (
-    <div className="grid lg:grid-cols-2 gap-5">
-      <Card className="bg-slate-900/60 border-slate-800 p-5">
+    <div className="space-y-4">
+      {/* Invite form — full width always on mobile; no side-by-side crowding. */}
+      <Card className="bg-slate-900/60 border-slate-800 p-4 sm:p-5">
         <div className="flex items-center gap-2 mb-3">
           <UserPlus className="w-5 h-5 text-amber-400" />
-          <h2 className="text-lg font-bold text-white">Onboard a Wrecker Company</h2>
+          <h2 className="text-base sm:text-lg font-bold text-white">Onboard a Wrecker Company</h2>
         </div>
-        <p className="text-xs text-slate-400 mb-4">
-          Create a brand-new company admin account in one shot. Choose to set a password directly
-          (text-ready credentials) or send a magic link the new user clicks to set their own.
+        <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+          One-shot admin account. Set a password now for text-ready creds, or send a magic link.
         </p>
         <form onSubmit={submit} className="space-y-3">
           <div>
@@ -390,36 +464,34 @@ function InvitePanel() {
               placeholder="Martin Wrecker Service"
               value={form.company_name}
               onChange={(e) => f('company_name', e.target.value)}
-              className="bg-slate-950 border-slate-800 text-white mt-1"
+              className="bg-slate-950 border-slate-800 text-white mt-1 h-11 text-base"
             />
           </div>
-          <div className="grid sm:grid-cols-2 gap-3">
-            <div>
-              <Label className="text-xs uppercase tracking-widest text-slate-500">Admin Name</Label>
-              <Input
-                data-testid="super-invite-admin-name"
-                placeholder="Kenny Smith"
-                value={form.admin_name}
-                onChange={(e) => f('admin_name', e.target.value)}
-                className="bg-slate-950 border-slate-800 text-white mt-1"
-              />
-            </div>
-            <div>
-              <Label className="text-xs uppercase tracking-widest text-slate-500">Admin Email</Label>
-              <Input
-                data-testid="super-invite-admin-email"
-                type="email"
-                placeholder="kenny@martinwrecker.com"
-                value={form.admin_email}
-                onChange={(e) => f('admin_email', e.target.value)}
-                className="bg-slate-950 border-slate-800 text-white mt-1"
-              />
-            </div>
+          <div>
+            <Label className="text-xs uppercase tracking-widest text-slate-500">Admin Name</Label>
+            <Input
+              data-testid="super-invite-admin-name"
+              placeholder="Kenny Smith"
+              value={form.admin_name}
+              onChange={(e) => f('admin_name', e.target.value)}
+              className="bg-slate-950 border-slate-800 text-white mt-1 h-11 text-base"
+            />
+          </div>
+          <div>
+            <Label className="text-xs uppercase tracking-widest text-slate-500">Admin Email</Label>
+            <Input
+              data-testid="super-invite-admin-email"
+              type="email"
+              placeholder="kenny@martinwrecker.com"
+              value={form.admin_email}
+              onChange={(e) => f('admin_email', e.target.value)}
+              className="bg-slate-950 border-slate-800 text-white mt-1 h-11 text-base"
+            />
           </div>
           <div>
             <Label className="text-xs uppercase tracking-widest text-slate-500">Role</Label>
             <Select value={form.role} onValueChange={(v) => f('role', v)}>
-              <SelectTrigger data-testid="super-invite-role" className="bg-slate-950 border-slate-800 text-white mt-1">
+              <SelectTrigger data-testid="super-invite-role" className="bg-slate-950 border-slate-800 text-white mt-1 h-11 text-base">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -437,10 +509,10 @@ function InvitePanel() {
                 checked={form.use_password}
                 onChange={(e) => f('use_password', e.target.checked)}
                 data-testid="super-invite-use-password"
-                className="accent-amber-500"
+                className="accent-amber-500 w-4 h-4"
               />
-              <Label htmlFor="use-password" className="text-xs text-slate-300 cursor-pointer">
-                Set a password now (text-ready credentials)
+              <Label htmlFor="use-password" className="text-sm text-slate-300 cursor-pointer">
+                Set password now (text-ready creds)
               </Label>
             </div>
             {form.use_password ? (
@@ -450,12 +522,11 @@ function InvitePanel() {
                 placeholder="e.g. WreckerLogix2026!"
                 value={form.admin_password}
                 onChange={(e) => f('admin_password', e.target.value)}
-                className="bg-slate-950 border-slate-800 text-white"
+                className="bg-slate-950 border-slate-800 text-white h-11 text-base"
               />
             ) : (
               <div className="text-[11px] text-slate-500 leading-relaxed">
-                Magic-link mode — system will generate a one-click setup link valid for 7 days.
-                Recipient clicks it, sets their own password, lands in their dashboard.
+                Magic-link mode — a one-click setup link valid for 7 days will be generated.
               </div>
             )}
           </div>
@@ -463,37 +534,35 @@ function InvitePanel() {
           <Button
             type="submit"
             disabled={submitting}
-            className="w-full bg-amber-500 hover:bg-amber-400 text-slate-900 font-semibold"
+            className="w-full bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold h-12 text-base"
             data-testid="super-invite-submit"
           >
             {submitting
-              ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating…</>
-              : <><UserPlus className="w-4 h-4 mr-2" /> {form.use_password ? 'Create Account' : 'Generate Magic Link'}</>}
+              ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Creating…</>
+              : <><UserPlus className="w-5 h-5 mr-2" /> {form.use_password ? 'Create Account' : 'Generate Magic Link'}</>}
           </Button>
         </form>
       </Card>
 
-      <Card className="bg-slate-900/60 border-slate-800 p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <ShieldCheck className="w-5 h-5 text-emerald-400" />
-          <h2 className="text-lg font-bold text-white">Hand-off package</h2>
-        </div>
-        {!result && (
-          <div className="text-xs text-slate-500 leading-relaxed">
-            After you create the account, the credentials or magic link appear here, ready to copy/paste into a text or email.
+      {/* Hand-off package — appears BELOW the form after creation, not beside it.
+          Progressive disclosure = less confusing on phones. */}
+      {result && (
+        <Card className="bg-emerald-500/5 border-emerald-500/30 p-4 sm:p-5 animate-in fade-in slide-in-from-bottom-2">
+          <div className="flex items-center gap-2 mb-3">
+            <ShieldCheck className="w-5 h-5 text-emerald-400" />
+            <h2 className="text-base sm:text-lg font-bold text-white">Ready to send</h2>
           </div>
-        )}
-        {result?.mode === 'created' && (
-          <div className="space-y-3" data-testid="super-invite-result-created">
-            <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-3 text-xs text-emerald-200">
-              ✅ Account created. Send these creds via SMS or email.
-            </div>
-            <CredentialRow label="Login URL" value={result.login_url} copy={copyToClipboard} />
-            <CredentialRow label="Email" value={result.email} copy={copyToClipboard} />
-            <CredentialRow label="Password" value={form.admin_password} copy={copyToClipboard} />
-            <div className="rounded-lg bg-slate-950 border border-slate-800 p-3 text-xs text-slate-400 leading-relaxed">
-              <div className="text-[10px] uppercase tracking-widest text-amber-400 mb-1">Suggested text message</div>
-              <pre className="whitespace-pre-wrap font-mono text-slate-300 text-[11px]">
+          {result?.mode === 'created' && (
+            <div className="space-y-3" data-testid="super-invite-result-created">
+              <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-2.5 text-xs text-emerald-200">
+                ✅ Account created. Text these creds.
+              </div>
+              <CredentialRow label="Login URL" value={result.login_url} copy={copyToClipboard} />
+              <CredentialRow label="Email" value={result.email} copy={copyToClipboard} />
+              <CredentialRow label="Password" value={form.admin_password} copy={copyToClipboard} />
+              <div className="rounded-lg bg-slate-950 border border-slate-800 p-3 text-xs text-slate-400 leading-relaxed">
+                <div className="text-[10px] uppercase tracking-widest text-amber-400 mb-1">Suggested text message</div>
+                <pre className="whitespace-pre-wrap font-mono text-slate-300 text-[11px] mb-2">
 {`Hey ${form.admin_name.split(' ')[0] || 'there'} — Mike Ward.
 Got your RoadBoss account live. Install + log in:
 
@@ -502,25 +571,27 @@ Email: ${result.email}
 Pass:  ${form.admin_password}
 
 Holler if you need help. Brutal feedback welcome.`}
-              </pre>
-              <Button size="sm" variant="outline" className="mt-2 border-slate-700 text-slate-200" onClick={() => copyToClipboard(`Hey ${form.admin_name.split(' ')[0] || 'there'} — Mike Ward.\nGot your RoadBoss account live. Install + log in:\n\n${result.login_url}\nEmail: ${result.email}\nPass:  ${form.admin_password}\n\nHoller if you need help. Brutal feedback welcome.`)}>
-                <Copy className="w-3.5 h-3.5 mr-1.5" /> Copy whole text
-              </Button>
+                </pre>
+                <Button
+                  size="sm"
+                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-900 font-semibold"
+                  onClick={() => copyToClipboard(`Hey ${form.admin_name.split(' ')[0] || 'there'} — Mike Ward.\nGot your RoadBoss account live. Install + log in:\n\n${result.login_url}\nEmail: ${result.email}\nPass:  ${form.admin_password}\n\nHoller if you need help. Brutal feedback welcome.`)}
+                >
+                  <Copy className="w-3.5 h-3.5 mr-1.5" /> Copy full text message
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
-        {result?.mode === 'magic_link' && (
-          <div className="space-y-3" data-testid="super-invite-result-magic">
-            <div className="rounded-lg bg-cyan-500/10 border border-cyan-500/30 p-3 text-xs text-cyan-200">
-              🔗 Magic link generated. Expires in {result.expires_in_days} days.
+          )}
+          {result?.mode === 'magic_link' && (
+            <div className="space-y-3" data-testid="super-invite-result-magic">
+              <div className="rounded-lg bg-cyan-500/10 border border-cyan-500/30 p-2.5 text-xs text-cyan-200">
+                🔗 Magic link generated. Expires in {result.expires_in_days} days.
+              </div>
+              <CredentialRow label="Magic Link" value={result.magic_link} copy={copyToClipboard} />
             </div>
-            <CredentialRow label="Magic Link" value={result.magic_link} copy={copyToClipboard} />
-            <div className="text-[11px] text-slate-500">
-              Recipient clicks once → sets their own password → lands in their dashboard.
-            </div>
-          </div>
-        )}
-      </Card>
+          )}
+        </Card>
+      )}
     </div>
   );
 }

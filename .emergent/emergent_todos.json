@@ -1,22 +1,30 @@
 [
   {
-    "content": "Promote Mike's real account (mward5710@gmail.com) to super_admin in DB and verify",
+    "content": "Fix Building2 runtime crash that was bouncing super admin to /",
     "status": "completed"
   },
   {
-    "content": "Build Super Admin Console at /super: list tenants, users, role-bump, impersonate, invite",
+    "content": "Add big 'Enter WreckerLogix' + 'Fleet Dashboard' shortcut tiles at top of Super Admin (mobile-first)",
     "status": "completed"
   },
   {
-    "content": "Audit Copilot.jsx TTS firing — ensure every co-pilot response speaks aloud + add Test Voice button",
+    "content": "Replace narrow horizontal tabs with bigger stacked mobile-friendly tab bar",
     "status": "completed"
   },
   {
-    "content": "Investigate and patch the screen-freeze bug when mic is tapped (30s safety auto-reset)",
+    "content": "Make Invite Company form single-column on mobile — hand-off package slides in below after creation",
     "status": "completed"
   },
   {
-    "content": "Stretch: Hands-Free DVIR voice walkthrough — queued for next session",
-    "status": "pending"
+    "content": "Bump touch targets and font sizes across Super Admin page for phone readability",
+    "status": "completed"
+  },
+  {
+    "content": "Smart 'Open the App' button on Marketing header + hero (logged-in aware)",
+    "status": "completed"
+  },
+  {
+    "content": "After-login redirect: super_admin -> /super (god-mode console)",
+    "status": "completed"
   }
 ]

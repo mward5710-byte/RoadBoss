@@ -34,9 +34,11 @@ export default function Login() {
       const r = await auth.login(email, password);
       setSession(r.access_token, r.user);
       toast.success(`Welcome, ${r.user.name.split(' ')[0]}.`);
+      // Route each role to the landing page where they actually work
       if (r.user.role === 'driver') navigate('/driver');
       else if (r.user.role === 'wrecker_operator') navigate('/wrecker/me');
       else if (['wrecker_dispatcher', 'wrecker_supervisor'].includes(r.user.role)) navigate('/wrecker');
+      else if (r.user.role === 'super_admin') navigate('/super'); // god-mode console with big launcher tiles
       else navigate('/app');
     } catch (err) {
       toast.error(err?.response?.data?.detail || 'Login failed');

@@ -6,11 +6,34 @@ import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { api } from '@/lib/api';
+import { api, getUser } from '@/lib/api';
 import { toast } from 'sonner';
 
 function Section({ children, className = '' }) {
   return <section className={`max-w-6xl mx-auto px-5 ${className}`}>{children}</section>;
+}
+
+/**
+ * Smart "Open App" button — detects whether the visitor is already logged in
+ * and routes them straight to the right landing page for their role. If they
+ * aren't logged in, sends them to /login. Either way: ONE tap, no hunting.
+ */
+function OpenAppButton({ size = 'sm', fullLabel = false, dataTestId = 'nav-open-app' }) {
+  const u = typeof window !== 'undefined' ? getUser() : null;
+  const target = !u ? '/login'
+    : u.role === 'driver' ? '/driver'
+    : u.role === 'wrecker_operator' ? '/wrecker/me'
+    : ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin'].includes(u.role) ? '/wrecker'
+    : u.role === 'super_admin' ? '/super'
+    : '/app';
+  const label = u ? (fullLabel ? `Open RoadBoss · ${u.name?.split(' ')[0] || ''}` : 'Open App') : 'Open the App';
+  return (
+    <Link to={target} data-testid={dataTestId}>
+      <Button size={size} className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold">
+        <Truck className="w-3.5 h-3.5 mr-1.5" /> {label} <ArrowRight className="w-3.5 h-3.5 ml-1" />
+      </Button>
+    </Link>
+  );
 }
 
 const features = [
@@ -53,23 +76,37 @@ export default function Marketing() {
     <div className="min-h-screen text-slate-200 hp-grid-bg overflow-x-hidden">
       {/* Top nav */}
       <header className="sticky top-0 z-40 backdrop-blur bg-[#07090d]/70 border-b border-white/5">
-        <Section className="flex items-center justify-between py-3.5">
-          <Logo />
-          <nav className="hidden md:flex items-center gap-7 text-sm text-slate-400">
+        <Section className="flex items-center justify-between py-3.5 gap-2">
+          {/* Logo + inline "Open App" — Mike asked for this so Kenny sees
+              an impossible-to-miss entry point right next to the brand. */}
+          <div className="flex items-center gap-3 min-w-0">
+            <Link to="/" className="shrink-0" data-testid="marketing-home-link"><Logo /></Link>
+            <span className="hidden sm:inline-block h-6 w-px bg-white/10" />
+            <div className="hidden sm:flex items-center">
+              <OpenAppButton size="sm" dataTestId="nav-open-app-inline" />
+            </div>
+          </div>
+          <nav className="hidden lg:flex items-center gap-7 text-sm text-slate-400">
             <a href="#features" className="hover:text-white transition">Features</a>
             <a href="#roadmap" className="hover:text-white transition">Roadmap</a>
             <Link to="/pricing" className="hover:text-white transition">Pricing</Link>
             <Link to="/try" className="hover:text-white transition">Try it</Link>
-            <Link to="/roi" className="hover:text-white transition hidden md:inline">Fleet ROI</Link>
-            <Link to="/guide" className="hover:text-white transition hidden md:inline">Manual</Link>
+            <Link to="/roi" className="hover:text-white transition">Fleet ROI</Link>
+            <Link to="/guide" className="hover:text-white transition">Manual</Link>
           </nav>
           <div className="flex items-center gap-2">
-            <Link to="/investors" data-testid="nav-investor-cta">
-              <Button size="sm" className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold">
-                <Briefcase className="w-3.5 h-3.5 mr-1.5" /> For Investors
+            {/* Mobile-only: the big "Open App" tile goes here since the header gets too tight */}
+            <div className="sm:hidden">
+              <OpenAppButton size="sm" dataTestId="nav-open-app-mobile" />
+            </div>
+            <Link to="/investors" data-testid="nav-investor-cta" className="hidden sm:inline-block">
+              <Button size="sm" variant="outline" className="border-amber-500/40 bg-amber-500/5 text-amber-300 hover:bg-amber-500/10 font-semibold">
+                <Briefcase className="w-3.5 h-3.5 mr-1.5" /> Investors
               </Button>
             </Link>
-            <Link to="/login"><Button variant="ghost" size="sm" className="text-slate-300 hover:text-white">Sign in</Button></Link>
+            <Link to="/login" className="hidden sm:inline-block">
+              <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">Sign in</Button>
+            </Link>
           </div>
         </Section>
       </header>
@@ -88,13 +125,14 @@ export default function Marketing() {
             Built by truckers. Run by truckers. RoadBoss is the first all-in-one operating system for fleets — hands-free voice, truck-aware GPS that routes around low bridges and weight limits, ELD compliance, dashcam, crash detection, and an AI co-pilot that rides shotgun.
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
-            <Link to="/try"><Button size="lg" className="bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold">Try the live demo <ArrowRight className="w-4 h-4 ml-1" /></Button></Link>
+            {/* Primary CTA — Mike wants the entry point loud and clear. */}
+            <OpenAppButton size="lg" fullLabel dataTestId="hero-open-app" />
+            <Link to="/try"><Button size="lg" variant="outline" className="border-sky-400/30 bg-sky-500/5 text-sky-200 hover:bg-sky-500/10 font-semibold">Try the live demo <ArrowRight className="w-4 h-4 ml-1" /></Button></Link>
             <Link to="/investors" data-testid="hero-investor-cta">
-              <Button size="lg" className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold">
-                <Briefcase className="w-4 h-4 mr-1.5" /> For Investors: Talk to Michael
+              <Button size="lg" variant="outline" className="border-amber-400/30 bg-amber-500/5 text-amber-200 hover:bg-amber-500/10 font-semibold">
+                <Briefcase className="w-4 h-4 mr-1.5" /> Investors
               </Button>
             </Link>
-            <a href="#waitlist"><Button size="lg" variant="outline" className="border-white/15 text-slate-200 hover:bg-white/5">Join the waitlist</Button></a>
           </div>
           <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-400">
             <div className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-sky-400" /> Built for owner-operators &amp; fleets</div>
