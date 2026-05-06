@@ -24,7 +24,9 @@ db = client[os.environ['DB_NAME']]
 
 JWT_SECRET = os.environ.get('JWT_SECRET', 'highway-pilot-stealth-secret-2026-change-me')
 JWT_ALG = 'HS256'
-JWT_EXP_HOURS = 24 * 14  # 14 days
+# Long-lived sessions — Mike's request: log in once on a phone, stay logged in
+# until you swap devices. 90 days mirrors how Towbook / dispatch tools work.
+JWT_EXP_HOURS = 24 * 90  # 90 days
 
 app = FastAPI(title="Highway Pilot API", version="0.1.0")
 api_router = APIRouter(prefix="/api")

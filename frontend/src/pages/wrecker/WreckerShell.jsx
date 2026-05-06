@@ -99,15 +99,7 @@ export default function WreckerShell() {
           data-testid="wrecker-logo-link"
           onClick={() => setMobileOpen(false)}
         >
-          <img
-            src="/assets/wreckerlogix-logo.jpeg"
-            alt="Wreckerlogix"
-            className="w-10 h-10 rounded-md object-contain bg-white/[0.04] border border-white/10"
-          />
-          <div className="min-w-0">
-            <div className="text-[11px] font-bold text-white tracking-wider leading-tight">WRECKER<span className="text-amber-400">LOGIX</span></div>
-            <div className="text-[8px] uppercase tracking-widest text-slate-500 leading-tight">on RoadBoss · v0.1</div>
-          </div>
+          <WreckerLogixLogo size={36} withWordmark />
         </Link>
         {/* Close button visible only inside the mobile drawer */}
         <button
@@ -202,7 +194,8 @@ export default function WreckerShell() {
         {sidebarContents}
       </aside>
 
-      {/* MOBILE TOP BAR — hamburger + logo. Visible on phones, tablets, and iPhone landscape. */}
+      {/* MOBILE TOP BAR — WreckerLogix-branded (not RoadBoss). Mike asked
+          for clean separation between the two brands. */}
       <div className="lg:hidden fixed top-0 inset-x-0 z-30 h-12 bg-[#0a0e14]/95 backdrop-blur border-b border-white/5 flex items-center px-3 gap-3">
         <button
           type="button"
@@ -217,11 +210,7 @@ export default function WreckerShell() {
           to={role === 'wrecker_operator' ? '/wrecker/me' : '/wrecker'}
           className="flex items-center gap-2 min-w-0 flex-1"
         >
-          <img
-            src="/assets/wreckerlogix-logo.jpeg"
-            alt="Wreckerlogix"
-            className="w-7 h-7 rounded object-contain bg-white/[0.04] border border-white/10"
-          />
+          <WreckerLogixLogo size={28} withWordmark={false} />
           <div className="min-w-0">
             <div className="text-[11px] font-bold text-white tracking-wider leading-tight truncate">
               WRECKER<span className="text-amber-400">LOGIX</span>

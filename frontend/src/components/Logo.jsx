@@ -24,7 +24,7 @@ export function Logo({
   size = 32,
   withWordmark = true,
   className = '',
-  tagline = 'Wreckerlogix',
+  tagline = '',
 }) {
   if (!withWordmark) {
     return (

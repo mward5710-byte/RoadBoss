@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { api, getUser } from '@/lib/api';
 import { toast } from 'sonner';
+import { WreckerLogixLogo } from '@/components/WreckerLogixLogo';
 
 function Section({ children, className = '' }) {
   return <section className={`max-w-6xl mx-auto px-5 ${className}`}>{children}</section>;
@@ -31,6 +32,23 @@ function OpenAppButton({ size = 'sm', fullLabel = false, dataTestId = 'nav-open-
     <Link to={target} data-testid={dataTestId}>
       <Button size={size} className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold">
         <Truck className="w-3.5 h-3.5 mr-1.5" /> {label} <ArrowRight className="w-3.5 h-3.5 ml-1" />
+      </Button>
+    </Link>
+  );
+}
+
+/**
+ * Dedicated "Open WreckerLogix" entry — Mike asked for a clearly-labeled
+ * way for towing companies (Kenny etc.) to slide straight into the wrecker
+ * side. Uses the WreckerLogix brand (NOT RoadBoss).
+ */
+function OpenWreckerButton({ size = 'sm', dataTestId = 'nav-open-wrecker' }) {
+  const u = typeof window !== 'undefined' ? getUser() : null;
+  const target = !u ? '/login?next=/wrecker' : '/wrecker';
+  return (
+    <Link to={target} data-testid={dataTestId}>
+      <Button size={size} variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20 font-semibold">
+        <Wrench className="w-3.5 h-3.5 mr-1.5" /> Towing &amp; Recovery <ArrowRight className="w-3.5 h-3.5 ml-1" />
       </Button>
     </Link>
   );
@@ -125,11 +143,14 @@ export default function Marketing() {
             Built by truckers. Run by truckers. RoadBoss is the first all-in-one operating system for fleets — hands-free voice, truck-aware GPS that routes around low bridges and weight limits, ELD compliance, dashcam, crash detection, and an AI co-pilot that rides shotgun.
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
-            {/* Primary CTA — Mike wants the entry point loud and clear. */}
+            {/* TWO labeled entry points, per Mike's request:
+                - "Open the App" = RoadBoss (umbrella / fleet)
+                - "Towing & Recovery" = WreckerLogix (the wrecker side)
+                Crystal clear which door to walk through. */}
             <OpenAppButton size="lg" fullLabel dataTestId="hero-open-app" />
-            <Link to="/try"><Button size="lg" variant="outline" className="border-sky-400/30 bg-sky-500/5 text-sky-200 hover:bg-sky-500/10 font-semibold">Try the live demo <ArrowRight className="w-4 h-4 ml-1" /></Button></Link>
+            <OpenWreckerButton size="lg" dataTestId="hero-open-wrecker" />
             <Link to="/investors" data-testid="hero-investor-cta">
-              <Button size="lg" variant="outline" className="border-amber-400/30 bg-amber-500/5 text-amber-200 hover:bg-amber-500/10 font-semibold">
+              <Button size="lg" variant="ghost" className="text-amber-200/80 hover:text-amber-200 hover:bg-amber-500/5 font-semibold">
                 <Briefcase className="w-4 h-4 mr-1.5" /> Investors
               </Button>
             </Link>
