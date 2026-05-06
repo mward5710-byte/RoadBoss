@@ -3954,47 +3954,53 @@ async def on_startup():
             logger.info(f'Wrecker seed: {result}')
         except Exception as e:
             logger.error(f'Wrecker seed failed: {e}')
-        # FOUNDER BOOTSTRAP — guarantees Mike (or whoever owns FOUNDER_EMAIL)
+        # FOUNDER BOOTSTRAP — guarantees Mike (or whoever owns FOUNDER_EMAILS)
         # can always log in to production as super_admin even if the DB was
         # wiped, migrated, or freshly deployed. Idempotent: creates if missing,
         # promotes to super_admin + resets password if the env vars change.
+        #
+        # Mike's reality: he runs multiple LLCs (Alex Epoxy Flooring, RoadBoss
+        # Enterprise, etc) — each w/ its own corporate gmail. We want ALL of
+        # them to be super_admin keys so he's never locked out depending on
+        # which inbox he's in. Comma-separate emails in FOUNDER_EMAILS.
         try:
-            founder_email = os.environ.get('FOUNDER_EMAIL', 'mward5710@gmail.com').lower().strip()
+            # Back-compat: support old FOUNDER_EMAIL singular var too.
+            raw = os.environ.get('FOUNDER_EMAILS') or os.environ.get('FOUNDER_EMAIL') or 'mward5710@gmail.com,alexepoxyflooringllc@gmail.com'
+            founder_emails = [e.strip().lower() for e in raw.split(',') if e.strip()]
             founder_password = os.environ.get('FOUNDER_PASSWORD', 'HighwayPilot2026!')
             founder_name = os.environ.get('FOUNDER_NAME', 'Mike Ward')
-            if founder_email and founder_password:
-                existing = await db.users.find_one({'email': founder_email})
+            lock_active = os.environ.get('FOUNDER_LOCK') == '1'
+            for fe in founder_emails:
+                if not fe or not founder_password:
+                    continue
+                existing = await db.users.find_one({'email': fe})
                 if not existing:
                     new_user = {
                         'id': str(uuid.uuid4()),
-                        'email': founder_email,
+                        'email': fe,
                         'name': founder_name,
                         'role': 'super_admin',
                         'password_hash': hash_password(founder_password),
                         'created_at': now_utc().isoformat(),
                     }
                     await db.users.insert_one(new_user)
-                    logger.info(f'Founder bootstrap: created super_admin {founder_email}')
+                    logger.info(f'Founder bootstrap: created super_admin {fe}')
                 else:
-                    # Force-sync role + password every boot so Mike is never
-                    # locked out. If you want to STOP the auto-reset of the
-                    # password (e.g. after Mike picks his own), set the env
-                    # var FOUNDER_LOCK=1 in production.
-                    if os.environ.get('FOUNDER_LOCK') != '1':
+                    if not lock_active:
                         await db.users.update_one(
-                            {'email': founder_email},
+                            {'email': fe},
                             {'$set': {
                                 'role': 'super_admin',
                                 'password_hash': hash_password(founder_password),
                             }}
                         )
-                        logger.info(f'Founder bootstrap: synced super_admin role + password for {founder_email}')
+                        logger.info(f'Founder bootstrap: synced super_admin role + password for {fe}')
                     elif existing.get('role') != 'super_admin':
                         await db.users.update_one(
-                            {'email': founder_email},
+                            {'email': fe},
                             {'$set': {'role': 'super_admin'}}
                         )
-                        logger.info(f'Founder bootstrap: promoted {founder_email} to super_admin (lock active)')
+                        logger.info(f'Founder bootstrap: promoted {fe} to super_admin (lock active)')
         except Exception as e:
             logger.error(f'Founder bootstrap failed (non-fatal): {e}')
         # Indexes for OAuth state cleanup + tenant_integrations uniqueness
