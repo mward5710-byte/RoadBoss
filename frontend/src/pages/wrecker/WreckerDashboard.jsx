@@ -41,18 +41,38 @@ const PRIORITY_COLORS = {
 
 const BOARD_STATUSES = ['pending', 'assigned', 'en_route', 'on_scene', 'in_progress', 'completed'];
 
-function Kpi({ icon: Icon, label, value, sub, accent = 'amber' }) {
+function Kpi({ icon: Icon, label, value, sub, accent = 'amber', onClick }) {
   const accents = {
     amber: 'text-amber-300 bg-amber-500/10 border-amber-500/30',
     sky: 'text-sky-300 bg-sky-500/10 border-sky-500/30',
     red: 'text-red-300 bg-red-500/10 border-red-500/30',
     green: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30',
   };
+  const isClickable = typeof onClick === 'function';
+  const interactiveClasses = isClickable
+    ? 'cursor-pointer transition-transform duration-200 hover:-translate-y-0.5 hover:border-amber-500/40 hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60 group'
+    : '';
+  const handleKey = (e) => {
+    if (!isClickable) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick();
+    }
+  };
   return (
-    <div className="hp-panel rounded-xl p-4" data-testid={`kpi-${label.toLowerCase().replace(/\s+/g, '-')}`}>
+    <div
+      role={isClickable ? 'button' : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      onClick={isClickable ? onClick : undefined}
+      onKeyDown={handleKey}
+      className={`hp-panel rounded-xl p-4 ${interactiveClasses}`}
+      data-testid={`kpi-${label.toLowerCase().replace(/\s+/g, '-')}`}
+    >
       <div className="flex items-start justify-between">
         <div className={`w-9 h-9 rounded-lg border flex items-center justify-center ${accents[accent]}`}><Icon className="w-4 h-4" /></div>
-        <ArrowUpRight className="w-4 h-4 text-slate-600" />
+        {isClickable && (
+          <ArrowUpRight className="w-4 h-4 text-slate-500 transition-transform duration-200 group-hover:text-amber-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+        )}
       </div>
       <div className="mt-4 text-3xl font-semibold text-white">{value}</div>
       <div className="text-xs uppercase tracking-wider text-slate-500 mt-1">{label}</div>
@@ -152,6 +172,7 @@ function JobCard({ job, onAdvance, onSelectForAssign, isSelected }) {
 }
 
 export default function WreckerDashboard() {
+  const navigate = useNavigate();
   const [overview, setOverview] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -230,10 +251,41 @@ export default function WreckerDashboard() {
 
       {overview && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Kpi icon={Activity} label="Active jobs" value={overview.active_jobs?.length || 0} sub="in progress now" accent="amber" />
-          <Kpi icon={Truck} label="Today completed" value={overview.today_completed} sub="jobs delivered" accent="green" />
-          <Kpi icon={DollarSign} label="Today revenue" value={`$${(overview.today_revenue || 0).toFixed(0)}`} sub="from completed jobs" accent="sky" />
-          <Kpi icon={Lock} label="Active impounds" value={overview.active_impounds} sub="vehicles stored" accent="red" />
+          <Kpi
+            icon={Activity}
+            label="Active jobs"
+            value={overview.active_jobs?.length || 0}
+            sub="in progress now — view board"
+            accent="amber"
+            onClick={() => {
+              const el = document.querySelector('[data-testid="dispatch-board"]');
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+          />
+          <Kpi
+            icon={Truck}
+            label="Today completed"
+            value={overview.today_completed}
+            sub="jobs delivered — open billing"
+            accent="green"
+            onClick={() => navigate('/wrecker/billing')}
+          />
+          <Kpi
+            icon={DollarSign}
+            label="Today revenue"
+            value={`$${(overview.today_revenue || 0).toFixed(0)}`}
+            sub="from completed jobs — open billing"
+            accent="sky"
+            onClick={() => navigate('/wrecker/billing')}
+          />
+          <Kpi
+            icon={Lock}
+            label="Active impounds"
+            value={overview.active_impounds}
+            sub="vehicles stored — open impound"
+            accent="red"
+            onClick={() => navigate('/wrecker/impound')}
+          />
         </motion.div>
       )}
 
