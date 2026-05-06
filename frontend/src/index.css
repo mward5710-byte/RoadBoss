@@ -61,7 +61,7 @@ body {
   body { @apply bg-background text-foreground; }
 }
 
-/* === Highway Pilot custom utilities === */
+/* === RoadBoss custom utilities === */
 .hp-grid-bg {
   background-image:
     radial-gradient(ellipse 80% 60% at 50% -10%, rgba(56,189,248,0.10), transparent 60%),
