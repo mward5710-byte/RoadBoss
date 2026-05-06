@@ -346,6 +346,13 @@ const Centered = ({ children }) => (
 const Header = ({ data }) => (
   <div className="text-center pt-4 pb-2">
     <div className="text-[11px] uppercase tracking-widest text-amber-600">Tow Service Payment</div>
-    <div className="text-2xl font-bold text-slate-900 mt-1">{data.company_name}</div>
+    <div className="text-2xl font-bold text-slate-900 mt-1" data-testid="pay-company-name">{data.company_name}</div>
+    {(data.company_phone || data.company_email || data.company_location) && (
+      <div className="text-xs text-slate-500 mt-1.5 space-x-2" data-testid="pay-company-contact">
+        {data.company_phone && <span>{data.company_phone}</span>}
+        {data.company_email && <><span className="text-slate-300">·</span><span>{data.company_email}</span></>}
+        {data.company_location && <><span className="text-slate-300">·</span><span>{data.company_location}</span></>}
+      </div>
+    )}
   </div>
 );

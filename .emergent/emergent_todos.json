@@ -1,22 +1,38 @@
 [
   {
-    "content": "Phase 8a — Backend Square OAuth",
+    "content": "Backend: tenant business_profile model + GET/PUT endpoints",
     "status": "completed"
   },
   {
-    "content": "Phase 8b — Settings page + Connect with Square",
+    "content": "Backend: accounting endpoints (overview/revenue/expenses/payroll) + CSV exports",
     "status": "completed"
   },
   {
-    "content": "Phase 8c — Web Payments SDK in Cockpit (Card + Apple Pay)",
+    "content": "Backend: photo vault endpoint with date/plate/stage/text filters",
     "status": "completed"
   },
   {
-    "content": "Phase 8d — Customer-facing /pay/:token page (SMS/email tap-to-pay)",
+    "content": "Frontend: Business Profile card on Settings page (above Integrations)",
     "status": "completed"
   },
   {
-    "content": "Receipt sender now generates real pay-link URL when include_payment_link=true",
+    "content": "Frontend: /wrecker/accounting page with period picker, 4 tabs, CSV downloads",
+    "status": "completed"
+  },
+  {
+    "content": "Frontend: /wrecker/photos page — searchable gallery, lightbox, download, link to job",
+    "status": "completed"
+  },
+  {
+    "content": "Sidebar: split into OPERATIONS and OFFICE groups with section headers",
+    "status": "completed"
+  },
+  {
+    "content": "Wire business_profile into public pay page (company name + phone + email + location on header)",
+    "status": "completed"
+  },
+  {
+    "content": "End-to-end manual test (CSV download, tab switching, period changes, all 3 new pages)",
     "status": "completed"
   }
 ]

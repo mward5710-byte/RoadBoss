@@ -3,22 +3,38 @@ import { Outlet, NavLink, useNavigate, Link, Navigate, useLocation } from 'react
 import {
   LayoutDashboard, Truck, Lock, Building2, Fuel, CreditCard, LogOut,
   User, BookOpen, Mic, Wrench, Users, Briefcase, Clock, Settings,
+  BarChart3, Camera,
 } from 'lucide-react';
 import { auth, getUser } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 
-const ALL_NAV = [
-  { to: '/wrecker',            icon: LayoutDashboard, label: 'Dispatch Board', end: true,  roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-  { to: '/wrecker/me',         icon: Truck,           label: 'My Calls',       end: true,  roles: ['wrecker_operator'] },
-  { to: '/wrecker/jobs/new',   icon: Truck,           label: 'New Tow Job',                  roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-  { to: '/wrecker/clock',      icon: Clock,           label: 'Time Clock',                    roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_operator'] },
-  { to: '/wrecker/trucks',     icon: Wrench,          label: 'Trucks',                        roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_operator'] },
-  { to: '/wrecker/impound',    icon: Lock,            label: 'Impound',                       roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-  { to: '/wrecker/accounts',   icon: Briefcase,       label: 'Accounts',                      roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-  { to: '/wrecker/clubs',      icon: Building2,       label: 'Motor Clubs',                   roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-  { to: '/wrecker/fuel',       icon: Fuel,            label: 'Fuel',                          roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_operator'] },
-  { to: '/wrecker/billing',    icon: CreditCard,      label: 'Billing',                       roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-  { to: '/wrecker/settings',   icon: Settings,        label: 'Settings',                      roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+// Sidebar nav grouped into sections:
+//   OPERATIONS — day-to-day dispatch + driving stuff
+//   OFFICE     — back-office stuff your wife / bookkeeper lives in (accounting, photos, settings)
+const NAV_GROUPS = [
+  {
+    section: 'Operations',
+    items: [
+      { to: '/wrecker',            icon: LayoutDashboard, label: 'Dispatch Board', end: true,  roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { to: '/wrecker/me',         icon: Truck,           label: 'My Calls',       end: true,  roles: ['wrecker_operator'] },
+      { to: '/wrecker/jobs/new',   icon: Truck,           label: 'New Tow Job',                  roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { to: '/wrecker/clock',      icon: Clock,           label: 'Time Clock',                    roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_operator'] },
+      { to: '/wrecker/trucks',     icon: Wrench,          label: 'Trucks',                        roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_operator'] },
+      { to: '/wrecker/impound',    icon: Lock,            label: 'Impound',                       roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { to: '/wrecker/accounts',   icon: Briefcase,       label: 'Accounts',                      roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { to: '/wrecker/clubs',      icon: Building2,       label: 'Motor Clubs',                   roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { to: '/wrecker/fuel',       icon: Fuel,            label: 'Fuel',                          roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_operator'] },
+    ],
+  },
+  {
+    section: 'Office',
+    items: [
+      { to: '/wrecker/billing',    icon: CreditCard,      label: 'Billing',                       roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { to: '/wrecker/accounting', icon: BarChart3,       label: 'Accounting',                    roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { to: '/wrecker/photos',     icon: Camera,          label: 'Photo Vault',                   roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { to: '/wrecker/settings',   icon: Settings,        label: 'Settings',                      roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+    ],
+  },
 ];
 
 const ROLE_LABEL = {
@@ -49,7 +65,10 @@ export default function WreckerShell() {
     return <Navigate to="/wrecker/me" replace />;
   }
 
-  const visibleNav = ALL_NAV.filter((n) => n.roles.includes(role) || role === 'super_admin');
+  const visibleGroups = NAV_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((n) => n.roles.includes(role) || role === 'super_admin'),
+  })).filter((g) => g.items.length > 0);
 
   return (
     <div className="min-h-screen flex bg-[#07090d]">
@@ -72,13 +91,21 @@ export default function WreckerShell() {
             {ROLE_LABEL[role] || role}
           </span>
         </div>
-        <nav className="flex-1 p-3 space-y-1">
-          {visibleNav.map((n) => (
-            <NavLink data-testid={`wrecker-nav-${n.label.toLowerCase().replace(/\s+/g, '-')}`} key={n.to} to={n.to} end={n.end}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition ${isActive ? 'bg-amber-500/15 text-amber-200 border border-amber-500/25' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>
-              <n.icon className="w-4 h-4" /> {n.label}
-            </NavLink>
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+          {visibleGroups.map((group, gi) => (
+            <div key={group.section} className={gi > 0 ? 'pt-3 mt-2 border-t border-white/5' : ''}>
+              <div className="text-[9px] uppercase tracking-widest text-slate-600 font-semibold px-3 py-1.5"
+                   data-testid={`wrecker-nav-section-${group.section.toLowerCase()}`}>
+                {group.section}
+              </div>
+              {group.items.map((n) => (
+                <NavLink data-testid={`wrecker-nav-${n.label.toLowerCase().replace(/\s+/g, '-')}`} key={n.to} to={n.to} end={n.end}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition ${isActive ? 'bg-amber-500/15 text-amber-200 border border-amber-500/25' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>
+                  <n.icon className="w-4 h-4" /> {n.label}
+                </NavLink>
+              ))}
+            </div>
           ))}
           <div className="pt-3 mt-3 border-t border-white/5">
             <Link

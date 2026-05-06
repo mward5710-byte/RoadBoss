@@ -2,11 +2,13 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   CreditCard, CheckCircle2, AlertCircle, ExternalLink, Loader2, Power,
-  Building2, MapPin, Shield, Settings as SettingsIcon, RefreshCw,
+  Building2, MapPin, Shield, Settings as SettingsIcon, RefreshCw, Save, Briefcase, Phone, Mail, Hash, Percent, DollarSign as DollarIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -17,6 +19,180 @@ import {
 } from '@/components/ui/alert-dialog';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
+
+function BusinessProfileCard() {
+  const [profile, setProfile] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.get('/wrecker/settings/business-profile');
+      setProfile(r.data);
+    } catch (e) {
+      toast.error('Failed to load business profile');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await api.put('/wrecker/settings/business-profile', profile);
+      setProfile(r.data);
+      toast.success('Business profile saved. This is what customers will see on receipts.');
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const f = (k, v) => setProfile((p) => ({ ...(p || {}), [k]: v }));
+
+  if (loading) {
+    return (
+      <Card className="bg-[#0d1218] border-white/5 p-5 mb-4">
+        <div className="flex items-center gap-2 text-slate-400 text-sm">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading business profile…
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card data-testid="business-profile-card" className="bg-[#0d1218] border-white/5 p-0 overflow-hidden mb-4">
+      <div className="p-5 border-b border-white/5">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shrink-0">
+            <Briefcase className="w-5 h-5 text-amber-300" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-semibold text-white">Business Profile</h2>
+            <p className="text-sm text-slate-400 mt-0.5">
+              This is the company info customers see on receipts, payment links, and damage forms. Edit it once — it propagates everywhere.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-5 space-y-5">
+        {/* Identity */}
+        <div className="space-y-3">
+          <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Identity</div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Field label="Legal Company Name" testid="bp-company-name">
+              <Input value={profile?.company_name || ''} onChange={(e) => f('company_name', e.target.value)}
+                     placeholder="Apex Epoxy & Flooring LLC" data-testid="bp-input-company-name" className="bg-[#0a0e14] border-white/10 text-white" />
+            </Field>
+            <Field label="Operating As (DBA)" testid="bp-dba">
+              <Input value={profile?.dba_name || ''} onChange={(e) => f('dba_name', e.target.value)}
+                     placeholder="Wreckerlogix" data-testid="bp-input-dba" className="bg-[#0a0e14] border-white/10 text-white" />
+            </Field>
+            <Field label="Owner / Primary Contact" testid="bp-owner">
+              <Input value={profile?.owner_name || ''} onChange={(e) => f('owner_name', e.target.value)}
+                     placeholder="Michael Ward" data-testid="bp-input-owner" className="bg-[#0a0e14] border-white/10 text-white" />
+            </Field>
+            <Field label="State License / DOT #" testid="bp-license">
+              <Input value={profile?.license_number || ''} onChange={(e) => f('license_number', e.target.value)}
+                     placeholder="optional" data-testid="bp-input-license" className="bg-[#0a0e14] border-white/10 text-white" />
+            </Field>
+          </div>
+        </div>
+
+        {/* Contact */}
+        <div className="space-y-3">
+          <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Contact (used on receipts &amp; SMS)</div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Field label="Phone" icon={Phone} testid="bp-phone">
+              <Input value={profile?.phone || ''} onChange={(e) => f('phone', e.target.value)}
+                     placeholder="(765) 555-0100" data-testid="bp-input-phone" className="bg-[#0a0e14] border-white/10 text-white" />
+            </Field>
+            <Field label="Email" icon={Mail} testid="bp-email">
+              <Input type="email" value={profile?.email || ''} onChange={(e) => f('email', e.target.value)}
+                     placeholder="dispatch@yourcompany.com" data-testid="bp-input-email" className="bg-[#0a0e14] border-white/10 text-white" />
+            </Field>
+            <Field label="Website (optional)" testid="bp-website" full>
+              <Input value={profile?.website || ''} onChange={(e) => f('website', e.target.value)}
+                     placeholder="https://wrecker-logix.com" data-testid="bp-input-website" className="bg-[#0a0e14] border-white/10 text-white" />
+            </Field>
+          </div>
+        </div>
+
+        {/* Address */}
+        <div className="space-y-3">
+          <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Address &amp; Storage Yard</div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Field label="Street Address" testid="bp-street" full>
+              <Input value={profile?.street || ''} onChange={(e) => f('street', e.target.value)}
+                     placeholder="1200 W Markland Ave" data-testid="bp-input-street" className="bg-[#0a0e14] border-white/10 text-white" />
+            </Field>
+            <Field label="City" testid="bp-city">
+              <Input value={profile?.city || ''} onChange={(e) => f('city', e.target.value)}
+                     placeholder="Kokomo" data-testid="bp-input-city" className="bg-[#0a0e14] border-white/10 text-white" />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="State" testid="bp-state">
+                <Input value={profile?.state || ''} onChange={(e) => f('state', e.target.value.toUpperCase().slice(0, 2))}
+                       placeholder="IN" maxLength={2} data-testid="bp-input-state" className="bg-[#0a0e14] border-white/10 text-white" />
+              </Field>
+              <Field label="ZIP" testid="bp-zip">
+                <Input value={profile?.zip_code || ''} onChange={(e) => f('zip_code', e.target.value)}
+                       placeholder="46901" data-testid="bp-input-zip" className="bg-[#0a0e14] border-white/10 text-white" />
+              </Field>
+            </div>
+            <Field label="Storage Yard Address (if different)" testid="bp-yard" full>
+              <Input value={profile?.storage_yard_address || ''} onChange={(e) => f('storage_yard_address', e.target.value)}
+                     placeholder="Where impounded vehicles are kept (optional)" data-testid="bp-input-yard" className="bg-[#0a0e14] border-white/10 text-white" />
+            </Field>
+          </div>
+        </div>
+
+        {/* Rates */}
+        <div className="space-y-3">
+          <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Default Rates &amp; Hours</div>
+          <div className="grid sm:grid-cols-3 gap-3">
+            <Field label="Daily Impound Rate" icon={DollarIcon} testid="bp-rate">
+              <Input type="number" step="0.01" value={profile?.daily_impound_rate ?? 50}
+                     onChange={(e) => f('daily_impound_rate', parseFloat(e.target.value) || 0)}
+                     data-testid="bp-input-rate" className="bg-[#0a0e14] border-white/10 text-white" />
+            </Field>
+            <Field label="Sales Tax %" icon={Percent} testid="bp-tax">
+              <Input type="number" step="0.01" value={profile?.tax_rate_pct ?? 7}
+                     onChange={(e) => f('tax_rate_pct', parseFloat(e.target.value) || 0)}
+                     data-testid="bp-input-tax" className="bg-[#0a0e14] border-white/10 text-white" />
+            </Field>
+            <Field label="Hours of Operation" testid="bp-hours">
+              <Input value={profile?.hours_of_operation || ''} onChange={(e) => f('hours_of_operation', e.target.value)}
+                     placeholder="24/7 or M-F 8a-6p" data-testid="bp-input-hours" className="bg-[#0a0e14] border-white/10 text-white" />
+            </Field>
+          </div>
+        </div>
+
+        <div className="pt-2 border-t border-white/5 flex items-center justify-between flex-wrap gap-2">
+          <div className="text-[11px] text-slate-500">Changes save immediately and apply to all new receipts &amp; payment links.</div>
+          <Button data-testid="bp-save-btn" onClick={save} disabled={saving} className="bg-amber-500 text-black hover:bg-amber-400 font-semibold">
+            {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving…</> : <><Save className="w-4 h-4 mr-2" /> Save Profile</>}
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function Field({ label, icon: Icon, children, testid, full }) {
+  return (
+    <div className={full ? 'sm:col-span-2' : ''} data-testid={testid}>
+      <Label className="text-[11px] uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1.5">
+        {Icon && <Icon className="w-3 h-3 text-slate-500" />} {label}
+      </Label>
+      {children}
+    </div>
+  );
+}
 
 export default function WreckerSettings() {
   const [params, setParams] = useSearchParams();
@@ -123,6 +299,9 @@ export default function WreckerSettings() {
           Connect your business accounts so Wreckerlogix can process payments, send receipts, and route money straight to your bank.
         </p>
       </div>
+
+      {/* Business Profile (above Integrations) */}
+      <BusinessProfileCard />
 
       {/* Square Card */}
       <Card data-testid="square-integration-card" className="bg-[#0d1218] border-white/5 p-0 overflow-hidden">

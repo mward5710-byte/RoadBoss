@@ -91,9 +91,24 @@ def build_public_pay_router(db) -> APIRouter:
         except Exception as e:
             logger.warning("Failed to load tenant Square creds: %s", e)
 
-        # Fetch company name from waiver template
-        tpl = await db.fleet_waiver_templates.find_one({'fleet_id': 'default'})
-        company_name = (tpl or {}).get('company_name') or 'Wrecker Service'
+        # Fetch company info — prefer tenant Business Profile (Settings page),
+        # fall back to waiver template for backwards compat.
+        profile = await db.tenant_settings.find_one({'tenant_id': 'default'}) or {}
+        tpl = await db.fleet_waiver_templates.find_one({'fleet_id': 'default'}) or {}
+        company_name = (
+            profile.get('company_name')
+            or profile.get('dba_name')
+            or tpl.get('company_name')
+            or 'Wrecker Service'
+        )
+        company_phone = profile.get('phone') or ''
+        company_email = profile.get('email') or ''
+        # Build a one-line address from the profile pieces (city/state/zip is enough — privacy)
+        bits = []
+        if profile.get('city'): bits.append(profile['city'])
+        if profile.get('state'): bits.append(profile['state'])
+        if profile.get('zip_code'): bits.append(profile['zip_code'])
+        company_location = ', '.join(bits) if len(bits) >= 2 else ' '.join(bits)
 
         v = job.get('vehicle') or {}
         veh_label = ' '.join(
@@ -106,6 +121,9 @@ def build_public_pay_router(db) -> APIRouter:
                 'token': token,
                 'job_short_id': link['job_id'][:8].upper(),
                 'company_name': company_name,
+                'company_phone': company_phone,
+                'company_email': company_email,
+                'company_location': company_location,
                 'vehicle_label': veh_label,
                 'plate': v.get('plate'),
                 'invoice_total': invoice_total,
@@ -120,6 +138,9 @@ def build_public_pay_router(db) -> APIRouter:
                 'token': token,
                 'job_short_id': link['job_id'][:8].upper(),
                 'company_name': company_name,
+                'company_phone': company_phone,
+                'company_email': company_email,
+                'company_location': company_location,
                 'vehicle_label': veh_label,
                 'plate': v.get('plate'),
                 'invoice_total': invoice_total,
@@ -133,6 +154,9 @@ def build_public_pay_router(db) -> APIRouter:
             'token': token,
             'job_short_id': link['job_id'][:8].upper(),
             'company_name': company_name,
+            'company_phone': company_phone,
+            'company_email': company_email,
+            'company_location': company_location,
             'vehicle_label': veh_label,
             'plate': v.get('plate'),
             'invoice_total': invoice_total,

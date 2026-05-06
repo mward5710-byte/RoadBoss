@@ -2200,6 +2200,458 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         )
         return {'ok': True, 'refund': refund_record, 'totals': totals, 'square_status': data.get('status')}
 
+    # =========================================================
+    # OFFICE — Business Profile, Accounting, Photo Vault
+    # =========================================================
+    # `tenant_settings` collection (singleton per fleet — keyed by tenant_id='default'
+    # for now since RoadBoss is single-tenant per deployment; multi-tenant ready).
+    # ---------------------------------------------------------
+
+    DEFAULT_TENANT_ID = 'default'
+
+    class BusinessProfileIn(BaseModel):
+        company_name: Optional[str] = None
+        dba_name: Optional[str] = None  # "operating as"
+        owner_name: Optional[str] = None
+        phone: Optional[str] = None
+        email: Optional[str] = None
+        website: Optional[str] = None
+        street: Optional[str] = None
+        city: Optional[str] = None
+        state: Optional[str] = None
+        zip_code: Optional[str] = None
+        storage_yard_address: Optional[str] = None
+        daily_impound_rate: Optional[float] = None
+        tax_rate_pct: Optional[float] = None
+        hours_of_operation: Optional[str] = None
+        license_number: Optional[str] = None  # state tow license / DOT
+
+    @router.get('/settings/business-profile')
+    async def get_business_profile(user=Depends(require_wrecker)):
+        doc = await db.tenant_settings.find_one({'tenant_id': DEFAULT_TENANT_ID}, {'_id': 0})
+        if not doc:
+            return {
+                'company_name': '', 'dba_name': '', 'owner_name': '',
+                'phone': '', 'email': '', 'website': '',
+                'street': '', 'city': '', 'state': '', 'zip_code': '',
+                'storage_yard_address': '', 'daily_impound_rate': 50.0,
+                'tax_rate_pct': 7.0, 'hours_of_operation': '24/7',
+                'license_number': '',
+            }
+        # Strip non-profile fields
+        return {k: v for k, v in doc.items() if k not in ('tenant_id', 'updated_at', 'updated_by')}
+
+    @router.put('/settings/business-profile')
+    async def update_business_profile(body: BusinessProfileIn, user=Depends(require_dispatcher)):
+        payload = {k: v for k, v in body.model_dump().items() if v is not None}
+        payload['updated_at'] = _now()
+        payload['updated_by'] = user['id']
+        await db.tenant_settings.update_one(
+            {'tenant_id': DEFAULT_TENANT_ID},
+            {'$set': payload, '$setOnInsert': {'tenant_id': DEFAULT_TENANT_ID, 'created_at': _now()}},
+            upsert=True,
+        )
+        doc = await db.tenant_settings.find_one({'tenant_id': DEFAULT_TENANT_ID}, {'_id': 0})
+        return {k: v for k, v in (doc or {}).items() if k not in ('tenant_id', 'updated_at', 'updated_by')}
+
+    # ---------- Accounting ----------
+    def _parse_period(period: Optional[str], start: Optional[str], end: Optional[str]):
+        """Parse period = 'this_month'|'last_month'|'ytd'|'last_30'|'custom'.
+        For custom, expects ISO start/end. Returns (start_dt, end_dt, label)."""
+        now = _now()
+        today = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+        if period == 'this_month':
+            s = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+            e = today + timedelta(days=1)
+            return s, e, f"{s.strftime('%B %Y')} (MTD)"
+        if period == 'last_month':
+            first_this = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+            last_month_end = first_this
+            last_month_start = (first_this - timedelta(days=1)).replace(day=1)
+            return last_month_start, last_month_end, last_month_start.strftime('%B %Y')
+        if period == 'ytd':
+            s = datetime(now.year, 1, 1, tzinfo=timezone.utc)
+            e = today + timedelta(days=1)
+            return s, e, f"{now.year} YTD"
+        if period == 'last_30':
+            s = today - timedelta(days=30)
+            e = today + timedelta(days=1)
+            return s, e, "Last 30 days"
+        if period == 'custom' and start and end:
+            try:
+                s = datetime.fromisoformat(start.replace('Z', '+00:00'))
+                e = datetime.fromisoformat(end.replace('Z', '+00:00')) + timedelta(days=1)
+                return s, e, f"{s.strftime('%b %d')} – {(e - timedelta(days=1)).strftime('%b %d, %Y')}"
+            except Exception:
+                pass
+        # Default: this month
+        s = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+        e = today + timedelta(days=1)
+        return s, e, f"{s.strftime('%B %Y')} (MTD)"
+
+    async def _accounting_revenue(start_dt: datetime, end_dt: datetime):
+        """Revenue from completed tow jobs in the period."""
+        jobs = []
+        cursor = db.tow_jobs.find({
+            'status': 'completed',
+            'completed_at': {'$gte': start_dt, '$lt': end_dt},
+        }).sort('completed_at', -1)
+        async for j in cursor:
+            jobs.append(j)
+        # Fallback for legacy completed jobs that only have updated_at
+        if not jobs:
+            cursor2 = db.tow_jobs.find({
+                'status': 'completed',
+                'updated_at': {'$gte': start_dt, '$lt': end_dt},
+            }).sort('updated_at', -1)
+            async for j in cursor2:
+                jobs.append(j)
+        items = []
+        total = 0.0
+        paid = 0.0
+        outstanding = 0.0
+        by_motor_club: Dict[str, float] = {}
+        for j in jobs:
+            amount = float(j.get('final_price') or j.get('quoted_price') or 0)
+            payments = j.get('payments') or []
+            paid_amt = sum(float(p.get('amount') or 0) for p in payments if p.get('type') != 'refund')
+            refund_amt = sum(float(p.get('amount') or 0) for p in payments if p.get('type') == 'refund')
+            net_paid = max(0.0, paid_amt - refund_amt)
+            total += amount
+            paid += net_paid
+            outstanding += max(0.0, amount - net_paid)
+            mc = (j.get('motor_club') or {}).get('name') or 'Cash / Direct'
+            by_motor_club[mc] = round(by_motor_club.get(mc, 0.0) + amount, 2)
+            items.append({
+                'job_id': j.get('id'),
+                'date': (j.get('completed_at') or j.get('updated_at') or _now()).isoformat(),
+                'customer': (j.get('customer') or {}).get('name') or '',
+                'vehicle': f"{(j.get('vehicle') or {}).get('year','')} {(j.get('vehicle') or {}).get('make','')} {(j.get('vehicle') or {}).get('model','')}".strip(),
+                'plate': (j.get('vehicle') or {}).get('plate') or '',
+                'service': j.get('service_type') or '',
+                'motor_club': mc,
+                'amount': round(amount, 2),
+                'paid': round(net_paid, 2),
+                'outstanding': round(max(0.0, amount - net_paid), 2),
+                'payment_status': 'paid' if amount > 0 and net_paid >= amount else ('partial' if net_paid > 0 else 'unpaid'),
+            })
+        return {
+            'total': round(total, 2),
+            'paid': round(paid, 2),
+            'outstanding': round(outstanding, 2),
+            'job_count': len(items),
+            'by_motor_club': [{'name': k, 'amount': v} for k, v in sorted(by_motor_club.items(), key=lambda kv: -kv[1])],
+            'items': items,
+        }
+
+    async def _accounting_expenses(start_dt: datetime, end_dt: datetime):
+        """Truck expenses + fuel transactions in the period."""
+        items = []
+        total = 0.0
+        by_category: Dict[str, float] = {}
+        # Truck expenses (maintenance, repairs, insurance, etc.)
+        async for ex in db.truck_expenses.find({'date': {'$gte': start_dt, '$lt': end_dt}}, {'_id': 0}):
+            amt = float(ex.get('amount') or 0)
+            total += amt
+            cat = ex.get('category') or 'other'
+            by_category[cat] = round(by_category.get(cat, 0.0) + amt, 2)
+            d = ex.get('date')
+            items.append({
+                'id': ex.get('id'),
+                'date': d.isoformat() if isinstance(d, datetime) else str(d),
+                'category': cat,
+                'description': ex.get('description') or '',
+                'truck_id': ex.get('truck_id') or '',
+                'truck_name': ex.get('truck_name') or '',
+                'amount': round(amt, 2),
+                'source': 'truck_expense',
+            })
+        # Fuel transactions (per-gallon costs)
+        async for ft in db.fuel_transactions.find({'created_at': {'$gte': start_dt, '$lt': end_dt}}, {'_id': 0}):
+            amt = float(ft.get('total_cost') or 0)
+            if amt <= 0:
+                continue
+            total += amt
+            by_category['fuel'] = round(by_category.get('fuel', 0.0) + amt, 2)
+            d = ft.get('created_at')
+            items.append({
+                'id': ft.get('id'),
+                'date': d.isoformat() if isinstance(d, datetime) else str(d),
+                'category': 'fuel',
+                'description': f"{ft.get('gallons', 0):.1f} gal @ ${ft.get('cost_per_gallon', 0):.3f}",
+                'truck_id': ft.get('truck_id') or '',
+                'truck_name': ft.get('truck_name') or '',
+                'amount': round(amt, 2),
+                'source': 'fuel_transaction',
+            })
+        items.sort(key=lambda x: x['date'], reverse=True)
+        return {
+            'total': round(total, 2),
+            'count': len(items),
+            'by_category': [{'name': k, 'amount': v} for k, v in sorted(by_category.items(), key=lambda kv: -kv[1])],
+            'items': items,
+        }
+
+    async def _accounting_payroll(start_dt: datetime, end_dt: datetime):
+        """Roll up clock entries into per-driver hours x rate over the period."""
+        per_driver: Dict[str, Dict[str, Any]] = {}
+        async for entry in db.clock_entries.find({
+            'clock_in_at': {'$gte': start_dt, '$lt': end_dt},
+            'clock_out_at': {'$ne': None},
+        }, {'_id': 0}):
+            driver_id = entry.get('driver_id') or entry.get('user_id')
+            if not driver_id:
+                continue
+            ci = entry.get('clock_in_at')
+            co = entry.get('clock_out_at')
+            if not isinstance(ci, datetime) or not isinstance(co, datetime):
+                continue
+            secs = (co - ci).total_seconds() - float(entry.get('break_seconds') or 0)
+            if secs <= 0:
+                continue
+            hours = secs / 3600.0
+            rate = float(entry.get('pay_rate') or 0)
+            if rate == 0:
+                # Look up the driver's rate from users
+                u = await db.users.find_one({'id': driver_id}, {'pay_rate': 1, 'name': 1})
+                rate = float((u or {}).get('pay_rate') or 0)
+                drv_name = (u or {}).get('name') or 'Driver'
+            else:
+                drv_name = entry.get('driver_name') or 'Driver'
+            agg = per_driver.setdefault(driver_id, {
+                'driver_id': driver_id,
+                'driver_name': drv_name,
+                'hours': 0.0,
+                'pay_rate': rate,
+                'shifts': 0,
+                'gross_pay': 0.0,
+            })
+            agg['hours'] += hours
+            agg['shifts'] += 1
+            agg['gross_pay'] += hours * rate
+        out = []
+        for d in per_driver.values():
+            d['hours'] = round(d['hours'], 2)
+            d['gross_pay'] = round(d['gross_pay'], 2)
+            d['pay_rate'] = round(d['pay_rate'], 2)
+            out.append(d)
+        out.sort(key=lambda x: -x['gross_pay'])
+        return {
+            'total_hours': round(sum(d['hours'] for d in out), 2),
+            'total_gross': round(sum(d['gross_pay'] for d in out), 2),
+            'driver_count': len(out),
+            'drivers': out,
+        }
+
+    @router.get('/accounting/overview')
+    async def accounting_overview(period: str = 'this_month',
+                                   start: Optional[str] = None,
+                                   end: Optional[str] = None,
+                                   user=Depends(require_dispatcher)):
+        s, e, label = _parse_period(period, start, end)
+        rev = await _accounting_revenue(s, e)
+        exp = await _accounting_expenses(s, e)
+        pay = await _accounting_payroll(s, e)
+        net = round(rev['total'] - exp['total'] - pay['total_gross'], 2)
+        return {
+            'period': period,
+            'period_label': label,
+            'start': s.isoformat(),
+            'end': (e - timedelta(days=1)).isoformat(),
+            'revenue': rev['total'],
+            'revenue_paid': rev['paid'],
+            'revenue_outstanding': rev['outstanding'],
+            'job_count': rev['job_count'],
+            'expenses': exp['total'],
+            'expense_count': exp['count'],
+            'payroll': pay['total_gross'],
+            'payroll_hours': pay['total_hours'],
+            'driver_count': pay['driver_count'],
+            'net_profit': net,
+            'by_motor_club': rev['by_motor_club'],
+            'by_expense_category': exp['by_category'],
+        }
+
+    @router.get('/accounting/revenue')
+    async def accounting_revenue(period: str = 'this_month',
+                                  start: Optional[str] = None,
+                                  end: Optional[str] = None,
+                                  user=Depends(require_dispatcher)):
+        s, e, label = _parse_period(period, start, end)
+        rev = await _accounting_revenue(s, e)
+        return {'period_label': label, **rev}
+
+    @router.get('/accounting/expenses')
+    async def accounting_expenses(period: str = 'this_month',
+                                   start: Optional[str] = None,
+                                   end: Optional[str] = None,
+                                   user=Depends(require_dispatcher)):
+        s, e, label = _parse_period(period, start, end)
+        exp = await _accounting_expenses(s, e)
+        return {'period_label': label, **exp}
+
+    @router.get('/accounting/payroll')
+    async def accounting_payroll_detail(period: str = 'this_month',
+                                         start: Optional[str] = None,
+                                         end: Optional[str] = None,
+                                         user=Depends(require_dispatcher)):
+        s, e, label = _parse_period(period, start, end)
+        pay = await _accounting_payroll(s, e)
+        return {'period_label': label, **pay}
+
+    def _csv_response(rows: List[List[Any]], filename: str):
+        from fastapi.responses import StreamingResponse
+        import csv as _csv
+        import io
+        buf = io.StringIO()
+        writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL)
+        for row in rows:
+            writer.writerow(row)
+        buf.seek(0)
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type='text/csv',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+        )
+
+    @router.get('/accounting/export.csv')
+    async def accounting_export_csv(tab: str = 'overview',
+                                     period: str = 'this_month',
+                                     start: Optional[str] = None,
+                                     end: Optional[str] = None,
+                                     user=Depends(require_dispatcher)):
+        s, e, label = _parse_period(period, start, end)
+        slug = label.replace(' ', '_').replace('(', '').replace(')', '').replace(',', '')
+        if tab == 'revenue':
+            data = await _accounting_revenue(s, e)
+            rows = [['Date', 'Customer', 'Vehicle', 'Plate', 'Service', 'Motor Club', 'Amount', 'Paid', 'Outstanding', 'Status', 'Job ID']]
+            for it in data['items']:
+                rows.append([
+                    it['date'][:10], it['customer'], it['vehicle'], it['plate'],
+                    it['service'], it['motor_club'],
+                    f"{it['amount']:.2f}", f"{it['paid']:.2f}", f"{it['outstanding']:.2f}",
+                    it['payment_status'], it['job_id'],
+                ])
+            rows.append([])
+            rows.append(['', '', '', '', '', 'TOTAL',
+                         f"{data['total']:.2f}", f"{data['paid']:.2f}", f"{data['outstanding']:.2f}", '', ''])
+            return _csv_response(rows, f"revenue_{slug}.csv")
+        if tab == 'expenses':
+            data = await _accounting_expenses(s, e)
+            rows = [['Date', 'Category', 'Description', 'Truck', 'Amount', 'Source', 'ID']]
+            for it in data['items']:
+                rows.append([
+                    it['date'][:10], it['category'], it['description'], it['truck_name'],
+                    f"{it['amount']:.2f}", it['source'], it['id'],
+                ])
+            rows.append([])
+            rows.append(['', '', '', 'TOTAL', f"{data['total']:.2f}", '', ''])
+            return _csv_response(rows, f"expenses_{slug}.csv")
+        if tab == 'payroll':
+            data = await _accounting_payroll(s, e)
+            rows = [['Driver Name', 'Driver ID', 'Shifts', 'Hours', 'Pay Rate', 'Gross Pay']]
+            for d in data['drivers']:
+                rows.append([
+                    d['driver_name'], d['driver_id'], d['shifts'],
+                    f"{d['hours']:.2f}", f"{d['pay_rate']:.2f}", f"{d['gross_pay']:.2f}",
+                ])
+            rows.append([])
+            rows.append(['TOTAL', '', '', f"{data['total_hours']:.2f}", '', f"{data['total_gross']:.2f}"])
+            return _csv_response(rows, f"payroll_{slug}.csv")
+        # Overview
+        rev = await _accounting_revenue(s, e)
+        exp = await _accounting_expenses(s, e)
+        pay = await _accounting_payroll(s, e)
+        net = rev['total'] - exp['total'] - pay['total_gross']
+        rows = [
+            ['Period', label],
+            ['Start', s.strftime('%Y-%m-%d')],
+            ['End', (e - timedelta(days=1)).strftime('%Y-%m-%d')],
+            [],
+            ['Revenue', f"{rev['total']:.2f}"],
+            ['  Paid', f"{rev['paid']:.2f}"],
+            ['  Outstanding', f"{rev['outstanding']:.2f}"],
+            ['  Job count', rev['job_count']],
+            [],
+            ['Expenses', f"{exp['total']:.2f}"],
+            ['  Entry count', exp['count']],
+        ]
+        for cat in exp['by_category']:
+            rows.append([f"  {cat['name']}", f"{cat['amount']:.2f}"])
+        rows.extend([
+            [],
+            ['Payroll', f"{pay['total_gross']:.2f}"],
+            ['  Total hours', f"{pay['total_hours']:.2f}"],
+            ['  Driver count', pay['driver_count']],
+            [],
+            ['NET PROFIT', f"{net:.2f}"],
+        ])
+        return _csv_response(rows, f"accounting_overview_{slug}.csv")
+
+    # ---------- Photo Vault ----------
+    @router.get('/photos/vault')
+    async def photo_vault(start: Optional[str] = None, end: Optional[str] = None,
+                          q: Optional[str] = None, plate: Optional[str] = None,
+                          stage: Optional[str] = None, limit: int = 200,
+                          user=Depends(require_dispatcher)):
+        """Aggregate every photo across every job — searchable claims-defense archive.
+        Filters: date range, free-text (customer/vehicle/job), plate, stage."""
+        # Build job filter
+        jobq: Dict[str, Any] = {}
+        if start or end:
+            rng: Dict[str, Any] = {}
+            if start:
+                try: rng['$gte'] = datetime.fromisoformat(start.replace('Z', '+00:00'))
+                except Exception: pass
+            if end:
+                try: rng['$lt'] = datetime.fromisoformat(end.replace('Z', '+00:00')) + timedelta(days=1)
+                except Exception: pass
+            if rng:
+                jobq['created_at'] = rng
+        if plate:
+            jobq['vehicle.plate'] = {'$regex': plate.upper(), '$options': 'i'}
+        if q:
+            jobq['$or'] = [
+                {'customer.name': {'$regex': q, '$options': 'i'}},
+                {'vehicle.make': {'$regex': q, '$options': 'i'}},
+                {'vehicle.model': {'$regex': q, '$options': 'i'}},
+                {'vehicle.plate': {'$regex': q, '$options': 'i'}},
+                {'vehicle.vin': {'$regex': q, '$options': 'i'}},
+                {'pickup_location.address': {'$regex': q, '$options': 'i'}},
+            ]
+        photos_out = []
+        # Don't pull data_url in the aggregate listing — it's huge. Client fetches /photo/{job_id}/{photo_id} on demand.
+        cursor = db.tow_jobs.find(jobq, {
+            'id': 1, 'customer': 1, 'vehicle': 1, 'created_at': 1, 'completed_at': 1,
+            'pickup_location': 1, 'photos': 1, 'service_type': 1, 'status': 1,
+        }).sort('created_at', -1).limit(500)
+        async for job in cursor:
+            for p in (job.get('photos') or []):
+                if stage and p.get('stage') != stage:
+                    continue
+                taken = p.get('taken_at')
+                photos_out.append({
+                    'photo_id': p.get('id'),
+                    'job_id': job.get('id'),
+                    'stage': p.get('stage') or 'other',
+                    'caption': p.get('caption') or '',
+                    'taken_at': taken.isoformat() if isinstance(taken, datetime) else str(taken),
+                    'taken_by_name': p.get('taken_by_name') or '',
+                    'thumb_url': p.get('data_url') or '',  # base64 — heavy but only on demand
+                    'customer_name': (job.get('customer') or {}).get('name') or '',
+                    'vehicle': f"{(job.get('vehicle') or {}).get('year','')} {(job.get('vehicle') or {}).get('make','')} {(job.get('vehicle') or {}).get('model','')}".strip(),
+                    'plate': (job.get('vehicle') or {}).get('plate') or '',
+                    'service_type': job.get('service_type') or '',
+                    'job_status': job.get('status') or '',
+                })
+                if len(photos_out) >= limit:
+                    break
+            if len(photos_out) >= limit:
+                break
+        # Sort newest first by taken_at
+        photos_out.sort(key=lambda x: x['taken_at'], reverse=True)
+        return {'count': len(photos_out), 'photos': photos_out}
+
     return router
 
 
