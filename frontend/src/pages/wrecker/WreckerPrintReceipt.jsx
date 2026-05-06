@@ -11,7 +11,7 @@ import { api } from '@/lib/api';
 export default function WreckerPrintReceipt() {
   const { id } = useParams();
   const [job, setJob] = useState(null);
-  const [companyName, setCompanyName] = useState('Martin Wrecker Service Inc');
+  const [companyName, setCompanyName] = useState('Your Wrecker Service');
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
 

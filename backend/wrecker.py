@@ -1734,7 +1734,7 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         if not rec:
             return {
                 'fleet_id': 'default',
-                'company_name': 'Martin Wrecker Service Inc',
+                'company_name': 'Your Wrecker Service',
                 'waiver_text': DEFAULT_WAIVER_TEMPLATE,
             }
         return serialize_doc(rec)
@@ -1770,7 +1770,7 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         await _get_job_for_driver(job_id, user)
         # Snapshot the current template if not provided
         snapshot = body.waiver_text_snapshot
-        company_name = 'Martin Wrecker Service Inc'
+        company_name = 'Your Wrecker Service'
         if not snapshot:
             tpl = await db.fleet_waiver_templates.find_one({'fleet_id': 'default'})
             snapshot = (tpl or {}).get('waiver_text') or DEFAULT_WAIVER_TEMPLATE
@@ -1890,7 +1890,7 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         totals = _recompute_totals(existing)
         # Pull company name from waiver template
         tpl = await db.fleet_waiver_templates.find_one({'fleet_id': 'default'})
-        company_name = (tpl or {}).get('company_name') or 'Martin Wrecker Service Inc'
+        company_name = (tpl or {}).get('company_name') or 'Your Wrecker Service'
 
         # ---- Pay-link generation ----------------------------------------
         # If the operator opted in AND there's a balance, mint a token-based

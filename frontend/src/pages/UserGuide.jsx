@@ -24,6 +24,7 @@ import {
   Search,
 } from 'lucide-react';
 import { Logo } from '@/components/Logo';
+import BrandedFooter from '@/components/BrandedFooter';
 
 /*
   UserGuide — the plain-English "How to use RoadBoss" manual.
@@ -564,9 +565,7 @@ export default function UserGuide() {
           </div>
         </section>
 
-        <footer className="text-center text-xs text-slate-500 py-10">
-          Operated by Apex Epoxy Flooring LLC · DBA RoadBoss / Highway Pilot · Kokomo, Indiana
-        </footer>
+        <BrandedFooter className="py-10" />
       </main>
 
       <style>{`

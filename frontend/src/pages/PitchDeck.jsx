@@ -30,7 +30,7 @@ import {
   Rocket,
 } from 'lucide-react';
 import { Logo } from '@/components/Logo';
-
+import BrandedFooter from '@/components/BrandedFooter';
 const slides = [
   {
     id: 'cover',
@@ -485,6 +485,7 @@ const slides = [
           >
             <Phone className="h-5 w-5 text-emerald-300" />
             <div className="text-xs uppercase tracking-widest text-slate-400">Phone</div>
+            <div className="text-sm text-white">Michael Ward</div>
             <div className="text-sm text-white">+1 (765) 480-8889</div>
           </a>
           <Link
@@ -496,9 +497,7 @@ const slides = [
             <div className="text-sm text-white">Sign in to the app</div>
           </Link>
         </div>
-        <div className="mt-10 text-xs text-slate-500">
-          Operated by Apex Epoxy Flooring LLC · DBA RoadBoss / Highway Pilot · Kokomo, Indiana
-        </div>
+        <BrandedFooter className="mt-10" />
       </div>
     ),
   },

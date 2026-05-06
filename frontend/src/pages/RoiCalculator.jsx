@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/Logo';
+import BrandedFooter from '@/components/BrandedFooter';
 
 /*
   RoiCalculator — an interactive lead-magnet for fleet owners.
@@ -341,7 +342,7 @@ export default function RoiCalculator() {
               </a>
               <a href="tel:+17654808889">
                 <Button variant="outline" data-testid="roi-cta-phone" className="border-white/15 bg-transparent text-slate-100 hover:bg-white/5 h-11 px-5">
-                  <Phone className="h-4 w-4 mr-1.5" /> Call: (765) 480-8889
+                  <Phone className="h-4 w-4 mr-1.5" /> Call Michael Ward: (765) 480-8889
                 </Button>
               </a>
               <Button
@@ -376,16 +377,14 @@ export default function RoiCalculator() {
             <div>
               <div className="text-xs uppercase tracking-widest text-slate-400">Founder on the line</div>
               <div className="text-slate-200 mt-1">
-                Text Mike at <span className="text-emerald-300 font-semibold">(765) 480-8889</span> —
-                real phone, real trucker, same day.
+                Text <span className="text-emerald-300 font-semibold">Michael Ward</span> at <span className="text-emerald-300 font-semibold">(765) 480-8889</span> —
+                real phone, real builder, same day.
               </div>
             </div>
           </div>
         </section>
 
-        <div className="text-center text-xs text-slate-500 pt-6 pb-10">
-          Operated by Apex Epoxy Flooring LLC · DBA RoadBoss / Highway Pilot · Kokomo, Indiana
-        </div>
+        <BrandedFooter className="pt-6 pb-10" />
       </main>
 
       <style>{`

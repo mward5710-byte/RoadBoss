@@ -56,7 +56,7 @@ export default function WreckerWaiver() {
   if (loading) return <div className="p-8 text-slate-400">Loading waiver...</div>;
   if (!job || !template) return null;
 
-  const company = template.company_name || 'Martin Wrecker Service Inc';
+  const company = template.company_name || 'Your Wrecker Service';
   const text = (template.waiver_text || '').replace(/\{\{COMPANY_NAME\}\}/g, company);
 
   return (

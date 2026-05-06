@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/Logo';
+import BrandedFooter from '@/components/BrandedFooter';
 
 function CopyBlock({ label, text, tone = 'sky', testId }) {
   const [copied, setCopied] = useState(false);
@@ -567,9 +568,7 @@ Total time: ~20 minutes. Cost: $0.`;
           </div>
         </section>
 
-        <div className="text-center text-xs text-slate-500 pt-10">
-          Operated by Apex Epoxy Flooring LLC · DBA RoadBoss / Highway Pilot · Kokomo, Indiana
-        </div>
+        <BrandedFooter className="pt-10" />
       </main>
     </div>
   );

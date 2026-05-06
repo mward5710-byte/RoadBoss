@@ -25,6 +25,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { api, setSession } from '@/lib/api';
 import { Logo } from '@/components/Logo';
+import BrandedFooter from '@/components/BrandedFooter';
 import { toast } from 'sonner';
 
 // Animated "conversation" shown on the phone mockup — cycles forever.
@@ -403,9 +404,7 @@ export default function TryPage() {
             </Button>
           </Link>
         </div>
-        <div className="mt-10 text-xs text-slate-500">
-          Operated by Apex Epoxy Flooring LLC · DBA RoadBoss / Highway Pilot · Kokomo, Indiana
-        </div>
+        <BrandedFooter className="mt-10" />
       </section>
     </div>
   );

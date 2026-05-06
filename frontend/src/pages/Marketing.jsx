@@ -235,9 +235,18 @@ export default function Marketing() {
       </Section>
 
       <footer className="border-t border-white/5 py-8 mt-12">
-        <Section className="flex flex-col md:flex-row items-center justify-between gap-3">
-          <Logo size={22} />
-          <div className="text-xs text-slate-500">© {new Date().getFullYear()} Highway Pilot. Stealth project. All rights reserved.</div>
+        <Section className="flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Logo size={22} />
+            <div className="text-[11px] text-slate-500 leading-tight">
+              <div className="text-slate-300 font-medium">Apex Epoxy Flooring LLC · Operating as RoadBoss</div>
+              <div>Built by Michael Ward · Kokomo, Indiana</div>
+            </div>
+          </div>
+          <div className="text-[11px] text-slate-500 text-center">
+            © {new Date().getFullYear()} Apex Epoxy Flooring LLC. All rights reserved.<br />
+            <span className="text-slate-600">RoadBoss · Wreckerlogix · Co-Pilot</span>
+          </div>
           <div className="flex gap-4 text-xs text-slate-500">
             <Link to="/login" className="hover:text-white">Sign in</Link>
             <a href="#waitlist" className="hover:text-white">Waitlist</a>
