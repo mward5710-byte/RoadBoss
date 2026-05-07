@@ -723,6 +723,73 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
     class RankIn(BaseModel):
         rank: int  # 1 = first call, 2 = second call, etc.
 
+    class QuickAddDriverIn(BaseModel):
+        """Minimal driver create — Mike's "zip around" dispatch fluency play.
+        Only `name` is truly required. Email auto-generates if blank so the
+        record exists (drivers without phones/emails for cash-only ops are real)."""
+        name: str
+        email: Optional[str] = None
+        phone: Optional[str] = None
+        truck_number: Optional[str] = None
+        rotation_rank: Optional[int] = None
+        on_duty: bool = True
+
+    @router.post('/drivers/quick-add')
+    async def quick_add_driver(body: QuickAddDriverIn, user=Depends(require_dispatcher)):
+        """One-shot create a wrecker_operator user without leaving the dispatch
+        board. Generates a unique placeholder email when none is given so the
+        user record validates. Returns the created driver doc."""
+        try:
+            from server import hash_password as _hash_password  # reuse main bcrypt helper
+        except Exception:
+            from passlib.context import CryptContext
+            _pwd_ctx = CryptContext(schemes=['bcrypt'], deprecated='auto')
+            def _hash_password(p):
+                return _pwd_ctx.hash(p)
+
+        name = (body.name or '').strip()
+        if not name or len(name) < 2:
+            raise HTTPException(400, 'Driver name is required')
+        # Auto-email: slugify name + short id, scoped to wrecker-logix.com so
+        # it doesn't collide with anyone's real inbox.
+        email = (body.email or '').strip().lower()
+        if not email:
+            slug = ''.join(c if c.isalnum() else '.' for c in name.lower()).strip('.')
+            slug = '.'.join([p for p in slug.split('.') if p])[:40] or 'driver'
+            email = f"{slug}.{uuid.uuid4().hex[:6]}@wrecker-logix.com"
+        # Reject duplicates
+        if await db.users.find_one({'email': email}):
+            raise HTTPException(409, f'A user with email {email} already exists')
+        # Auto-rank: place at the end of the current rotation if not specified
+        rank = body.rotation_rank
+        if rank is None:
+            existing_count = await db.users.count_documents({'role': 'wrecker_operator'})
+            rank = max(1, existing_count + 1)
+        # Random temp password — dispatcher can rotate later via super admin
+        temp_pw = uuid.uuid4().hex[:12]
+        doc = {
+            'id': str(uuid.uuid4()),
+            'email': email,
+            'name': name,
+            'role': 'wrecker_operator',
+            'password_hash': _hash_password(temp_pw),
+            'phone': body.phone or None,
+            'truck_number': (body.truck_number or '').strip() or None,
+            'rotation_rank': int(rank),
+            'rotation_order': int(rank),
+            'on_duty': bool(body.on_duty),
+            'tenant_id': user.get('tenant_id', 'default'),
+            'created_at': _now(),
+            'created_by': user.get('id'),
+            'created_by_name': user.get('name'),
+            'created_via': 'quick_add',
+            'is_demo': False,
+        }
+        await db.users.insert_one(doc)
+        # Strip sensitive bits from response
+        doc.pop('password_hash', None)
+        return {'ok': True, 'driver': serialize_doc(doc), 'temp_password': temp_pw}
+
     @router.post('/drivers/{driver_id}/rank')
     async def set_rank(driver_id: str, body: RankIn, user=Depends(require_dispatcher)):
         if body.rank < 1 or body.rank > 99:
