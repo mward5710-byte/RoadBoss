@@ -241,7 +241,7 @@ export default function WreckerDashboard() {
           <Button data-testid="refresh-board" variant="outline" size="sm" onClick={load} className="border-white/10 text-slate-300">
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
           </Button>
-          <Link to="/wrecker/voice-job-wizard">
+          <Link to="/wrecker/jobs/new?voice=1">
             <Button data-testid="hands-free-cta" size="sm" className="bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold">
               <Mic className="w-4 h-4 mr-1" /> Hands-Free
             </Button>

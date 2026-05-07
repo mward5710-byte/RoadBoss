@@ -139,8 +139,8 @@ export default function GlobalCopilotFAB() {
       if (wreckerRoles.includes(role)) {
         setOpen(false);
         setPendingCommand('');
-        toast.success('Launching Hands-Free Job Entry…', { duration: 2500 });
-        navigate('/wrecker/voice-job-wizard');
+        toast.success('Launching Hands-Free Voice Fill…', { duration: 2500 });
+        navigate('/wrecker/jobs/new?voice=1');
         return;
       }
     }
@@ -537,7 +537,7 @@ export default function GlobalCopilotFAB() {
                   if (!wreckerRoles.includes(role)) return null;
                   return (
                     <button
-                      onClick={() => { setOpen(false); navigate('/wrecker/voice-job-wizard'); }}
+                      onClick={() => { setOpen(false); navigate('/wrecker/jobs/new?voice=1'); }}
                       className="w-full mt-1 inline-flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-gradient-to-r from-emerald-500/20 to-sky-500/20 border border-emerald-500/40 hover:border-emerald-400 transition group"
                       data-testid="global-copilot-launch-wizard"
                     >
@@ -546,8 +546,8 @@ export default function GlobalCopilotFAB() {
                           <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
                         </div>
                         <div>
-                          <div className="text-[12px] font-semibold text-white leading-tight">Hands-Free Job Entry</div>
-                          <div className="text-[10px] text-emerald-200/80">Walk through every field by voice</div>
+                          <div className="text-[12px] font-semibold text-white leading-tight">Hands-Free Voice Fill</div>
+                          <div className="text-[10px] text-emerald-200/80">Watch Co-Pilot fill every field</div>
                         </div>
                       </div>
                       <ChevronRight className="w-4 h-4 text-emerald-300 group-hover:translate-x-0.5 transition" />
