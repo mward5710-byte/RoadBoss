@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { Truck, Lock, Activity, DollarSign, Clock, MapPin, Phone, Plus, RefreshCw, ArrowUpRight, Zap, UserPlus, Navigation, Mic } from 'lucide-react';
+import { Truck, Lock, Activity, DollarSign, Clock, MapPin, Phone, Plus, RefreshCw, ArrowUpRight, Zap, UserPlus, Navigation, Mic, X } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import DriversPanel from './DriversPanel';
 import { navUrl, NAV_APPS, getNavApp, setNavApp } from '@/lib/navPref';
@@ -84,16 +85,24 @@ function Kpi({ icon: Icon, label, value, sub, accent = 'amber', onClick }) {
 function prettyStatus(s) { return (s || '').replace(/_/g, ' '); }
 function prettyService(s) { return (s || '').replace(/_/g, ' '); }
 
-function JobCard({ job, onAdvance, onSelectForAssign, isSelected }) {
+function JobCard({ job, onAdvance, onPickDriver, isSelected }) {
   const navigate = useNavigate();
   const nextIdx = BOARD_STATUSES.indexOf(job.status);
   const next = nextIdx >= 0 && nextIdx < BOARD_STATUSES.length - 1 ? BOARD_STATUSES[nextIdx + 1] : null;
   const isPending = job.status === 'pending';
+  // Prefer real road miles from backend (Mapbox Directions); fall back to
+  // haversine ("as-the-crow-flies") only if the enrichment hasn't run yet.
+  const loadedMi = (typeof job.loaded_miles === 'number' && job.loaded_miles > 0)
+    ? job.loaded_miles
+    : haversineMiles(job.pickup, job.dropoff);
+  const deadheadMi = (typeof job.deadhead_miles === 'number' && job.deadhead_miles > 0)
+    ? job.deadhead_miles
+    : null;
   return (
     <div
       data-testid={`job-card-${job.id}`}
       className={`hp-panel rounded-lg p-3 transition cursor-pointer ${isSelected ? 'border-amber-500 ring-2 ring-amber-500/50' : 'hover:border-amber-500/30'}`}
-      onClick={() => isPending && onSelectForAssign ? onSelectForAssign(job) : navigate(`/wrecker/jobs/${job.id}`)}
+      onClick={() => navigate(`/wrecker/jobs/${job.id}`)}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -120,40 +129,37 @@ function JobCard({ job, onAdvance, onSelectForAssign, isSelected }) {
           <Truck className="w-3 h-3 shrink-0 text-emerald-400/70" /> <span className="truncate">{job.dropoff.address}</span>
         </div>
       )}
-      {(() => {
-        const miles = haversineMiles(job.pickup, job.dropoff);
-        if (miles == null) return null;
-        return (
-          <div className="mt-1 text-[10px] uppercase tracking-wider text-sky-300/80 flex items-center gap-1" data-testid={`tow-distance-${job.id}`}>
-            <ArrowUpRight className="w-3 h-3" /> {miles.toFixed(1)} mi tow
+      {/* Mileage strip — two real numbers dispatchers quote against. */}
+      {(deadheadMi != null || loadedMi != null) && (
+        <div className="mt-2 grid grid-cols-2 gap-2" data-testid={`tow-distances-${job.id}`}>
+          <div className="rounded border border-sky-500/20 bg-sky-500/5 px-2 py-1.5">
+            <div className="text-[9px] uppercase tracking-wider text-sky-300/80 font-semibold">To Pickup</div>
+            <div className="text-sm font-bold text-sky-200" data-testid={`mi-deadhead-${job.id}`}>
+              {deadheadMi != null ? `${deadheadMi.toFixed(1)} mi` : <span className="text-slate-500 font-normal text-xs">—</span>}
+            </div>
           </div>
-        );
-      })()}
+          <div className="rounded border border-emerald-500/20 bg-emerald-500/5 px-2 py-1.5">
+            <div className="text-[9px] uppercase tracking-wider text-emerald-300/80 font-semibold">Loaded</div>
+            <div className="text-sm font-bold text-emerald-200" data-testid={`mi-loaded-${job.id}`}>
+              {loadedMi != null ? `${loadedMi.toFixed(1)} mi` : <span className="text-slate-500 font-normal text-xs">—</span>}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="text-sm font-semibold text-emerald-300">${(job.final_price ?? job.quoted_price ?? 0).toFixed(0)}</div>
         {job.motor_club_name && <div className="text-[10px] uppercase tracking-wider text-amber-300/80 truncate">{job.motor_club_name}</div>}
       </div>
-      {job.pickup?.address && (
-        <a
-          href={navUrl(job.pickup.address, job.pickup.lat, job.pickup.lng)}
-          target="_blank"
-          rel="noreferrer"
-          data-testid={`navigate-${job.id}`}
-          onClick={(e) => e.stopPropagation()}
-          className="mt-2 w-full h-7 flex items-center justify-center gap-1 rounded border border-sky-500/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 text-[10px] uppercase tracking-wider font-semibold transition"
-        >
-          <Navigation className="w-3 h-3" /> Navigate to Pickup
-        </a>
-      )}
+      {/* Pick Driver — single button that selects the job AND opens the
+          driver-rotation sheet. No more two-step "select then click panel" guess. */}
       {isPending && (
         <Button
-          data-testid={`select-${job.id}`}
+          data-testid={`pick-driver-${job.id}`}
           size="sm"
-          variant="outline"
-          className={`w-full mt-2 h-7 text-[10px] uppercase tracking-wider ${isSelected ? 'border-amber-400 bg-amber-500/20 text-amber-100' : 'border-amber-500/30 text-amber-200 hover:bg-amber-500/10'}`}
-          onClick={(e) => { e.stopPropagation(); onSelectForAssign?.(job); }}
+          className={`w-full mt-2 h-8 text-[11px] uppercase tracking-wider font-bold ${isSelected ? 'bg-amber-400 text-slate-950 hover:bg-amber-300' : 'bg-amber-500 text-slate-950 hover:bg-amber-400'}`}
+          onClick={(e) => { e.stopPropagation(); onPickDriver?.(job); }}
         >
-          <UserPlus className="w-3 h-3 mr-1" /> {isSelected ? 'Pick Driver →' : 'Select to Assign'}
+          <UserPlus className="w-3.5 h-3.5 mr-1" /> Pick Driver
         </Button>
       )}
       {!isPending && next && (
@@ -177,6 +183,9 @@ export default function WreckerDashboard() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedJobId, setSelectedJobId] = useState(null);
+  // Pick-Driver sheet — opens directly when dispatcher taps "Pick Driver"
+  // on any pending job. No more "select first, then click panel" guesswork.
+  const [assignSheetOpen, setAssignSheetOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -205,17 +214,14 @@ export default function WreckerDashboard() {
     }
   };
 
-  const selectForAssign = (job) => {
-    if (selectedJobId === job.id) {
-      setSelectedJobId(null);
-    } else {
-      setSelectedJobId(job.id);
-      toast.info(`Pick a driver in the rotation panel →`);
-    }
+  const pickDriver = (job) => {
+    setSelectedJobId(job.id);
+    setAssignSheetOpen(true);
   };
 
   const onAssigned = () => {
     setSelectedJobId(null);
+    setAssignSheetOpen(false);
     load();
   };
 
@@ -228,26 +234,32 @@ export default function WreckerDashboard() {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      <header className="flex items-end justify-between flex-wrap gap-3">
+      <header className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-widest text-amber-400/80">RoadBoss · Wrecker Mode</div>
           <h1 className="text-3xl font-bold text-white mt-1" data-testid="wrecker-page-title">Dispatch Board</h1>
           <p className="text-sm text-slate-400 mt-1">
-            Select a pending job, then click a driver in rotation to assign. Drivers can't pick — only dispatch dispatches.
+            Tap <span className="text-amber-300 font-semibold">Pick Driver</span> on any pending job to assign it from the rotation. Drivers can't pick — only dispatch dispatches.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <NavAppPicker />
-          <Button data-testid="refresh-board" variant="outline" size="sm" onClick={load} className="border-white/10 text-slate-300">
+        {/* Action bar — 2x2 grid on mobile so nothing is cut off, single row on desktop. */}
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
+          <div className="col-span-2 sm:col-auto sm:hidden">
+            <NavAppPicker />
+          </div>
+          <div className="hidden sm:block">
+            <NavAppPicker />
+          </div>
+          <Button data-testid="refresh-board" variant="outline" size="sm" onClick={load} className="border-white/10 text-slate-300 w-full sm:w-auto">
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
           </Button>
-          <Link to="/wrecker/jobs/new?voice=1">
-            <Button data-testid="hands-free-cta" size="sm" className="bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold">
+          <Link to="/wrecker/jobs/new?voice=1" className="w-full sm:w-auto">
+            <Button data-testid="hands-free-cta" size="sm" className="bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold w-full sm:w-auto">
               <Mic className="w-4 h-4 mr-1" /> Hands-Free
             </Button>
           </Link>
-          <Link to="/wrecker/jobs/new">
-            <Button data-testid="new-job-cta" size="sm" className="bg-amber-500 text-black hover:bg-amber-400">
+          <Link to="/wrecker/jobs/new" className="w-full sm:w-auto">
+            <Button data-testid="new-job-cta" size="sm" className="bg-amber-500 text-black hover:bg-amber-400 w-full sm:w-auto">
               <Plus className="w-4 h-4 mr-1" /> New Tow Job
             </Button>
           </Link>
@@ -309,7 +321,7 @@ export default function WreckerDashboard() {
                     key={j.id}
                     job={j}
                     onAdvance={advanceJob}
-                    onSelectForAssign={selectForAssign}
+                    onPickDriver={pickDriver}
                     isSelected={selectedJobId === j.id}
                   />
                 ))}
@@ -321,8 +333,9 @@ export default function WreckerDashboard() {
           ))}
         </div>
 
-        {/* DRIVERS + ROTATION */}
-        <div className="space-y-3">
+        {/* DRIVERS + ROTATION (desktop side-rail; on mobile the same panel
+            also lives inside the Pick Driver dialog so it's always reachable) */}
+        <div className="hidden xl:block space-y-3">
           <DriversPanel
             onAssign={onAssigned}
             selectedJobId={selectedJobId}
@@ -333,6 +346,40 @@ export default function WreckerDashboard() {
           />
         </div>
       </div>
+
+      {/* Pick Driver dialog — opens when dispatcher taps "Pick Driver" on a card.
+          Tapping a driver inside fires onAssign which closes the sheet. */}
+      <Dialog open={assignSheetOpen} onOpenChange={(v) => { if (!v) { setAssignSheetOpen(false); setSelectedJobId(null); } }}>
+        <DialogContent className="bg-[#0a0e14] border-white/10 text-white max-w-lg max-h-[85vh] overflow-y-auto" data-testid="pick-driver-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-amber-400" /> Pick a Driver
+            </DialogTitle>
+            <DialogDescription className="text-slate-400 text-sm">
+              {(() => {
+                const j = jobs.find((x) => x.id === selectedJobId);
+                if (!j) return 'Tap a driver in rotation to assign this job.';
+                return (
+                  <>
+                    Assigning <span className="text-amber-300 font-semibold">{j.customer?.name || 'this job'}</span>
+                    {j.pickup?.address && <> · pickup at <span className="text-slate-300">{j.pickup.address}</span></>}
+                  </>
+                );
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-2">
+            <DriversPanel
+              onAssign={onAssigned}
+              selectedJobId={selectedJobId}
+              selectedJobPickup={(() => {
+                const j = jobs.find((x) => x.id === selectedJobId);
+                return j?.pickup ? { lat: j.pickup.lat, lng: j.pickup.lng } : null;
+              })()}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

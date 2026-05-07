@@ -5197,6 +5197,57 @@ async def on_startup():
                         logger.info(f'Founder bootstrap: promoted {fe} to super_admin (lock active)')
         except Exception as e:
             logger.error(f'Founder bootstrap failed (non-fatal): {e}')
+
+        # FOUNDER DRIVER BOOTSTRAP — Mike asked to appear as an available
+        # driver in the dispatch rotation. His super_admin login stays
+        # super_admin (can't be both); this is a separate wrecker_operator
+        # user record so he shows up in the Drivers list and can be
+        # dispatched on jobs. Idempotent — only creates once.
+        try:
+            driver_email = os.environ.get('FOUNDER_DRIVER_EMAIL', 'michael.ward@wrecker-logix.com').lower().strip()
+            driver_name = os.environ.get('FOUNDER_DRIVER_NAME', 'Michael Ward')
+            driver_password = os.environ.get('FOUNDER_DRIVER_PASSWORD', 'HighwayPilot2026!Driver')
+            driver_truck = os.environ.get('FOUNDER_DRIVER_TRUCK', '1')
+            existing_drv = await db.users.find_one({'email': driver_email})
+            if not existing_drv:
+                drv_doc = {
+                    'id': str(uuid.uuid4()),
+                    'email': driver_email,
+                    'name': driver_name,
+                    'role': 'wrecker_operator',
+                    'password_hash': hash_password(driver_password),
+                    'created_at': now_utc().isoformat(),
+                    'tenant_id': 'default',
+                    'on_duty': True,
+                    'rotation_rank': 1,
+                    'rotation_order': 1,
+                    'truck_number': driver_truck,
+                    'is_demo': False,
+                    'created_via': 'founder_driver_bootstrap',
+                }
+                await db.users.insert_one(drv_doc)
+                logger.info(f'Founder driver bootstrap: created wrecker_operator {driver_email} ({driver_name})')
+            else:
+                # Make sure the driver record is healthy + visible in rotation.
+                # We don't overwrite existing rotation rank if dispatch has
+                # already configured one — only fix obvious gaps.
+                fixups = {}
+                if existing_drv.get('role') != 'wrecker_operator':
+                    fixups['role'] = 'wrecker_operator'
+                if existing_drv.get('name') != driver_name:
+                    fixups['name'] = driver_name
+                if existing_drv.get('on_duty') is None:
+                    fixups['on_duty'] = True
+                if existing_drv.get('rotation_rank') in (None, 0):
+                    fixups['rotation_rank'] = 1
+                    fixups['rotation_order'] = 1
+                if existing_drv.get('tenant_id') in (None, ''):
+                    fixups['tenant_id'] = 'default'
+                if fixups:
+                    await db.users.update_one({'email': driver_email}, {'$set': fixups})
+                    logger.info(f'Founder driver bootstrap: synced fields {list(fixups.keys())} for {driver_email}')
+        except Exception as e:
+            logger.error(f'Founder driver bootstrap failed (non-fatal): {e}')
         # Indexes for OAuth state cleanup + tenant_integrations uniqueness
         try:
             await db.square_oauth_states.create_index('expires_at', expireAfterSeconds=0)

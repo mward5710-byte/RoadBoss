@@ -370,6 +370,119 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
     require_supervisor = require_role('wrecker_supervisor', 'fleet_admin')
 
     # =========================================================
+    # Mapbox geocoding + driving-distance helpers
+    # ---------------------------------------------------------
+    # Two real numbers Mike asked for on every tow card:
+    #   • deadhead_miles = base/office address → pickup
+    #   • loaded_miles   = pickup → dropoff
+    # Both calculated via Mapbox Directions API for true road miles
+    # (haversine = "as the crow flies" — wrong for tow billing).
+    # All calls are best-effort — a Mapbox failure NEVER blocks job create.
+    # =========================================================
+    import os as _os
+    _MAPBOX_TOKEN = _os.environ.get('MAPBOX_PUBLIC_TOKEN', '').strip()
+
+    async def _mapbox_geocode(address: str) -> Optional[Dict[str, float]]:
+        """Forward-geocode an address string → {lat, lng} or None."""
+        if not address or not _MAPBOX_TOKEN:
+            return None
+        try:
+            import httpx as _httpx
+            from urllib.parse import quote as _q
+            url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{_q(address)}.json"
+            async with _httpx.AsyncClient(timeout=8.0) as client:
+                r = await client.get(url, params={'access_token': _MAPBOX_TOKEN, 'limit': 1, 'country': 'us'})
+                if r.status_code != 200:
+                    return None
+                data = r.json()
+                feats = data.get('features') or []
+                if not feats:
+                    return None
+                lng, lat = feats[0]['center']  # Mapbox returns [lng, lat]
+                return {'lat': float(lat), 'lng': float(lng)}
+        except Exception:
+            return None
+
+    async def _mapbox_drive_miles(a: Dict[str, float], b: Dict[str, float]) -> Optional[float]:
+        """Driving distance in miles between two {lat,lng} points via Mapbox Directions."""
+        if not a or not b or not _MAPBOX_TOKEN:
+            return None
+        try:
+            import httpx as _httpx
+            coords = f"{a['lng']},{a['lat']};{b['lng']},{b['lat']}"
+            url = f"https://api.mapbox.com/directions/v5/mapbox/driving/{coords}"
+            async with _httpx.AsyncClient(timeout=8.0) as client:
+                r = await client.get(url, params={
+                    'access_token': _MAPBOX_TOKEN,
+                    'geometries': 'geojson',
+                    'overview': 'false',
+                })
+                if r.status_code != 200:
+                    return None
+                data = r.json()
+                routes = data.get('routes') or []
+                if not routes:
+                    return None
+                meters = float(routes[0].get('distance') or 0)
+                if meters <= 0:
+                    return None
+                return round(meters / 1609.344, 1)  # meters → miles, 1 decimal
+        except Exception:
+            return None
+
+    async def _resolve_base_address() -> Optional[str]:
+        """Build a single-line street address from the tenant business profile,
+        used as the default deadhead origin (office/yard)."""
+        try:
+            doc = await db.tenant_settings.find_one({'tenant_id': 'default'}, {'_id': 0}) or {}
+            parts = [doc.get('street'), doc.get('city'), doc.get('state'), doc.get('zip_code')]
+            line = ', '.join([p for p in parts if p])
+            return line or None
+        except Exception:
+            return None
+
+    async def _attach_distance_metrics(doc: Dict[str, Any]):
+        """Best-effort: geocode pickup/dropoff/base, compute deadhead + loaded miles,
+        and stash the numbers (and resolved coords) onto the tow_job document IN-PLACE.
+        Silently leaves fields unset if anything fails. Never raises."""
+        try:
+            pickup = (doc.get('pickup') or {}) if isinstance(doc.get('pickup'), dict) else {}
+            dropoff = (doc.get('dropoff') or {}) if isinstance(doc.get('dropoff'), dict) else {}
+            pickup_addr = (pickup.get('address') or '').strip() if pickup else ''
+            dropoff_addr = (dropoff.get('address') or '').strip() if dropoff else ''
+            # Geocode pickup if lat/lng missing (or zero)
+            if pickup_addr and (not pickup.get('lat') or not pickup.get('lng')):
+                p = await _mapbox_geocode(pickup_addr)
+                if p:
+                    pickup['lat'] = p['lat']; pickup['lng'] = p['lng']
+                    doc['pickup'] = pickup
+            if dropoff_addr and (not dropoff.get('lat') or not dropoff.get('lng')):
+                d = await _mapbox_geocode(dropoff_addr)
+                if d:
+                    dropoff['lat'] = d['lat']; dropoff['lng'] = d['lng']
+                    doc['dropoff'] = dropoff
+            # Loaded miles = pickup → dropoff
+            if pickup.get('lat') and dropoff.get('lat'):
+                loaded = await _mapbox_drive_miles(pickup, dropoff)
+                if loaded is not None:
+                    doc['loaded_miles'] = loaded
+            # Deadhead miles = base/office → pickup
+            base_addr = await _resolve_base_address()
+            if base_addr and pickup.get('lat'):
+                base_pt = await _mapbox_geocode(base_addr)
+                if base_pt:
+                    deadhead = await _mapbox_drive_miles(base_pt, pickup)
+                    if deadhead is not None:
+                        doc['deadhead_miles'] = deadhead
+                        doc['base_address'] = base_addr
+        except Exception as e:
+            # Distance is a nice-to-have. Job creation must always succeed.
+            try:
+                logging.getLogger('wrecker').warning(f"distance enrichment failed: {e}")
+            except Exception:
+                pass
+
+    # =========================================================
     # Tow Jobs (the dispatch board)
     # =========================================================
     @router.get('/jobs')
