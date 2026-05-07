@@ -1903,11 +1903,19 @@ async def list_inspections(driver_id: Optional[str] = None,
 
 @api_router.post("/inspections")
 async def create_inspection(body: InspectionCreateIn, user=Depends(get_current_user)):
-    if user.get('role') != 'driver':
-        raise HTTPException(403, "Only drivers can start a DVIR inspection.")
-    driver = await _get_my_driver(user['email'])
-    if not driver:
-        raise HTTPException(404, "Driver record not found.")
+    """Drivers can always create their own inspection. Super-admins / fleet
+    admins / supervisors get a phantom driver record auto-vivified so the
+    'Start Pre-Trip' button works for ANY logged-in user — Mike runs the
+    show, the button obliges (god-mode parity with Co-Pilot voice)."""
+    role = user.get('role')
+    if role == 'driver':
+        driver = await _get_my_driver(user['email'])
+        if not driver:
+            raise HTTPException(404, "Driver record not found.")
+    elif role in ('super_admin', 'fleet_admin', 'wrecker_supervisor'):
+        driver = await _ensure_phantom_driver(user)
+    else:
+        raise HTTPException(403, "Your role can't start a DVIR inspection.")
     if body.vehicle_id and body.vehicle_id != driver.get('vehicle_id'):
         # allow override only if admin; for driver, just use their assigned vehicle
         pass
@@ -2494,6 +2502,18 @@ GOD-MODE for super_admin:
 - Mike runs the whole platform. If he says "I am en route", trigger tow_job_status. If he says "log a call", trigger new_tow_job. If he says "start my pre-trip", trigger start_inspection. Never reply with "you can't do that as a super_admin" — you can.
 
 Rules for actions:
+- ALWAYS emit an action when the user gives a command verb. Never assume the
+  page is already showing what they want — the user is asking BECAUSE they
+  want a change. If they say "start pre-trip", you MUST emit
+  start_inspection (with voice_mode if they said "walk me through" / "hands
+  free"). If they say "mark all passed", you MUST emit inspection_mark_all.
+  Do not reply "you're already there" — that's a hallucination. The frontend
+  decides whether navigation is needed; you just emit the action.
+- Speak concisely BEFORE the action tag. One short sentence is enough
+  ("On it boss, starting your pre-trip now.") Keep it human, not robotic.
+- After the action tag (`<<<ACTION:{...}>>>`), STOP. Do not narrate.
+- If the user says something off-topic, just answer conversationally without
+  emitting an action.
 - Only emit an ACTION marker if the driver clearly wants the action done. If unsure, ask a quick clarifying question instead.
 - Never invent action types not on the list above.
 - Do not mention the marker syntax in your spoken reply — just say what you're doing in plain English.
