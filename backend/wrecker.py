@@ -380,6 +380,11 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         # Drivers see ONLY their own assigned jobs — no cherry-picking
         if _is_driver(user):
             q['assigned_driver_id'] = user['id']
+        # Personal stealth mode: when this user has hide_demo_data on, scrub
+        # seeded sample tow jobs from THEIR view. Demo stays alive in the DB
+        # so other accounts (sales walkthroughs) see the populated board.
+        if user.get('hide_demo_data'):
+            q['is_demo'] = {'$ne': True}
         cursor = db.tow_jobs.find(q).sort('created_at', -1).limit(500)
         return [serialize_doc(j) async for j in cursor]
 
@@ -1178,6 +1183,9 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         q: Dict[str, Any] = {}
         if active_only:
             q['released_at'] = None
+        # Personal stealth mode: hide seeded demo impounds from THIS user.
+        if user.get('hide_demo_data'):
+            q['is_demo'] = {'$ne': True}
         cursor = db.impounds.find(q).sort('impounded_at', -1)
         items = []
         async for it in cursor:

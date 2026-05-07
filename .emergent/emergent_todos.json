@@ -1,34 +1,22 @@
 [
   {
-    "content": "Backend: PUT /admin/super/users/{id} - edit email/name (DONE)",
+    "content": "Backend: PUT/GET /api/me/hide-demo endpoints (DONE)",
     "status": "completed"
   },
   {
-    "content": "Backend: PUT /admin/super/users/{id}/role - role change (PROVEN END-TO-END)",
+    "content": "Backend: filter is_demo on tow_jobs / impounds / drivers / inspections lists when caller has flag set (DONE)",
     "status": "completed"
   },
   {
-    "content": "Frontend: Edit user inline form (DONE)",
+    "content": "Backend: one-time backfill stamps legacy seed records with is_demo:true (DONE)",
     "status": "completed"
   },
   {
-    "content": "Allow 'super_admin' as role option in invite-company (DONE)",
+    "content": "Frontend: Personal Stealth Mode toggle banner on /super (DONE)",
     "status": "completed"
   },
   {
-    "content": "Test: edit Kenny email + promote to super_admin via API (PROVEN — see verified curl output)",
-    "status": "completed"
-  },
-  {
-    "content": "Global Co-Pilot FAB on every page (DONE — visible bottom-right)",
-    "status": "completed"
-  },
-  {
-    "content": "Multi-tenant + tenant_id assignment + is_demo flagging on seeds (DONE)",
-    "status": "completed"
-  },
-  {
-    "content": "Per-tenant wipe button accessible to ANY super_admin (DONE - both /admin/super/wipe-demo and /admin/wipe-sample-data routes)",
+    "content": "End-to-end PROVEN: stealth ON → Mike sees only real records, demo stays in DB (DONE)",
     "status": "completed"
   }
 ]

@@ -104,6 +104,11 @@ export default function SuperAdmin() {
           </Badge>
         </div>
       </div>
+      {/* PERSONAL STEALTH MODE — Mike's "wipe demo from MY view" toggle.
+          Demo data stays in the DB so prospects/Kenny see a populated app on
+          their walkthroughs. But Mike (or any super_admin who flips this on)
+          gets a CLEAN board for their own practice runs and real customer work. */}
+      <PersonalStealthBanner />
       <main className="max-w-6xl mx-auto px-3 sm:px-6 py-5 pb-12">
         {/* BIG SHORTCUTS — Mike asked for this. One-tap jump straight into
             the main parts of the platform, without hunting through menus. */}
@@ -291,6 +296,79 @@ function Header({ me, navigate }) {
         </div>
       </div>
     </header>
+  );
+}
+
+/* ============================================================ PERSONAL STEALTH BANNER ============================================================ */
+// Per-user "hide demo data from MY view" toggle. Demo records stay in the
+// database (so the platform looks alive to prospects), but flipping this ON
+// scrubs is_demo:true rows from THIS user's lists everywhere.
+function PersonalStealthBanner() {
+  const [hidden, setHidden] = React.useState(null); // null = loading
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const r = await api.get('/me/hide-demo');
+        setHidden(!!r.data?.hide_demo_data);
+      } catch (_) {
+        setHidden(false);
+      }
+    })();
+  }, []);
+
+  const toggle = async () => {
+    if (hidden === null || saving) return;
+    setSaving(true);
+    const next = !hidden;
+    try {
+      await api.put('/me/hide-demo', { enabled: next });
+      setHidden(next);
+      toast.success(next
+        ? 'Stealth mode ON — demo data hidden from your view. Demo stays alive for prospects.'
+        : 'Stealth mode OFF — demo data visible again.', { duration: 5000 });
+    } catch (e) {
+      toast.error('Could not save preference.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (hidden === null) return null;
+
+  return (
+    <div className={`border-b ${hidden ? 'border-sky-500/30 bg-sky-500/[0.05]' : 'border-amber-500/20 bg-amber-500/[0.04]'}`} data-testid="super-stealth-banner">
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 py-2 flex items-center gap-3 flex-wrap">
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border ${hidden ? 'bg-sky-500/20 border-sky-500/40' : 'bg-amber-500/20 border-amber-500/40'}`}>
+          {hidden ? <EyeOff className="w-4 h-4 text-sky-300" /> : <Eye className="w-4 h-4 text-amber-300" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className={`text-[10px] uppercase tracking-[0.25em] font-bold leading-none ${hidden ? 'text-sky-300' : 'text-amber-300'}`}>
+            {hidden ? 'Personal Stealth Mode · ON' : 'Personal Stealth Mode · OFF'}
+          </div>
+          <div className="text-xs sm:text-sm text-slate-300 mt-0.5 truncate">
+            {hidden
+              ? 'Your dispatch board, impounds, drivers and inspections show only REAL data. Demo data stays alive for prospect tours.'
+              : 'Demo data is visible to you (great for walkthroughs). Toggle ON for a clean slate during your own practice runs.'}
+          </div>
+        </div>
+        <button
+          onClick={toggle}
+          disabled={saving}
+          data-testid="super-stealth-toggle"
+          className={`shrink-0 px-3.5 py-2 rounded-lg text-xs font-bold uppercase tracking-wider border transition-colors disabled:opacity-50 ${
+            hidden
+              ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 border-sky-400'
+              : 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-400'
+          }`}
+        >
+          {saving ? <><Loader2 className="w-3.5 h-3.5 mr-1 inline animate-spin" /> Saving</>
+            : hidden ? <><Eye className="w-3.5 h-3.5 mr-1 inline" /> Show demo</>
+            : <><EyeOff className="w-3.5 h-3.5 mr-1 inline" /> Hide demo from my view</>}
+        </button>
+      </div>
+    </div>
   );
 }
 

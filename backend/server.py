@@ -496,7 +496,10 @@ async def _delete(coll: str, _id: str):
 
 @api_router.get("/drivers")
 async def list_drivers(user=Depends(get_current_user)):
-    return await _list('drivers')
+    rows = await _list('drivers')
+    if user.get('hide_demo_data'):
+        rows = [r for r in rows if not (r.get('is_demo') is True or r.get('tenant_id') == 'demo')]
+    return rows
 
 @api_router.post("/drivers")
 async def create_driver(body: DriverIn, user=Depends(require_role('fleet_admin', 'dispatcher'))):
@@ -1897,6 +1900,9 @@ async def list_inspections(driver_id: Optional[str] = None,
         query['inspection_type'] = inspection_type
     if status_filter:
         query['status'] = status_filter
+    # Personal stealth mode: hide seeded demo inspections from this user
+    if user.get('hide_demo_data'):
+        query['is_demo'] = {'$ne': True}
     rows = await db.inspections.find(query, {'_id': 0}).sort('created_at', -1).to_list(max(1, min(limit, 200)))
     return rows
 
@@ -4091,6 +4097,29 @@ async def super_admin_restore_demo(user=Depends(require_role('super_admin'))):
     return {'ok': True}
 
 
+@api_router.get("/me/hide-demo")
+async def get_hide_demo(user=Depends(get_current_user)):
+    """Personal stealth mode status. When ON, demo/sample records are filtered
+    out of THIS user's list views (dispatch board, impound list, drivers,
+    inspections) — but other users (potential customers viewing the platform)
+    still see the demo so it doesn't look empty during a sales walkthrough."""
+    return {'hide_demo_data': bool(user.get('hide_demo_data'))}
+
+
+class HideDemoIn(BaseModel):
+    enabled: bool
+
+
+@api_router.put("/me/hide-demo")
+async def set_hide_demo(body: HideDemoIn, user=Depends(get_current_user)):
+    await db.users.update_one(
+        {'id': user['id']},
+        {'$set': {'hide_demo_data': bool(body.enabled), 'hide_demo_set_at': now_utc().isoformat()}}
+    )
+    logger.info(f"user {user['email']} set hide_demo_data={body.enabled}")
+    return {'ok': True, 'hide_demo_data': bool(body.enabled)}
+
+
 @api_router.get("/notifications/logs")
 async def list_notification_logs(
     channel: Optional[str] = None,  # 'sms' | 'email' | None
@@ -4448,6 +4477,47 @@ async def on_startup():
                 logger.info('Demo wiped — skipping wrecker demo seed.')
         except Exception as e:
             logger.error(f'Wrecker seed failed: {e}')
+
+        # ONE-TIME BACKFILL — retroactively tag legacy seeded records as
+        # is_demo:true so the per-user stealth filter and global wipe button
+        # know what's safe to filter/delete. Runs every boot, only updates
+        # records that don't yet have the flag. Safe because the seeded
+        # collections (tow_jobs, impounds, drivers, motor_clubs, fuel_tanks,
+        # inspections that were created by 'seed') are 100% demo at this
+        # stage of the project — Mike hasn't onboarded real customers yet.
+        try:
+            cols = await db.list_collection_names()
+            for col in ['tow_jobs', 'impounds', 'drivers', 'motor_clubs',
+                        'fuel_tanks', 'fuel_transactions', 'vehicles']:
+                if col in cols:
+                    r = await db[col].update_many(
+                        {'is_demo': {'$exists': False}},
+                        {'$set': {'is_demo': True, 'tenant_id': 'demo'}}
+                    )
+                    if r.modified_count:
+                        logger.info(f'Backfilled is_demo on {r.modified_count} {col}')
+            # Inspections + users — only tag those obviously seeded (linked to
+            # demo emails so we don't mis-tag any real run Mike has already
+            # logged via Co-Pilot voice).
+            if 'inspections' in cols:
+                demo_drivers = await db.drivers.distinct('id', {'is_demo': True})
+                if demo_drivers:
+                    r = await db.inspections.update_many(
+                        {'driver_id': {'$in': demo_drivers}, 'is_demo': {'$exists': False}},
+                        {'$set': {'is_demo': True, 'tenant_id': 'demo'}}
+                    )
+                    if r.modified_count:
+                        logger.info(f'Backfilled is_demo on {r.modified_count} inspections')
+            # Users with @wrecker-logix.com / @highwaypilot.io emails are seeded demos
+            r = await db.users.update_many(
+                {'email': {'$regex': '@(highwaypilot\\.io|wrecker-logix\\.com)$', '$options': 'i'},
+                 'is_demo': {'$exists': False}},
+                {'$set': {'is_demo': True, 'tenant_id': 'demo'}}
+            )
+            if r.modified_count:
+                logger.info(f'Backfilled is_demo on {r.modified_count} users')
+        except Exception as e:
+            logger.error(f'is_demo backfill failed (non-fatal): {e}')
         # FOUNDER BOOTSTRAP — guarantees Mike (or whoever owns FOUNDER_EMAILS)
         # can always log in to production as super_admin even if the DB was
         # wiped, migrated, or freshly deployed. Idempotent: creates if missing,
