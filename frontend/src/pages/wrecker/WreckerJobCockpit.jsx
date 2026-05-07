@@ -7,11 +7,12 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import {
   ArrowLeft, Phone, MapPin, MessageSquare, Clock, DollarSign, Truck,
   AlertTriangle, UserPlus, Crown, Camera, FileSignature, FileText, Receipt,
   Send, Plus, X, Check, Key, Car, Edit3, ExternalLink, ChevronRight, Printer,
-  Paperclip, Download, Upload, File as FileIcon,
+  Paperclip, Download, Upload, File as FileIcon, Search, Navigation,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { openCameraAsDataUrl } from '@/lib/photoCapture';
@@ -336,85 +337,112 @@ export default function WreckerJobCockpit() {
     catch (e) { toast.error(e?.response?.data?.detail || 'Delete failed'); }
   };
 
-  // Towbook-style standard charges. ONE dropdown, both dispatch and driver
-  // can pick from it. Items with `prompt: true` ask for qty/amount when tapped.
-  // Backend tags each charge by origin (dispatcher vs driver_on_scene) so audit
-  // stays clean, but the picker is identical for both roles.
-  const STANDARD_CHARGES = [
-    // ---- Tow & Hook ----
-    { key: 'hook_loaded',     label: 'Hook Fee — Loaded',          rate: 75,   unit: 'flat', group: 'Tow & Hook' },
-    { key: 'hook_unloaded',   label: 'Hook Fee — Unloaded',        rate: 50,   unit: 'flat', group: 'Tow & Hook' },
-    { key: 'tow_light',       label: 'Tow — Light Duty',           rate: 95,   unit: 'base', group: 'Tow & Hook' },
-    { key: 'tow_medium',      label: 'Tow — Medium Duty',          rate: 175,  unit: 'base', group: 'Tow & Hook' },
-    { key: 'tow_heavy',       label: 'Tow — Heavy Duty',           rate: 350,  unit: 'base', group: 'Tow & Hook' },
-    { key: 'mileage',         label: 'Mileage (per mile)',         rate: 4.5,  unit: '/mi',  group: 'Tow & Hook', prompt: true, promptLabel: 'Miles' },
-    // ---- Recovery / Equipment ----
-    { key: 'winch_out',       label: 'Winch-Out',                  rate: 75,   unit: 'flat', group: 'Recovery' },
-    { key: 'heavy_recovery',  label: 'Heavy Recovery',             rate: 250,  unit: 'flat', group: 'Recovery' },
-    { key: 'extraction',      label: 'Extraction / Special Eq.',   rate: 150,  unit: 'flat', group: 'Recovery' },
-    { key: 'dolly',           label: 'Dolly Use',                  rate: 50,   unit: 'flat', group: 'Recovery' },
-    // ---- Time & Storage ----
-    { key: 'wait_time',       label: 'Wait Time (per hour)',       rate: 60,   unit: '/hr',  group: 'Time & Storage', prompt: true, promptLabel: 'Hours' },
-    { key: 'storage',         label: 'Storage (per day)',          rate: 35,   unit: '/day', group: 'Time & Storage', prompt: true, promptLabel: 'Days' },
-    { key: 'after_hours',     label: 'After-Hours Surcharge',      rate: 50,   unit: 'flat', group: 'Time & Storage' },
-    // ---- Fees ----
-    { key: 'cc_fee',          label: 'Credit Card Fee',            rate: 0,    unit: 'flat', group: 'Fees', prompt: true, promptLabel: 'CC fee amount ($)' },
-    { key: 'gate_fee',        label: 'Gate Release Fee',           rate: 75,   unit: 'flat', group: 'Fees' },
-    // ---- Other ----
-    { key: 'custom',          label: 'Custom Charge…',             rate: 0,    unit: 'flat', group: 'Other', prompt: 'custom' },
+  // Towbook-spec charge catalog (Mike's exact list, 28 items, default rates).
+  // Items with `prompt: 'qty'` ask for quantity at add time (mileage, hours,
+  // days). Items with `prompt: 'amount'` ask for a custom dollar amount
+  // (CC fee where it varies, fuel where actual cost varies).
+  // After add, EVERY line is inline-editable on the job page.
+  const CHARGE_CATALOG = [
+    { key: 'admin_fees',         label: 'Administrative fees',          rate: 150,  unit: 'flat'  },
+    { key: 'certified_mail',     label: 'Certified Mail',               rate: 100,  unit: 'flat'  },
+    { key: 'clean_up',           label: 'Clean up',                     rate: 50,   unit: 'flat'  },
+    { key: 'cc_fee',             label: 'Credit Card Fee',              rate: 0.05, unit: 'flat',  prompt: 'amount', promptText: 'CC fee amount in $ (or leave default for percent calc)' },
+    { key: 'customer_overage',   label: 'Customer Overage',             rate: 0,    unit: 'flat',  prompt: 'amount' },
+    { key: 'dead_head_miles',    label: 'Dead Head Miles',              rate: 1.5,  unit: '/mi',   prompt: 'qty', promptText: 'Miles' },
+    { key: 'dollies',            label: 'Dollies',                      rate: 30,   unit: 'flat'  },
+    { key: 'drive_shaft',        label: 'Drive Shaft removal',          rate: 0,    unit: 'flat',  prompt: 'amount' },
+    { key: 'flatbed',            label: 'Flatbed',                      rate: 30,   unit: 'flat'  },
+    { key: 'fuel',               label: 'Fuel (cost of fuel)',          rate: 0,    unit: 'flat',  prompt: 'amount', promptText: 'Cost of fuel in $' },
+    { key: 'fuel_delivery',      label: 'Fuel Delivery Service',        rate: 0,    unit: 'flat',  prompt: 'amount' },
+    { key: 'goa',                label: 'GOA',                          rate: 0,    unit: 'flat',  prompt: 'amount' },
+    { key: 'jump_start',         label: 'Jump Start Service',           rate: 60,   unit: 'flat'  },
+    { key: 'labor',              label: 'Labor',                        rate: 60,   unit: '/hr',   prompt: 'qty', promptText: 'Hours' },
+    { key: 'lockout',            label: 'Lockout Service',              rate: 60,   unit: 'flat'  },
+    { key: 'oil_dry',            label: 'Oil Dry',                      rate: 50,   unit: 'flat'  },
+    { key: 'pay_out',            label: 'Pay Out',                      rate: 0,    unit: 'flat',  prompt: 'amount' },
+    { key: 'police_winch',       label: 'Police Winch Out',             rate: 200,  unit: 'flat'  },
+    { key: 'pp_tow_fee',         label: 'Private Property Tow Fee',     rate: 150,  unit: 'flat'  },
+    { key: 'service_charge',     label: 'Service Charge',               rate: 0,    unit: 'flat',  prompt: 'amount' },
+    { key: 'set_out',            label: 'Set out',                      rate: 100,  unit: 'flat'  },
+    { key: 'tire_service',       label: 'Tire Service',                 rate: 60,   unit: 'flat'  },
+    { key: 'title_search',       label: 'Title search',                 rate: 100,  unit: 'flat'  },
+    { key: 'tow_after_hours',    label: 'Tow/Hook after hours',         rate: 80,   unit: 'flat'  },
+    { key: 'tow_hook',           label: 'Tow/Hook Fee',                 rate: 60,   unit: 'flat'  },
+    { key: 'tow_high_end',       label: 'Tow/Hook High-end/Show car',   rate: 80,   unit: 'flat'  },
+    { key: 'volunteer_repo',     label: 'Volunteer Repo',               rate: 100,  unit: 'flat'  },
+    { key: 'wait_time',          label: 'WAIT - Wait Time',             rate: 0,    unit: '/hr',   prompt: 'qty', promptText: 'Hours waited' },
+    { key: 'winching_per_hour',  label: 'Winching PER HOUR',            rate: 100,  unit: '/hr',   prompt: 'qty', promptText: 'Hours' },
   ];
 
-  const [selectedStandardKey, setSelectedStandardKey] = useState('');
+  const [chargePickerOpen, setChargePickerOpen] = useState(false);
+  const [chargeSearch, setChargeSearch] = useState('');
+  const [editingChargeId, setEditingChargeId] = useState(null);
+  const [editRate, setEditRate] = useState('');
+  const [editQty, setEditQty] = useState('');
 
-  const addStandardCharge = async () => {
-    const preset = STANDARD_CHARGES.find((c) => c.key === selectedStandardKey);
-    if (!preset) { toast.error('Pick a charge first'); return; }
-    let label = preset.label.replace(/…$/, '').trim();
+  const filteredCatalog = chargeSearch.trim()
+    ? CHARGE_CATALOG.filter((c) => c.label.toLowerCase().includes(chargeSearch.toLowerCase()))
+    : CHARGE_CATALOG;
+
+  const addCatalogCharge = async (preset) => {
+    let label = preset.label;
     let rate = preset.rate;
     let qty = 1;
-    let unit = preset.unit;
-
-    if (preset.prompt === 'custom') {
-      const customLabel = window.prompt('Charge description:', '');
-      if (!customLabel) return;
-      const amountStr = window.prompt(`Amount in dollars for "${customLabel}":`, '');
-      if (amountStr == null) return;
-      const amount = parseFloat(amountStr);
-      if (!amount || amount <= 0) { toast.error('Enter a positive dollar amount'); return; }
-      label = customLabel;
-      rate = amount;
-      qty = 1;
-      unit = 'flat';
-    } else if (preset.prompt) {
-      const promptText = preset.key === 'cc_fee'
-        ? 'Credit card surcharge amount in dollars (e.g., 8.50):'
-        : `${preset.promptLabel || 'Quantity'}:`;
-      const input = window.prompt(promptText, preset.key === 'cc_fee' ? '' : '1');
+    if (preset.prompt === 'qty') {
+      const input = window.prompt(`${preset.promptText || 'Quantity'}:`, '1');
       if (input == null) return;
       const n = parseFloat(input);
       if (!n || n <= 0) { toast.error('Enter a positive number'); return; }
-      if (preset.key === 'cc_fee') {
-        rate = n;
-        qty = 1;
-      } else {
-        qty = n;
-      }
+      qty = n;
+    } else if (preset.prompt === 'amount') {
+      const def = preset.rate > 0 ? String(preset.rate) : '';
+      const input = window.prompt(`${preset.promptText || 'Amount in $'}:`, def);
+      if (input == null) return;
+      const n = parseFloat(input);
+      if (!n || n <= 0) { toast.error('Enter a positive amount'); return; }
+      rate = n;
     }
-
     try {
       await api.post(`/wrecker/jobs/${id}/charges`, {
         key: preset.key,
         label: label,
         rate: rate,
         qty: qty,
-        unit: unit,
+        unit: preset.unit,
       });
-      const subtotal = (rate * qty).toFixed(2);
-      toast.success(`+ $${subtotal} · ${label}${qty !== 1 ? ` × ${qty}` : ''}`);
-      setSelectedStandardKey('');
+      toast.success(`+ $${(rate * qty).toFixed(2)} · ${label}`);
+      setChargePickerOpen(false);
+      setChargeSearch('');
       load();
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Could not add charge');
+    }
+  };
+
+  const startEditCharge = (c) => {
+    setEditingChargeId(c.id);
+    setEditRate(String(c.rate ?? ''));
+    setEditQty(String(c.qty ?? '1'));
+  };
+
+  const cancelEditCharge = () => {
+    setEditingChargeId(null);
+    setEditRate('');
+    setEditQty('');
+  };
+
+  const saveEditCharge = async (chargeId) => {
+    const r = parseFloat(editRate);
+    const q = parseFloat(editQty);
+    if (isNaN(r) || r < 0) { toast.error('Rate must be a number ≥ 0'); return; }
+    if (isNaN(q) || q <= 0) { toast.error('Qty must be > 0'); return; }
+    try {
+      await api.patch(`/wrecker/jobs/${id}/charges/${chargeId}`, { rate: r, qty: q });
+      toast.success('Updated');
+      cancelEditCharge();
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Update failed');
     }
   };
 
@@ -773,74 +801,16 @@ export default function WreckerJobCockpit() {
             </div>
           </div>
 
-          {/* Towbook-style "Add Charges" dropdown — visible to BOTH dispatch and drivers.
-              Industry-standard line items grouped (Tow & Hook, Recovery, Time, Fees).
-              Same workflow as Towbook so Mike + Kenny use it without thinking. */}
-          <div className="rounded-lg bg-gradient-to-br from-amber-500/[0.08] to-emerald-500/[0.04] border border-amber-500/30 p-3 space-y-2.5">
-            <div className="flex items-center gap-2">
-              <Plus className="w-4 h-4 text-amber-300" />
-              <div className="text-[11px] uppercase tracking-widest text-amber-300 font-bold">Add Charges</div>
-              <span className="text-[10px] text-slate-500 font-normal lowercase tracking-normal">· line items roll into the total below</span>
-            </div>
-            <div className="flex items-end gap-2 flex-wrap">
-              <div className="flex-1 min-w-[220px]">
-                <Select value={selectedStandardKey} onValueChange={setSelectedStandardKey}>
-                  <SelectTrigger
-                    data-testid="standard-charge-select"
-                    className="bg-[#07090d] border-amber-500/30 text-white h-11"
-                  >
-                    <SelectValue placeholder="Pick a charge type..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[60vh]">
-                    {(() => {
-                      // Group items by `group` field so dropdown reads cleanly
-                      const groups = {};
-                      STANDARD_CHARGES.forEach((c) => {
-                        if (!groups[c.group]) groups[c.group] = [];
-                        groups[c.group].push(c);
-                      });
-                      return Object.entries(groups).flatMap(([groupName, items], gi) => [
-                        <div key={`hdr-${groupName}`} className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-widest text-slate-500 font-bold border-t border-slate-800 first:border-t-0">
-                          {groupName}
-                        </div>,
-                        ...items.map((c) => (
-                          <SelectItem key={c.key} value={c.key} data-testid={`charge-option-${c.key}`}>
-                            <span className="flex items-center justify-between gap-3 w-full">
-                              <span>{c.label}</span>
-                              {c.rate > 0 && (
-                                <span className="text-emerald-300 text-xs font-semibold tabular-nums">
-                                  ${c.rate}{c.unit && c.unit !== 'flat' && c.unit !== 'base' ? c.unit : ''}
-                                </span>
-                              )}
-                            </span>
-                          </SelectItem>
-                        )),
-                      ]);
-                    })()}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                data-testid="add-standard-charge-btn"
-                onClick={addStandardCharge}
-                disabled={!selectedStandardKey}
-                className="h-11 px-4 bg-amber-500 text-slate-950 hover:bg-amber-400 font-semibold disabled:opacity-40"
-              >
-                <Plus className="w-4 h-4 mr-1" /> Add to Total
-              </Button>
-            </div>
-            {selectedStandardKey && (() => {
-              const sel = STANDARD_CHARGES.find((c) => c.key === selectedStandardKey);
-              if (!sel) return null;
-              return (
-                <div className="text-[11px] text-slate-400 leading-relaxed">
-                  Selected: <span className="text-amber-200 font-semibold">{sel.label}</span>
-                  {sel.rate > 0 && <> · Default rate <span className="text-emerald-300">${sel.rate}{sel.unit !== 'flat' && sel.unit !== 'base' ? sel.unit : ''}</span></>}
-                  {sel.prompt === 'custom' && <> · You'll enter description and amount</>}
-                  {sel.prompt && sel.prompt !== 'custom' && <> · You'll enter <span className="text-amber-200">{sel.promptLabel || 'quantity'}</span></>}
-                </div>
-              );
-            })()}
+          {/* Towbook-style ADD CHARGE — single big button at top, opens
+              the searchable catalog modal. Same UX for dispatch + drivers. */}
+          <div>
+            <Button
+              data-testid="open-charge-picker"
+              onClick={() => { setChargePickerOpen(true); setChargeSearch(''); }}
+              className="w-full h-12 text-sm uppercase tracking-widest font-bold bg-amber-500 text-slate-950 hover:bg-amber-400 shadow shadow-amber-500/20"
+            >
+              <Plus className="w-5 h-5 mr-1.5" /> Add Charge
+            </Button>
           </div>
 
           {/* Full rate-sheet picker — DISPATCH-ONLY for setting the main quote.
@@ -884,40 +854,97 @@ export default function WreckerJobCockpit() {
               {charges.map((c) => {
                 const origin = c.origin || (c.added_by_role === 'wrecker_operator' ? 'driver_on_scene' : 'dispatcher');
                 const isOnScene = origin === 'driver_on_scene';
-                // Drivers can only delete charges they personally added.
-                const canDelete = !isDriver || (c.added_by === me?.id);
+                // Drivers can only delete/edit charges they personally added.
+                const canMutate = !isDriver || (c.added_by === me?.id);
+                const isEditing = editingChargeId === c.id;
                 return (
-                  <div key={c.id} className="flex items-center justify-between gap-3 py-3" data-testid={`charge-row-${c.id}`}>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm text-white font-medium truncate flex items-center gap-2 flex-wrap">
-                        {c.label}
-                        <span
-                          className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-semibold ${
-                            isOnScene ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                                      : 'bg-slate-800 text-slate-400 border border-slate-700'
-                          }`}
-                          data-testid={`charge-origin-${c.id}`}
-                        >
-                          {isOnScene ? 'On-Scene' : 'Dispatch'}
-                        </span>
+                  <div key={c.id} className="py-3" data-testid={`charge-row-${c.id}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm text-white font-medium truncate flex items-center gap-2 flex-wrap">
+                          {c.label}
+                          <span
+                            className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-semibold ${
+                              isOnScene ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                                        : 'bg-slate-800 text-slate-400 border border-slate-700'
+                            }`}
+                            data-testid={`charge-origin-${c.id}`}
+                          >
+                            {isOnScene ? 'On-Scene' : 'Dispatch'}
+                          </span>
+                        </div>
+                        {!isEditing && (
+                          <div className="text-[11px] text-slate-500">
+                            ${c.rate?.toFixed(2)} × {c.qty} {c.unit || ''}
+                            {c.added_by_name && <span className="ml-1.5 text-slate-600">· by {c.added_by_name}</span>}
+                            {c.edited_at && <span className="ml-1.5 text-amber-400/70">· edited</span>}
+                          </div>
+                        )}
                       </div>
-                      <div className="text-[11px] text-slate-500">
-                        ${c.rate?.toFixed(2)} × {c.qty} {c.unit || ''}
-                        {c.added_by_name && <span className="ml-1.5 text-slate-600">· by {c.added_by_name}</span>}
-                      </div>
+                      {!isEditing && (
+                        <div className="text-sm text-emerald-300 font-semibold tabular-nums">${c.subtotal?.toFixed(2)}</div>
+                      )}
+                      {!isEditing && canMutate && (
+                        <div className="flex items-center gap-0.5">
+                          <button
+                            data-testid={`charge-edit-${c.id}`}
+                            onClick={() => startEditCharge(c)}
+                            className="text-slate-500 hover:text-amber-300 p-1"
+                            title="Edit rate or qty"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            data-testid={`charge-delete-${c.id}`}
+                            onClick={() => deleteCharge(c.id)}
+                            className="text-slate-500 hover:text-red-400 p-1"
+                            title={isOnScene ? 'Remove this on-scene fee' : 'Remove this charge'}
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                      {!isEditing && !canMutate && <div className="w-6" />}
                     </div>
-                    <div className="text-sm text-emerald-300 font-semibold tabular-nums">${c.subtotal?.toFixed(2)}</div>
-                    {canDelete ? (
-                      <button
-                        data-testid={`charge-delete-${c.id}`}
-                        onClick={() => deleteCharge(c.id)}
-                        className="text-slate-500 hover:text-red-400 p-1"
-                        title={isOnScene ? 'Remove this on-scene fee' : 'Remove this charge'}
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    ) : (
-                      <div className="w-6" /> /* spacer to keep alignment */
+                    {isEditing && (
+                      <div className="mt-2 grid grid-cols-[1fr_1fr_auto_auto] gap-2 items-end p-2 rounded-lg bg-amber-500/[0.06] border border-amber-500/30" data-testid={`charge-editor-${c.id}`}>
+                        <div>
+                          <div className="text-[9px] uppercase tracking-wider text-amber-300 font-semibold mb-0.5">Rate ($)</div>
+                          <Input
+                            type="number" step="0.01" value={editRate}
+                            onChange={(e) => setEditRate(e.target.value)}
+                            data-testid={`charge-edit-rate-${c.id}`}
+                            className="h-8 bg-[#07090d] border-amber-500/30 text-white text-sm"
+                            autoFocus
+                          />
+                        </div>
+                        <div>
+                          <div className="text-[9px] uppercase tracking-wider text-amber-300 font-semibold mb-0.5">Qty {c.unit && c.unit !== 'flat' ? `(${c.unit})` : ''}</div>
+                          <Input
+                            type="number" step="0.5" value={editQty}
+                            onChange={(e) => setEditQty(e.target.value)}
+                            data-testid={`charge-edit-qty-${c.id}`}
+                            className="h-8 bg-[#07090d] border-amber-500/30 text-white text-sm"
+                          />
+                        </div>
+                        <Button
+                          onClick={() => saveEditCharge(c.id)}
+                          data-testid={`charge-edit-save-${c.id}`}
+                          size="sm"
+                          className="h-8 bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          onClick={cancelEditCharge}
+                          data-testid={`charge-edit-cancel-${c.id}`}
+                          size="sm"
+                          variant="outline"
+                          className="h-8 border-slate-700 text-slate-300"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
                     )}
                   </div>
                 );
@@ -934,13 +961,77 @@ export default function WreckerJobCockpit() {
             <Total label="Balance Due" value={totals.balance_due} bold red={totals.balance_due > 0} />
           </div>
 
+          {/* Second ADD CHARGE at the bottom — Towbook spec. Drivers
+              especially scroll to bottom while reviewing; button needs
+              to be reachable without scroll-up. */}
+          <Button
+            data-testid="open-charge-picker-bottom"
+            onClick={() => { setChargePickerOpen(true); setChargeSearch(''); }}
+            className="w-full h-12 mt-2 text-sm uppercase tracking-widest font-bold bg-amber-500 text-slate-950 hover:bg-amber-400 shadow shadow-amber-500/20"
+          >
+            <Plus className="w-5 h-5 mr-1.5" /> Add Charge
+          </Button>
+
           {isDriver && (
             <div className="text-[11px] text-slate-500 leading-relaxed pt-2 border-t border-white/5">
-              <span className="text-slate-400 font-semibold">Note:</span> You can only remove fees you added on-scene. To void a dispatch-set charge, message dispatch.
+              <span className="text-slate-400 font-semibold">Note:</span> You can edit or remove on-scene fees you added. To void a dispatch-set charge, message dispatch.
             </div>
           )}
         </Card>
       )}
+
+      {/* Towbook charge picker — searchable modal, 28-item catalog. */}
+      <Dialog open={chargePickerOpen} onOpenChange={(v) => { if (!v) { setChargePickerOpen(false); setChargeSearch(''); } }}>
+        <DialogContent className="bg-[#0a0e14] border-white/10 text-white max-w-md max-h-[88vh] overflow-hidden flex flex-col p-0" data-testid="charge-picker-dialog">
+          <div className="px-4 pt-4 pb-3 border-b border-white/5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white">Select a charge</h3>
+              <button onClick={() => setChargePickerOpen(false)} className="text-slate-500 hover:text-white" data-testid="charge-picker-close">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="relative mt-2">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <Input
+                value={chargeSearch}
+                onChange={(e) => setChargeSearch(e.target.value)}
+                placeholder="Search charges..."
+                autoFocus
+                data-testid="charge-search-input"
+                className="pl-9 bg-[#07090d] border-white/10 text-white"
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto" data-testid="charge-picker-list">
+            {filteredCatalog.length === 0 ? (
+              <div className="py-12 text-center text-slate-500 text-sm">No charges match "{chargeSearch}"</div>
+            ) : (
+              <div className="divide-y divide-white/5">
+                {filteredCatalog.map((c) => (
+                  <button
+                    key={c.key}
+                    onClick={() => addCatalogCharge(c)}
+                    data-testid={`charge-pick-${c.key}`}
+                    className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-amber-500/5 active:bg-amber-500/10 transition"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-white font-medium truncate">{c.label}</div>
+                      {c.prompt && (
+                        <div className="text-[10px] uppercase tracking-wider text-amber-400/80 mt-0.5">
+                          {c.prompt === 'qty' ? `Asks for ${c.promptText || 'qty'}` : 'Asks for amount'}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-sm text-emerald-300 font-semibold tabular-nums shrink-0">
+                      ${c.rate.toFixed(2)}{c.unit && c.unit !== 'flat' ? c.unit : ''}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {tab === 'payments' && (
         <Card className="p-5 bg-[#0a0e14] border-white/5 space-y-4" data-testid="payments-tab">

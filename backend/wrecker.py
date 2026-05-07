@@ -1866,6 +1866,60 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         )
         return {'ok': True, 'totals': totals}
 
+    class ChargeEditIn(BaseModel):
+        """Inline edits to an existing charge — rate, qty, or label.
+        Mike's spec: prices must be editable once added."""
+        rate: Optional[float] = None
+        qty: Optional[float] = None
+        label: Optional[str] = None
+        unit: Optional[str] = None
+
+    @router.patch('/jobs/{job_id}/charges/{charge_id}')
+    async def edit_charge(job_id: str, charge_id: str, body: ChargeEditIn, user=Depends(require_wrecker)):
+        # Drivers can only edit charges they added on-scene. Dispatch can edit anything.
+        existing = await _get_job_for_driver(job_id, user)
+        charges = list(existing.get('charges') or [])
+        target_idx = next((i for i, c in enumerate(charges) if c.get('id') == charge_id), None)
+        if target_idx is None:
+            raise HTTPException(404, 'Charge not found')
+        target = charges[target_idx]
+        if _is_driver(user):
+            if target.get('added_by') != user['id']:
+                raise HTTPException(403, "You can only edit fees you added on-scene. Talk to dispatch.")
+        # Apply only the provided fields
+        updates = body.model_dump(exclude_none=True)
+        for k, v in updates.items():
+            if k == 'rate':
+                try:
+                    target['rate'] = float(v)
+                except Exception:
+                    pass
+            elif k == 'qty':
+                try:
+                    target['qty'] = float(v)
+                except Exception:
+                    pass
+            elif k == 'label' and isinstance(v, str) and v.strip():
+                target['label'] = v.strip()
+            elif k == 'unit' and isinstance(v, str):
+                target['unit'] = v.strip() or 'flat'
+        # Recompute subtotal for this line item
+        try:
+            target['subtotal'] = round(float(target.get('rate', 0)) * float(target.get('qty', 0)), 2)
+        except Exception:
+            target['subtotal'] = 0
+        target['edited_at'] = _now()
+        target['edited_by'] = user['id']
+        target['edited_by_name'] = user.get('name')
+        charges[target_idx] = target
+        existing['charges'] = charges
+        totals = _recompute_totals(existing)
+        await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$set': {'charges': charges, 'updated_at': _now(), **totals}}
+        )
+        return {'ok': True, 'charge': serialize_doc(target), 'totals': totals}
+
     # ---------- Payments ----------
     @router.post('/jobs/{job_id}/payments')
     async def add_payment(job_id: str, body: PaymentIn, user=Depends(require_dispatcher)):
