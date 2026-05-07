@@ -571,7 +571,7 @@ export default function WreckerJobNew() {
   ]), []);
 
   return (
-    <div className="p-6 lg:p-8 max-w-3xl space-y-5">
+    <div className="p-6 lg:p-8 max-w-3xl space-y-5 pb-32">
       <header className="flex items-center gap-3">
         <Link to="/wrecker"><Button variant="ghost" size="sm" data-testid="back-to-board"><ArrowLeft className="w-4 h-4" /></Button></Link>
         <div className="flex-1">
@@ -796,9 +796,9 @@ export default function WreckerJobNew() {
           </div>
         </Card>
 
-        <div className="flex justify-end gap-2">
-          <Link to="/wrecker"><Button type="button" variant="outline" className="border-white/10">Cancel</Button></Link>
-          <Button data-testid="save-job" type="submit" disabled={saving} className="bg-amber-500 text-black hover:bg-amber-400">
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pb-4">
+          <Link to="/wrecker" className="sm:w-auto"><Button type="button" variant="outline" className="border-white/10 w-full sm:w-auto">Cancel</Button></Link>
+          <Button data-testid="save-job" type="submit" disabled={saving} className="bg-amber-500 text-black hover:bg-amber-400 w-full sm:w-auto h-11 sm:h-10 font-semibold">
             <Save className="w-4 h-4 mr-1" /> {saving ? 'Creating...' : 'Create Tow Job'}
           </Button>
         </div>
