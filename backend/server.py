@@ -1569,6 +1569,38 @@ DUTY_KEYWORDS = {
 async def _get_my_driver(email: str):
     return await db.drivers.find_one({'email': email}, {'_id': 0})
 
+
+async def _ensure_phantom_driver(user: Dict[str, Any]) -> Dict[str, Any]:
+    """Get-or-create a driver record for a non-driver user (super_admin etc.)
+    so Co-Pilot's driver-scoped actions work in god-mode without crashing.
+
+    Mike asked for this verbatim: "When Mike, the super admin, makes a command
+    on any page, Copilot should oblige." So if the founder says
+    "Start pre-trip inspection" while signed in as super_admin, we lazily
+    materialise a driver record under his email and use it for the action.
+    Real customers (fleet_admin/dispatcher etc.) don't get this — they should
+    have their own actual driver accounts.
+    """
+    existing = await db.drivers.find_one({'email': user['email']}, {'_id': 0})
+    if existing:
+        return existing
+    new_driver = {
+        'id': str(uuid.uuid4()),
+        'email': user['email'],
+        'name': user.get('name') or user['email'].split('@')[0].title(),
+        'phone': user.get('phone'),
+        'license_class': 'CDL-A',
+        'status': 'on_duty',
+        'hos_remaining_minutes': 660,
+        'is_phantom': True,           # so we can spot god-mode driver records later
+        'tenant_id': user.get('tenant_id', 'founder'),
+        'created_at': now_utc().isoformat(),
+        'updated_at': now_utc().isoformat(),
+    }
+    await db.drivers.insert_one(new_driver)
+    logger.info(f"Phantom driver auto-created for super_admin {user['email']}")
+    return new_driver
+
 @api_router.post("/voice/command")
 async def voice_command(body: VoiceCmdIn, user=Depends(get_current_user)):
     text = (body.transcript or '').lower().strip()
@@ -2449,6 +2481,18 @@ WRECKER MODE actions (only relevant when role is "wrecker_operator" or when LIVE
 - impound_quick — args: {"plate":"<optional>","reason":"police_hold"|"private_property"|"accident"|"abandoned"}
   Use when operator says: "impound this one", "log this as an impound", "tag for impound" — only after a job is completed. Creates a basic impound record from the active job's vehicle info.
 
+NEW HANDS-FREE ACTIONS:
+- inspection_mark_all — args: {"status":"pass"|"defect"|"na"}
+  Use when the user says: "mark all as passed", "mark all good", "everything passes", "all clear", "mark all as fail", "mark all N A", "skip everything". Mass-marks every check item on the active DVIR. If no DVIR is active yet, one is auto-created. Returns a redirect to the sign page.
+- inspection_set_item — args: {"item":"<plain-english item name>","status":"pass"|"defect"|"na"}
+  Use when the user calls out a specific item: "headlights pass", "left mirror is cracked, mark it failed", "skip the fire extinguisher", "tires are good".
+- new_tow_job — args: {"customer_name":"...","phone":"<optional>","location":"<pickup>","destination":"<optional dropoff>","vehicle":"<make/model/color>","service_type":"tow"|"jumpstart"|"lockout"|"tire_change"|"fuel_delivery"|"winch"|"recovery","quoted_price":<optional float>}
+  Use when the user says: "log a new call for...", "create a tow ticket", "new job", "Co-Pilot, new job: Smith on I-65 mile 142, blue F-150, jumpstart". Voice-creates a tow job in WreckerLogix tagged created_via=copilot_voice. Don't ask for every field — fill what you heard, leave the rest blank, and the dispatcher can polish on the screen.
+
+GOD-MODE for super_admin:
+- If the user's role is "super_admin" (Mike, the founder, OR a company owner promoted to super_admin), TREAT EVERY ACTION AS AVAILABLE regardless of role gates. The system has already given them a phantom driver record so duty_change, start_trip, start_inspection, mark_all, etc. all work. Just oblige.
+- Mike runs the whole platform. If he says "I am en route", trigger tow_job_status. If he says "log a call", trigger new_tow_job. If he says "start my pre-trip", trigger start_inspection. Never reply with "you can't do that as a super_admin" — you can.
+
 Rules for actions:
 - Only emit an ACTION marker if the driver clearly wants the action done. If unsure, ask a quick clarifying question instead.
 - Never invent action types not on the list above.
@@ -2481,6 +2525,21 @@ You: "10-4. Marked you on scene.
 <<<ACTION:{"type":"tow_job_status","args":{"status":"on_scene"}}>>>"
 
 Operator: "Job complete."
+You: "10-4. Marking job complete.
+<<<ACTION:{"type":"tow_job_status","args":{"status":"completed"}}>>>"
+
+Mike (super_admin): "Mark all as passed."
+You: "You got it boss, marking every item passed and pulling up sign-off.
+<<<ACTION:{"type":"inspection_mark_all","args":{"status":"pass"}}>>>"
+
+Mike (super_admin): "Co-Pilot, new job: Smith on I-65 mile 142, blue F-150, jumpstart."
+You: "On it, logging the call now — Smith, I-65 mile 142, blue F-150, jumpstart.
+<<<ACTION:{"type":"new_tow_job","args":{"customer_name":"Smith","location":"I-65 mile 142","vehicle":"Blue F-150","service_type":"jumpstart"}}>>>"
+
+Mike (super_admin): "Headlights pass, left mirror cracked mark it failed."
+You: "Logging headlights pass and left mirror failed.
+<<<ACTION:{"type":"inspection_set_item","args":{"item":"headlights","status":"pass"}}>>>"
+(Then on the next turn, you'd emit a second action for the mirror.)
 You: "Nice work boss. Marking it done.
 <<<ACTION:{"type":"tow_job_status","args":{"status":"completed"}}>>>"
 
@@ -2997,6 +3056,146 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
             })
             return result
 
+        # ----- inspection_mark_all (mass-mark current DVIR items) -----
+        # Mike said: "When I say mark all as passed, he should do that."
+        # Args: { status: 'pass'|'defect'|'na', inspection_id?: '...' }
+        # If no inspection_id, find the caller's most recent uncertified DVIR.
+        if action_type == 'inspection_mark_all':
+            status_in = str(args.get('status', 'pass')).lower().strip()
+            status_map = {
+                'pass': 'pass', 'passed': 'pass', 'good': 'pass', 'all good': 'pass', 'green': 'pass',
+                'fail': 'defect', 'failed': 'defect', 'defect': 'defect', 'bad': 'defect', 'red': 'defect',
+                'na': 'na', 'n/a': 'na', 'skip': 'na', 'not applicable': 'na', 'none': 'na',
+            }
+            status = status_map.get(status_in, 'pass')
+            if not driver:
+                result['error'] = 'No driver record to attach the inspection to.'
+                return result
+
+            insp_id = args.get('inspection_id')
+            if insp_id:
+                doc = await db.inspections.find_one({'id': insp_id}, {'_id': 0})
+            else:
+                doc = await db.inspections.find_one(
+                    {'driver_id': driver['id'], 'status': {'$ne': 'certified'}},
+                    {'_id': 0},
+                    sort=[('created_at', -1)],
+                )
+            if not doc:
+                # No active inspection — start one so Mike's "mark all pass" actually works
+                doc = await _create_blank_inspection(driver, 'pre_trip')
+
+            items = doc.get('items') or []
+            updated_items = []
+            now_iso = now_utc().isoformat()
+            for it in items:
+                if it.get('type') == 'check':
+                    it = {**it, 'status': status, 'updated_at': now_iso, 'updated_by': user['id']}
+                updated_items.append(it)
+            await db.inspections.update_one(
+                {'id': doc['id']},
+                {'$set': {'items': updated_items, 'updated_at': now_iso}}
+            )
+            count = sum(1 for i in items if i.get('type') == 'check')
+            result.update({
+                'executed': True,
+                'inspection_id': doc['id'],
+                'status': status,
+                'items_marked': count,
+                'redirect': f"/driver/inspection/{doc['id']}/sign",
+            })
+            return result
+
+        # ----- inspection_set_item (mark a single DVIR item by name) -----
+        if action_type == 'inspection_set_item':
+            item_query = str(args.get('item', '')).strip().lower()
+            status_in = str(args.get('status', 'pass')).lower().strip()
+            status = {'pass': 'pass', 'passed': 'pass', 'good': 'pass',
+                      'fail': 'defect', 'failed': 'defect', 'defect': 'defect',
+                      'na': 'na', 'skip': 'na'}.get(status_in, 'pass')
+            if not driver or not item_query:
+                result['error'] = 'Missing driver or item name.'
+                return result
+            doc = await db.inspections.find_one(
+                {'driver_id': driver['id'], 'status': {'$ne': 'certified'}},
+                {'_id': 0},
+                sort=[('created_at', -1)],
+            )
+            if not doc:
+                doc = await _create_blank_inspection(driver, 'pre_trip')
+            items = doc.get('items') or []
+            matched = None
+            for it in items:
+                lbl = (it.get('label') or it.get('key') or '').lower()
+                if item_query in lbl or lbl in item_query:
+                    matched = it
+                    break
+            if not matched:
+                result['error'] = f"No inspection item named '{item_query}'."
+                return result
+            await db.inspections.update_one(
+                {'id': doc['id'], 'items.key': matched['key']},
+                {'$set': {'items.$.status': status, 'items.$.updated_at': now_utc().isoformat()}}
+            )
+            result.update({
+                'executed': True,
+                'inspection_id': doc['id'],
+                'item': matched.get('label'),
+                'status': status,
+            })
+            return result
+
+        # ----- new_tow_job (voice-create a tow job) -----
+        # Mike's "log every run" play: while driving to a Towbook call he can
+        # say "Co-Pilot, new job for Smith on I-65 mile 142, blue F-150
+        # jumpstart" and Co-Pilot creates the ticket in WreckerLogix in 2s.
+        if action_type == 'new_tow_job':
+            customer = str(args.get('customer_name', '')).strip() or 'Walk-up'
+            phone = str(args.get('phone', '')).strip() or None
+            location = str(args.get('location', '')).strip() or args.get('pickup_location') or 'Unknown location'
+            destination = str(args.get('destination', '')).strip() or args.get('drop_location') or None
+            vehicle = str(args.get('vehicle', '')).strip() or args.get('vehicle_description') or None
+            service = str(args.get('service_type', 'tow')).lower().strip()
+            valid_service = {'tow', 'jumpstart', 'lockout', 'tire_change', 'fuel_delivery', 'winch', 'recovery', 'impound'}
+            if service not in valid_service:
+                service = 'tow'
+            quoted = float(args.get('quoted_price') or 0) or None
+            doc = {
+                'id': str(uuid.uuid4()),
+                'customer_name': customer,
+                'customer_phone': phone,
+                'pickup_location': location,
+                'drop_location': destination,
+                'vehicle_description': vehicle,
+                'service_type': service,
+                'status': 'pending',
+                'quoted_price': quoted,
+                'final_price': None,
+                'photo_urls': [],
+                'created_at': now_utc(),
+                'updated_at': now_utc(),
+                'created_by': user['id'],
+                'created_by_name': user.get('name'),
+                'created_via': 'copilot_voice',
+                'tenant_id': user.get('tenant_id', 'founder'),
+                'is_demo': False,
+                'status_history': [{
+                    'status': 'pending',
+                    'at': now_utc().isoformat(),
+                    'by': user['email'],
+                    'note': 'Voice-created via Co-Pilot',
+                }],
+            }
+            await db.tow_jobs.insert_one(doc)
+            result.update({
+                'executed': True,
+                'job_id': doc['id'],
+                'customer_name': customer,
+                'service_type': service,
+                'redirect': f"/wrecker/jobs/{doc['id']}",
+            })
+            return result
+
         # Unknown action — silently ignore
         result['error'] = f"Unknown action type: {action_type}"
         return result
@@ -3040,7 +3239,16 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
     session_id = body.session_id or f"copilot-{user['id']}"
 
     # Build live context
-    driver = await _get_my_driver(user['email']) if user.get('role') == 'driver' else None
+    # GOD-MODE: super_admin gets a phantom driver record auto-created so all
+    # voice actions work without role gates ("start pre-trip", "mark all
+    # passed", etc.) — Mike runs the show, Co-Pilot obliges anywhere he is.
+    is_god_mode = user.get('role') == 'super_admin'
+    if user.get('role') == 'driver':
+        driver = await _get_my_driver(user['email'])
+    elif is_god_mode:
+        driver = await _ensure_phantom_driver(user)
+    else:
+        driver = None
     active_trip = None
     vehicle = None
     if driver:
