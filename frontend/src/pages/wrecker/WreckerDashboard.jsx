@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { Truck, Lock, Activity, DollarSign, Clock, MapPin, Phone, Plus, RefreshCw, ArrowUpRight, Zap, UserPlus, Navigation } from 'lucide-react';
+import { Truck, Lock, Activity, DollarSign, Clock, MapPin, Phone, Plus, RefreshCw, ArrowUpRight, Zap, UserPlus, Navigation, Mic } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -241,6 +241,11 @@ export default function WreckerDashboard() {
           <Button data-testid="refresh-board" variant="outline" size="sm" onClick={load} className="border-white/10 text-slate-300">
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
           </Button>
+          <Link to="/wrecker/voice-job-wizard">
+            <Button data-testid="hands-free-cta" size="sm" className="bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold">
+              <Mic className="w-4 h-4 mr-1" /> Hands-Free
+            </Button>
+          </Link>
           <Link to="/wrecker/jobs/new">
             <Button data-testid="new-job-cta" size="sm" className="bg-amber-500 text-black hover:bg-amber-400">
               <Plus className="w-4 h-4 mr-1" /> New Tow Job

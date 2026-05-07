@@ -3701,6 +3701,338 @@ async def copilot_status(user=Depends(get_current_user)):
 
 
 # ============================================================
+# Co-Pilot Voice Wizard — Stateful guided job entry.
+#
+# Mike's "Hands-Free vision" play. Frontend owns the conversation state
+# machine; backend just exposes lightweight endpoints to:
+#   1. parse a single field out of a raw voice transcript
+#   2. create the tow job from collected fields (zero LLM, direct insert)
+#
+# Cost discipline: regex/heuristics first, LLM fallback ONLY for the messy
+# cases (multi-word names, addresses with numbers spelled out, etc).
+# ============================================================
+
+class WizardParseIn(BaseModel):
+    field: str  # name | phone | address | vehicle | service | price | yesno
+    transcript: str
+    use_llm_fallback: bool = True
+
+class WizardCreateJobIn(BaseModel):
+    customer_name: str
+    customer_phone: Optional[str] = None
+    pickup_location: str
+    drop_location: Optional[str] = None
+    vehicle_description: Optional[str] = None
+    service_type: str = 'tow'
+    quoted_price: Optional[float] = None
+    notes: Optional[str] = None
+
+
+# Common spoken-yes / spoken-no words. Tight on purpose — wizard rejects
+# ambiguous responses and re-asks rather than guess wrong.
+_YES_WORDS = {'yes', 'yeah', 'yep', 'yup', 'correct', 'right', "that's right", 'confirm',
+              'confirmed', 'continue', 'go', 'send it', 'looks good', 'good', 'okay',
+              'ok', 'sure', 'affirmative', 'roger', 'ten four', 'send', 'submit'}
+_NO_WORDS = {'no', 'nope', 'nah', 'wrong', 'redo', 'again', 'try again', 'incorrect',
+             'fix', 'fix it', 'change', 'change it', 'no way', 'negative', 'cancel'}
+_SKIP_WORDS = {'skip', 'skip it', 'none', 'no phone', 'no number', 'leave blank',
+               'leave it blank', 'not sure', 'unknown', 'pass', 'next'}
+_BACK_WORDS = {'back', 'go back', 'previous', 'last one', 'previous field'}
+
+
+def _parse_yesno(t: str) -> Optional[str]:
+    """Returns 'yes', 'no', 'skip', 'back', or None."""
+    s = (t or '').lower().strip().rstrip('.!?,')
+    if not s:
+        return None
+    # exact phrase first
+    if s in _YES_WORDS:
+        return 'yes'
+    if s in _NO_WORDS:
+        return 'no'
+    if s in _SKIP_WORDS:
+        return 'skip'
+    if s in _BACK_WORDS:
+        return 'back'
+    # token-level fallback (catches "yeah send it" style replies)
+    tokens = set(re.split(r'\s+', s))
+    if tokens & _YES_WORDS:
+        return 'yes'
+    if tokens & _NO_WORDS:
+        return 'no'
+    if tokens & _SKIP_WORDS:
+        return 'skip'
+    if tokens & _BACK_WORDS:
+        return 'back'
+    # short phrase contains check
+    for w in _YES_WORDS:
+        if w in s and len(w) >= 3:
+            return 'yes'
+    for w in _NO_WORDS:
+        if w in s and len(w) >= 3:
+            return 'no'
+    return None
+
+
+# Spoken digit map for phone parsing ("five five five..." → "555...")
+_DIGIT_WORDS = {
+    'zero': '0', 'oh': '0', 'o': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4',
+    'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'niner': '9',
+}
+
+
+def _parse_phone(t: str) -> Optional[str]:
+    """Pulls the first plausible 10-digit US phone from a transcript."""
+    if not t:
+        return None
+    s = t.lower()
+    # Convert spoken digits to numerics
+    tokens = re.split(r'[\s,.\-]+', s)
+    converted = []
+    for tok in tokens:
+        if tok in _DIGIT_WORDS:
+            converted.append(_DIGIT_WORDS[tok])
+        else:
+            converted.append(tok)
+    digits = re.sub(r'\D', '', ' '.join(converted))
+    if len(digits) >= 11 and digits.startswith('1'):
+        digits = digits[1:11]
+    elif len(digits) >= 10:
+        digits = digits[:10]
+    else:
+        return None
+    if len(digits) != 10:
+        return None
+    return f"({digits[0:3]}) {digits[3:6]}-{digits[6:10]}"
+
+
+# Spoken numbers for prices ("two fifty" → 250, "three hundred" → 300)
+_NUM_WORDS = {
+    'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10, 'eleven': 11,
+    'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15, 'sixteen': 16,
+    'seventeen': 17, 'eighteen': 18, 'nineteen': 19, 'twenty': 20, 'thirty': 30,
+    'forty': 40, 'fifty': 50, 'sixty': 60, 'seventy': 70, 'eighty': 80, 'ninety': 90,
+    'hundred': 100, 'thousand': 1000,
+}
+
+
+def _parse_price(t: str) -> Optional[float]:
+    """Extract dollar amount. Handles '$250', '250 dollars', 'two fifty', 'two hundred fifty'."""
+    if not t:
+        return None
+    s = t.lower().strip()
+    # strip leading "charge", "set price to", etc.
+    s = re.sub(r'^\s*(charge|set\s+price\s+to|the\s+price\s+is|price\s+is|it\'?s|its)\s+', '', s)
+    s = s.replace('dollars', '').replace('dollar', '').replace('bucks', '')
+    # Strip standalone "and" connector ("two hundred and fifty"). Use word
+    # boundary so we don't mangle "thousand", "grand", etc.
+    s = re.sub(r'\band\b', ' ', s)
+    # Strip thousands-separator commas BEFORE numeric match ("$1,250.50" → "$1250.50")
+    s = re.sub(r'(\d),(\d{3})', r'\1\2', s)
+    s = re.sub(r'(\d),(\d{3})', r'\1\2', s)  # second pass for "$1,234,567"
+    # Numeric form first (most common: "$250", "250", "250.50")
+    m = re.search(r'\$?(\d{1,7}(?:\.\d{1,2})?)', s)
+    if m:
+        try:
+            v = float(m.group(1))
+            if 0 < v < 1_000_000:
+                return v
+        except Exception:
+            pass
+    # Colloquial pricing heuristic: "two fifty" → 250, "three twenty" → 320,
+    # "five hundred" already handled by general parser. Tow yards say it like
+    # this all day, so we trust it over the strict additive interpretation.
+    tokens_only = [tok for tok in re.split(r'\s+', s) if tok]
+    if len(tokens_only) == 2 and all(tok in _NUM_WORDS for tok in tokens_only):
+        a, b = _NUM_WORDS[tokens_only[0]], _NUM_WORDS[tokens_only[1]]
+        # Pattern: small ones digit (1-9) + tens (20,30,...,90) → ones*100 + tens
+        if 1 <= a <= 9 and b in (20, 30, 40, 50, 60, 70, 80, 90):
+            return float(a * 100 + b)
+        # Pattern: small ones (1-9) + small ones (1-9 < first) is uncommon — skip
+    # Spoken number fallback: "two fifty", "three hundred", "two hundred fifty"
+    tokens = [tok for tok in re.split(r'\s+', s) if tok]
+    total = 0
+    current = 0
+    matched = False
+    for tok in tokens:
+        if tok not in _NUM_WORDS:
+            continue
+        matched = True
+        n = _NUM_WORDS[tok]
+        if n == 100:
+            if current == 0:
+                current = 1
+            current *= 100
+        elif n == 1000:
+            if current == 0:
+                current = 1
+            total += current * 1000
+            current = 0
+        else:
+            current += n
+    total += current
+    if matched and 0 < total < 1_000_000:
+        return float(total)
+    return None
+
+
+_SERVICE_KEYWORDS = {
+    'tow': 'tow', 'towing': 'tow', 'haul': 'tow',
+    'jumpstart': 'jumpstart', 'jump': 'jumpstart', 'jump start': 'jumpstart',
+    'lockout': 'lockout', 'locked out': 'lockout', 'unlock': 'lockout', 'keys': 'lockout',
+    'tire': 'tire_change', 'tire change': 'tire_change', 'flat': 'tire_change',
+    'fuel': 'fuel_delivery', 'gas': 'fuel_delivery', 'fuel delivery': 'fuel_delivery',
+    'winch': 'winch', 'winch out': 'winch', 'pull out': 'winch',
+    'recovery': 'recovery', 'recover': 'recovery',
+    'impound': 'impound',
+}
+
+
+def _parse_service(t: str) -> Optional[str]:
+    if not t:
+        return None
+    s = t.lower().strip()
+    for k, v in _SERVICE_KEYWORDS.items():
+        if k in s:
+            return v
+    return None
+
+
+def _clean_freeform(t: str) -> str:
+    """Light cleanup for name/address/vehicle: trim filler, capitalize."""
+    if not t:
+        return ''
+    s = t.strip().rstrip('.!?,')
+    # strip leading filler
+    s = re.sub(r"^\s*(it'?s|it is|the customer is|customer is|name is|address is|the address is|pickup is|the vehicle is|vehicle is|service is|um+|uh+|so|like)\s+",
+               '', s, flags=re.IGNORECASE)
+    s = s.strip()
+    if not s:
+        return ''
+    # Title-case ONLY if the input was all-lower (Web Speech default) — preserve mixed-case
+    if s.islower():
+        s = s.title()
+        # Restore street-suffix casing nicely
+        s = re.sub(r'\bI (\d+)', r'I-\1', s)  # interstate
+        s = re.sub(r'\bUs (\d+)', r'US-\1', s)
+    return s
+
+
+@api_router.post("/copilot/wizard/parse-field")
+async def copilot_wizard_parse(body: WizardParseIn, user=Depends(get_current_user)):
+    """Parse a single field out of a voice transcript. Regex-first; LLM fallback
+    optional and only used for ambiguous free-form fields."""
+    field = (body.field or '').lower().strip()
+    transcript = (body.transcript or '').strip()
+    if not transcript:
+        raise HTTPException(400, "Empty transcript")
+    if len(transcript) > 500:
+        transcript = transcript[:500]
+
+    # Regex-first per field
+    if field == 'yesno':
+        v = _parse_yesno(transcript)
+        return {'field': field, 'value': v, 'confidence': 'high' if v else 'low', 'raw': transcript}
+
+    if field == 'phone':
+        v = _parse_phone(transcript)
+        # Also catch "skip" / "none" responses on phone
+        if not v:
+            yn = _parse_yesno(transcript)
+            if yn == 'skip':
+                return {'field': field, 'value': None, 'skipped': True, 'confidence': 'high', 'raw': transcript}
+        return {'field': field, 'value': v, 'confidence': 'high' if v else 'low', 'raw': transcript}
+
+    if field == 'price':
+        v = _parse_price(transcript)
+        if v is None:
+            yn = _parse_yesno(transcript)
+            if yn == 'skip':
+                return {'field': field, 'value': None, 'skipped': True, 'confidence': 'high', 'raw': transcript}
+        return {'field': field, 'value': v, 'confidence': 'high' if v is not None else 'low', 'raw': transcript}
+
+    if field == 'service':
+        v = _parse_service(transcript)
+        return {'field': field, 'value': v or 'tow', 'confidence': 'high' if v else 'low', 'raw': transcript}
+
+    if field in ('name', 'address', 'pickup', 'dropoff', 'destination', 'vehicle', 'notes'):
+        # Skip first
+        yn = _parse_yesno(transcript)
+        if yn == 'skip' and field in ('dropoff', 'destination', 'vehicle', 'notes'):
+            return {'field': field, 'value': None, 'skipped': True, 'confidence': 'high', 'raw': transcript}
+        v = _clean_freeform(transcript)
+        return {'field': field, 'value': v, 'confidence': 'high' if v else 'low', 'raw': transcript}
+
+    raise HTTPException(400, f"Unknown field: {field}")
+
+
+@api_router.post("/copilot/wizard/create-job")
+async def copilot_wizard_create_job(body: WizardCreateJobIn, user=Depends(get_current_user)):
+    """Create a tow job from collected wizard fields. ZERO LLM cost.
+    Mirrors the new_tow_job action so jobs created via wizard or chat behave
+    identically downstream."""
+    role = user.get('role')
+    allowed = {'wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor',
+               'fleet_admin', 'dispatcher', 'super_admin'}
+    if role not in allowed:
+        raise HTTPException(403, "You don't have permission to create tow jobs.")
+
+    customer = (body.customer_name or '').strip() or 'Walk-up'
+    location = (body.pickup_location or '').strip() or 'Unknown location'
+    service = (body.service_type or 'tow').lower().strip()
+    valid_service = {'tow', 'jumpstart', 'lockout', 'tire_change', 'fuel_delivery',
+                     'winch', 'recovery', 'impound'}
+    if service not in valid_service:
+        service = 'tow'
+
+    quoted = None
+    try:
+        if body.quoted_price is not None:
+            quoted = float(body.quoted_price)
+            if quoted <= 0:
+                quoted = None
+    except Exception:
+        quoted = None
+
+    doc = {
+        'id': str(uuid.uuid4()),
+        'customer_name': customer,
+        'customer_phone': (body.customer_phone or None),
+        'pickup_location': location,
+        'drop_location': (body.drop_location or None),
+        'vehicle_description': (body.vehicle_description or None),
+        'service_type': service,
+        'status': 'pending',
+        'quoted_price': quoted,
+        'final_price': None,
+        'photo_urls': [],
+        'created_at': now_utc(),
+        'updated_at': now_utc(),
+        'created_by': user['id'],
+        'created_by_name': user.get('name'),
+        'created_via': 'voice_wizard',
+        'tenant_id': user.get('tenant_id', 'founder'),
+        'is_demo': False,
+        'notes': (body.notes or None),
+        'status_history': [{
+            'status': 'pending',
+            'at': now_utc().isoformat(),
+            'by': user['email'],
+            'note': 'Created via Hands-Free Voice Wizard',
+        }],
+    }
+    await db.tow_jobs.insert_one(doc)
+    logger.info(f"Voice wizard created job {doc['id']} for {customer} by {user['email']}")
+    return {
+        'id': doc['id'],
+        'customer_name': customer,
+        'service_type': service,
+        'redirect': f"/wrecker/jobs/{doc['id']}",
+    }
+
+
+# ============================================================
 # Mapbox config (public token exposed to frontend) - Slide 3 GPS promise
 # ============================================================
 

@@ -23,7 +23,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Mic, MicOff, X, Sparkles, Send, AlertTriangle, ExternalLink,
-  Loader2, Volume2, Settings, Square, Check,
+  Loader2, Volume2, Settings, Square, Check, ChevronRight,
 } from 'lucide-react';
 import { useWakeWord, isInIframe, supportsSTT } from '@/hooks/useWakeWord';
 import { usePushToTalk } from '@/hooks/usePushToTalk';
@@ -125,6 +125,26 @@ export default function GlobalCopilotFAB() {
   const submitCommand = useCallback(async (command) => {
     const t = (command || '').trim();
     if (!t) return;
+
+    // ⚡ LOCAL ROUTING — Detect phrases that should launch a dedicated voice
+    // surface BEFORE hitting the LLM. Saves $$$ and is more reliable.
+    const lower = t.toLowerCase();
+    const wantsNewJobWizard = (
+      /(start|create|new|log|open|begin)\b.*\b(tow\s*job|new\s*job|job)\b/.test(lower) ||
+      /\b(tow\s*job|new\s*tow|new\s*job)\b/.test(lower)
+    ) && lower.length < 60; // long sentences = likely actual data, not just a launcher
+    if (wantsNewJobWizard) {
+      const role = (me?.role || '').toLowerCase();
+      const wreckerRoles = ['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'dispatcher', 'super_admin'];
+      if (wreckerRoles.includes(role)) {
+        setOpen(false);
+        setPendingCommand('');
+        toast.success('Launching Hands-Free Job Entry…', { duration: 2500 });
+        navigate('/wrecker/voice-job-wizard');
+        return;
+      }
+    }
+
     setMode('thinking');
     setReply('');
     setOpen(true);
@@ -180,7 +200,7 @@ export default function GlobalCopilotFAB() {
         toast.error(errMsg);
       }
     }
-  }, [navigate]);
+  }, [navigate, me]);
 
   // ---- Push-to-Talk ----
   // When transcript finalizes, stash it for user review (no auto-send).
@@ -509,22 +529,48 @@ export default function GlobalCopilotFAB() {
 
             {/* Quick-prompt chips so first-timers know what to say */}
             {!ptt.recording && !pendingCommand && mode === 'idle' && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {[
-                  "What's my next call",
-                  'Start pre-trip',
-                  'I am en route',
-                  'Job complete',
-                ].map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => submitCommand(p)}
-                    className="text-[11px] px-2 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300 hover:border-sky-500/40 hover:text-sky-300"
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
+              <>
+                {/* Hands-Free Job Wizard launcher — Mike's signature flow */}
+                {(() => {
+                  const role = (me?.role || '').toLowerCase();
+                  const wreckerRoles = ['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'dispatcher', 'super_admin'];
+                  if (!wreckerRoles.includes(role)) return null;
+                  return (
+                    <button
+                      onClick={() => { setOpen(false); navigate('/wrecker/voice-job-wizard'); }}
+                      className="w-full mt-1 inline-flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-gradient-to-r from-emerald-500/20 to-sky-500/20 border border-emerald-500/40 hover:border-emerald-400 transition group"
+                      data-testid="global-copilot-launch-wizard"
+                    >
+                      <div className="flex items-center gap-2 text-left">
+                        <div className="w-7 h-7 rounded-md bg-emerald-500/30 flex items-center justify-center">
+                          <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
+                        </div>
+                        <div>
+                          <div className="text-[12px] font-semibold text-white leading-tight">Hands-Free Job Entry</div>
+                          <div className="text-[10px] text-emerald-200/80">Walk through every field by voice</div>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-emerald-300 group-hover:translate-x-0.5 transition" />
+                    </button>
+                  );
+                })()}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {[
+                    "What's my next call",
+                    'Start pre-trip',
+                    'I am en route',
+                    'Job complete',
+                  ].map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => submitCommand(p)}
+                      className="text-[11px] px-2 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300 hover:border-sky-500/40 hover:text-sky-300"
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </div>

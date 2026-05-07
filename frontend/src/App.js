@@ -75,6 +75,7 @@ import WreckerSettings from '@/pages/wrecker/WreckerSettings';
 import WreckerAccounting from '@/pages/wrecker/WreckerAccounting';
 import WreckerPhotoVault from '@/pages/wrecker/WreckerPhotoVault';
 import WreckerNavigation from '@/pages/wrecker/WreckerNavigation';
+import VoiceJobWizard from '@/pages/wrecker/VoiceJobWizard';
 import { getUser } from '@/lib/api';
 
 const WRECKER_ROLES = ['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'dispatcher'];
@@ -191,6 +192,8 @@ function App() {
           <Route path="/wrecker/jobs/:id/print" element={<RequireAuth roles={WRECKER_ROLES}><WreckerPrintReceipt /></RequireAuth>} />
           {/* Wrecker hands-free voice page reuses the Co-Pilot UI but lives outside the shell so it can be full-screen */}
           <Route path="/wrecker/voice" element={<RequireAuth roles={WRECKER_ROLES}><Copilot /></RequireAuth>} />
+          {/* Hands-Free Voice Wizard — Mike's signature flow */}
+          <Route path="/wrecker/voice-job-wizard" element={<RequireAuth roles={[...WRECKER_ROLES, 'super_admin']}><VoiceJobWizard /></RequireAuth>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
