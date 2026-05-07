@@ -259,16 +259,20 @@ class DemoLoginIn(BaseModel):
 @api_router.post("/auth/demo")
 async def demo_login(body: DemoLoginIn):
     role_map = {
-        'driver':     'driver@highwaypilot.io',
-        'admin':      'fleet_admin@highwaypilot.io',
-        'wrecker':    'wrecker@highwaypilot.io',          # Steve Carroll (driver)
-        'wrecker2':   'wrecker2@highwaypilot.io',         # Tony Marquez
-        'wrecker3':   'wrecker3@highwaypilot.io',         # Jake Boudreaux
-        'dispatcher': 'dispatcher@highwaypilot.io',       # Pam Henderson (dispatcher)
-        'supervisor': 'supervisor@highwaypilot.io',       # Bill Kearney (foreman)
+        'driver':     'driver@wrecker-logix.com',
+        'admin':      'fleet_admin@wrecker-logix.com',
+        'wrecker':    'wrecker@wrecker-logix.com',          # Steve Carroll (driver)
+        'wrecker2':   'wrecker2@wrecker-logix.com',         # Tony Marquez
+        'wrecker3':   'wrecker3@wrecker-logix.com',         # Jake Boudreaux
+        'dispatcher': 'dispatcher@wrecker-logix.com',       # Pam Henderson (dispatcher)
+        'supervisor': 'supervisor@wrecker-logix.com',       # Bill Kearney (foreman)
     }
     email = role_map.get((body.role or 'driver').lower(), role_map['driver'])
+    # Back-compat: if seed wasn't re-run yet, fall back to legacy domain.
     user = await db.users.find_one({'email': email})
+    if not user:
+        legacy = email.replace('@wrecker-logix.com', '@highwaypilot.io')
+        user = await db.users.find_one({'email': legacy})
     if not user:
         raise HTTPException(404, "Demo account unavailable — re-seed the database.")
     token = create_token(user['id'], user['email'], user['role'])
@@ -3470,6 +3474,50 @@ class SuperRoleUpdateIn(BaseModel):
     role: str
 
 
+class SuperUserUpdateIn(BaseModel):
+    """Patch user fields a super-admin is allowed to edit directly."""
+    name: Optional[str] = Field(None, min_length=1, max_length=120)
+    email: Optional[EmailStr] = None
+    company_name: Optional[str] = Field(None, max_length=160)
+    phone: Optional[str] = Field(None, max_length=40)
+
+
+@api_router.put("/admin/super/users/{user_id}")
+async def super_admin_update_user(
+    user_id: str,
+    body: SuperUserUpdateIn,
+    user=Depends(require_role('super_admin')),
+):
+    """Edit a user's name / email / company / phone from the Super Admin console.
+    Email is normalised to lowercase and uniqueness is enforced.
+    """
+    target = await db.users.find_one({'id': user_id})
+    if not target:
+        raise HTTPException(404, "User not found")
+    update: Dict[str, Any] = {}
+    if body.name is not None and body.name.strip() != (target.get('name') or ''):
+        update['name'] = body.name.strip()
+    if body.email is not None:
+        new_email = str(body.email).lower().strip()
+        if new_email != (target.get('email') or '').lower():
+            clash = await db.users.find_one({'email': new_email, 'id': {'$ne': user_id}})
+            if clash:
+                raise HTTPException(400, f"Email {new_email} is already in use.")
+            update['email'] = new_email
+    if body.company_name is not None and body.company_name.strip() != (target.get('company_name') or ''):
+        update['company_name'] = body.company_name.strip() or None
+    if body.phone is not None and body.phone.strip() != (target.get('phone') or ''):
+        update['phone'] = body.phone.strip() or None
+    if not update:
+        return {'ok': True, 'unchanged': True, 'user_id': user_id}
+    update['updated_at'] = now_utc().isoformat()
+    update['updated_by'] = user['id']
+    await db.users.update_one({'id': user_id}, {'$set': update})
+    logger.info(f"SUPER_ADMIN {user['email']} updated user {target.get('email')}: {list(update.keys())}")
+    fresh = await db.users.find_one({'id': user_id}, {'_id': 0, 'password_hash': 0})
+    return {'ok': True, 'user': fresh}
+
+
 @api_router.put("/admin/super/users/{user_id}/role")
 async def super_admin_set_user_role(
     user_id: str,
@@ -3532,12 +3580,20 @@ async def super_admin_invite_company(body: SuperInviteCompanyIn, user=Depends(re
     If a password is provided, the account is ready to go (Mike can text the
     creds to Kenny). Otherwise we generate a fleet-invite token and return the
     one-click magic link Mike can share via SMS / email.
+
+    Multi-tenant: every new company gets a unique tenant_id so their real
+    operational data (post-go-live tow jobs, invoices, etc.) is isolated
+    from other companies and from the global 'demo' pool.
     """
-    if body.role not in ('fleet_admin', 'wrecker_supervisor'):
-        raise HTTPException(400, "Role must be fleet_admin or wrecker_supervisor")
+    if body.role not in ('fleet_admin', 'wrecker_supervisor', 'super_admin'):
+        raise HTTPException(400, "Role must be fleet_admin, wrecker_supervisor, or super_admin")
     existing = await db.users.find_one({'email': body.admin_email.lower()})
     if existing:
         raise HTTPException(400, f"{body.admin_email} already exists. Use the user's role page to promote them.")
+
+    # Each company gets its own tenant_id — guarantees clean separation when
+    # they create real records post-onboarding. Demo data uses tenant_id='demo'.
+    new_tenant_id = f"tenant_{uuid.uuid4().hex[:12]}"
 
     base = os.environ.get('NOTIFY_BASE_URL', '')
     if body.admin_password:
@@ -3549,15 +3605,18 @@ async def super_admin_invite_company(body: SuperInviteCompanyIn, user=Depends(re
             'role': body.role,
             'password_hash': hash_password(body.admin_password),
             'company_name': body.company_name,
+            'tenant_id': new_tenant_id,
+            'is_demo': False,
             'created_at': now_utc().isoformat(),
             'created_by_super_admin': user['id'],
         }
         await db.users.insert_one(new_user)
-        logger.info(f"SUPER_ADMIN {user['email']} created company admin {new_user['email']} for {body.company_name}")
+        logger.info(f"SUPER_ADMIN {user['email']} created {body.role} {new_user['email']} for {body.company_name} (tenant={new_tenant_id})")
         return {
             'ok': True,
             'mode': 'created',
             'user_id': new_user['id'],
+            'tenant_id': new_tenant_id,
             'login_url': f"{base}/login" if base else '/login',
             'email': new_user['email'],
             'instructions': f"Account ready. Hand off these credentials to {body.admin_name}.",
@@ -3572,6 +3631,7 @@ async def super_admin_invite_company(body: SuperInviteCompanyIn, user=Depends(re
             'name': body.admin_name,
             'role': body.role,
             'fleet_name': body.company_name,
+            'tenant_id': new_tenant_id,
             'invited_by_user_id': user['id'],
             'invited_by_name': user.get('name', 'Mike Ward'),
             'expires_at': (now_utc() + timedelta(days=7)).isoformat(),
@@ -3583,6 +3643,7 @@ async def super_admin_invite_company(body: SuperInviteCompanyIn, user=Depends(re
             'ok': True,
             'mode': 'magic_link',
             'invite_token': invite_token,
+            'tenant_id': new_tenant_id,
             'magic_link': accept_url,
             'expires_in_days': 7,
             'instructions': f"Send this magic link to {body.admin_name} via SMS or email. They'll set their own password on first click.",
@@ -3609,6 +3670,197 @@ async def super_admin_bootstrap(secret: Optional[str] = None, user=Depends(get_c
     await db.users.update_one({'id': user['id']}, {'$set': {'role': 'super_admin', 'role_updated_at': now_utc().isoformat()}})
     logger.warning(f"BOOTSTRAP: {user['email']} self-promoted to super_admin (no prior super_admin existed)")
     return {'ok': True, 'role': 'super_admin', 'user_id': user['id']}
+
+
+@api_router.get("/admin/super/demo-status")
+async def super_admin_demo_status(user=Depends(require_role('super_admin'))):
+    """Quick health-check on demo data so the wipe button can show a counter.
+    Counts records flagged as demo across the platform."""
+    legacy_email_re = {'$regex': '@(highwaypilot\\.io|wrecker-logix\\.com)$', '$options': 'i'}
+    demo_filter = {'$or': [{'is_demo': True}, {'tenant_id': 'demo'}]}
+    user_demo_filter = {'$or': [{'is_demo': True}, {'tenant_id': 'demo'}, {'email': legacy_email_re}]}
+    cols = await db.list_collection_names()
+    counts = {
+        'demo_users': await db.users.count_documents(user_demo_filter),
+        'demo_drivers_collection': await db.drivers.count_documents(demo_filter) if 'drivers' in cols else 0,
+        'tow_jobs': await db.tow_jobs.count_documents(demo_filter) if 'tow_jobs' in cols else 0,
+        'impounds': (await db.impounds.count_documents(demo_filter) if 'impounds' in cols else 0)
+                  + (await db.wrecker_impounds.count_documents(demo_filter) if 'wrecker_impounds' in cols else 0),
+        'wiped': bool(await db.platform_settings.find_one({'key': 'demo_wiped'})),
+    }
+    return counts
+
+
+@api_router.post("/admin/super/wipe-demo")
+async def super_admin_wipe_demo(user=Depends(require_role('super_admin'))):
+    """
+    Nuke all auto-seeded demo data so Mike can hand the platform to real
+    customers (Kenny, etc.) with a clean slate. Specifically:
+      - Deletes every user whose email ends in @highwaypilot.io OR
+        @wrecker-logix.com (the seeded demo domains) — except FOUNDER_EMAILS.
+      - Deletes the matching driver records from `drivers` collection.
+      - Empties tow_jobs / impounds / inspections / trips / vehicles seeded
+        for the demo (anything tied to a demo email).
+      - Persists a `demo_wiped` flag in `platform_settings` so the startup
+        bootstrap will SKIP demo re-seeding from now on.
+    Real customer data (users with custom emails, real tow jobs created via
+    Kenny etc.) is NOT touched.
+    """
+    return await _do_wipe_demo(user)
+
+
+@api_router.post("/admin/wipe-sample-data")
+async def fleet_admin_wipe_sample_data(user=Depends(require_role('fleet_admin', 'wrecker_supervisor', 'super_admin'))):
+    """Per-tenant escape hatch: lets a brand-new fleet_admin (Kenny etc.)
+    clear the seeded sample tow jobs / impounds / drivers from THEIR view of
+    the platform when they're ready to go live. Same underlying wipe — works
+    because we're a single-tenant deployment per company. Idempotent."""
+    return await _do_wipe_demo(user)
+
+
+@api_router.get("/admin/sample-data-status")
+async def sample_data_status(user=Depends(require_role('fleet_admin', 'wrecker_supervisor', 'super_admin'))):
+    """For new fleet_admin / new-company super_admin onboarding banner: do
+    they still see seeded sample rows? Returns booleans so the dashboard can
+    render a 'Clear Sample Data' nudge until they've gone live."""
+    flag = await db.platform_settings.find_one({'key': 'demo_wiped'})
+    wiped = bool(flag and flag.get('value'))
+    legacy_email_re = {'$regex': '@(highwaypilot\\.io|wrecker-logix\\.com)$', '$options': 'i'}
+    demo_filter = {'$or': [{'is_demo': True}, {'tenant_id': 'demo'}]}
+    user_demo_filter = {'$or': [{'is_demo': True}, {'tenant_id': 'demo'}, {'email': legacy_email_re}]}
+    cols = await db.list_collection_names()
+    sample_users = await db.users.count_documents(user_demo_filter)
+    tow_jobs = await db.tow_jobs.count_documents(demo_filter) if 'tow_jobs' in cols else 0
+    impounds = (await db.impounds.count_documents(demo_filter) if 'impounds' in cols else 0) \
+             + (await db.wrecker_impounds.count_documents(demo_filter) if 'wrecker_impounds' in cols else 0)
+    has_sample = (sample_users > 0) or (tow_jobs > 0) or (impounds > 0)
+    return {
+        'has_sample_data': has_sample and not wiped,
+        'wiped': wiped,
+        'sample_users': sample_users,
+        'tow_jobs': tow_jobs,
+        'impounds': impounds,
+    }
+
+
+async def _do_wipe_demo(user):
+    """SAFE wipe: strictly deletes records flagged is_demo=True (or with the
+    legacy seeded email domains). Real customer data — created post-wipe —
+    never carries is_demo:true, so it's untouchable by this endpoint.
+
+    Multi-tenant note: in the current single-tenant deployment, all demo data
+    shares tenant_id='demo'. Any super_admin (founder OR a new-company owner
+    promoted via invite) can call this. Their own real records carry their
+    own tenant_id (NOT 'demo'), so a Kenny-side wipe would never touch
+    Kenny's real tow jobs OR Mike's real tow jobs.
+    """
+    # Safety: never delete the active founder accounts even if their email
+    # somehow lands in a demo-domain sweep (defensive).
+    raw = os.environ.get('FOUNDER_EMAILS') or os.environ.get('FOUNDER_EMAIL') or 'mward5710@gmail.com,alexepoxyflooringllc@gmail.com'
+    founder_emails = [e.strip().lower() for e in raw.split(',') if e.strip()]
+
+    # Demo records are flagged is_demo:true. Legacy seeded users (pre-flag
+    # rollout) match by domain. Both filters combined for backward-compat.
+    legacy_email_re = {'$regex': '@(highwaypilot\\.io|wrecker-logix\\.com)$', '$options': 'i'}
+    demo_filter = {
+        '$or': [
+            {'is_demo': True},
+            {'tenant_id': 'demo'},
+        ]
+    }
+    demo_user_filter = {
+        '$and': [
+            {'$or': [
+                {'is_demo': True},
+                {'tenant_id': 'demo'},
+                {'email': legacy_email_re},
+            ]},
+            {'email': {'$nin': founder_emails}},
+        ]
+    }
+
+    deleted = {
+        'users': 0, 'drivers': 0, 'tow_jobs': 0, 'impounds': 0,
+        'inspections': 0, 'trips': 0, 'vehicles': 0, 'fuel_tanks': 0,
+        'motor_clubs': 0,
+    }
+
+    # Users — only seeded demo accounts
+    try:
+        r = await db.users.delete_many(demo_user_filter)
+        deleted['users'] = r.deleted_count
+    except Exception as e:
+        logger.error(f'wipe-demo users delete failed: {e}')
+
+    # Domain collections — strict is_demo:true filter
+    domain_map = {
+        'drivers': 'drivers',
+        'inspections': 'inspections',
+        'trips': 'trips',
+        'vehicles': 'vehicles',
+        'tow_jobs': 'tow_jobs',
+        'impounds': 'impounds',           # legacy collection (pre-wrecker namespace)
+        'wrecker_impounds': 'impounds',   # alias to same key in `deleted`
+        'motor_clubs': 'motor_clubs',
+        'wrecker_motor_clubs': 'motor_clubs',
+        'fuel_tanks': 'fuel_tanks',
+        'wrecker_fuel_tanks': 'fuel_tanks',
+        'wrecker_fuel_transactions': 'fuel_tanks',
+        'hos_logs': None,
+        'trip_mileage': None,
+        'maintenance': None,
+        'alerts': None,
+        'dashcam_events': None,
+        'crash_events': None,
+        'roadside_dispatches': None,
+        'roadside_providers': None,
+        'voice_log': None,
+        'copilot_chats': None,
+    }
+    existing_cols = await db.list_collection_names()
+    for col, key in domain_map.items():
+        if col not in existing_cols:
+            continue
+        try:
+            r = await db[col].delete_many(demo_filter)
+            if key and key in deleted:
+                deleted[key] += r.deleted_count
+        except Exception as e:
+            logger.error(f'wipe-demo {col} failed: {e}')
+
+    # Persist the "wiped" flag so demo data won't auto-recreate on next boot
+    await db.platform_settings.update_one(
+        {'key': 'demo_wiped'},
+        {'$set': {
+            'key': 'demo_wiped',
+            'value': True,
+            'wiped_by': user['id'],
+            'wiped_by_email': user['email'],
+            'wiped_by_tenant': user.get('tenant_id'),
+            'wiped_at': now_utc().isoformat(),
+            'totals': deleted,
+        }},
+        upsert=True,
+    )
+    logger.warning(f"WIPE-DEMO {user['email']} ({user.get('role')}) wiped sample data: {deleted}")
+    return {'ok': True, 'deleted': deleted}
+
+
+@api_router.post("/admin/super/restore-demo")
+async def super_admin_restore_demo(user=Depends(require_role('super_admin'))):
+    """Undo the demo-wipe lock + reseed demo data immediately. For Mike if he
+    changes his mind."""
+    await db.platform_settings.delete_one({'key': 'demo_wiped'})
+    try:
+        await _seed_demo()
+    except Exception as e:
+        logger.error(f'restore-demo seed failed: {e}')
+    try:
+        await seed_wrecker_demo(db, hash_password)
+    except Exception as e:
+        logger.error(f'restore-demo wrecker seed failed: {e}')
+    logger.warning(f"SUPER_ADMIN {user['email']} restored demo data")
+    return {'ok': True}
 
 
 @api_router.get("/notifications/logs")
@@ -3937,21 +4189,35 @@ async def on_startup():
     import asyncio as _asyncio
 
     async def _bootstrap():
-        # Auto-seed on first boot for demo readiness
+        # Auto-seed on first boot for demo readiness — UNLESS the founder has
+        # explicitly wiped demo data via /admin/super/wipe-demo. We respect
+        # that decision so Mike never sees ghost demo accounts come back after
+        # he hands the platform to Kenny.
+        demo_wiped = False
+        try:
+            flag = await db.platform_settings.find_one({'key': 'demo_wiped'})
+            demo_wiped = bool(flag and flag.get('value'))
+        except Exception:
+            pass
         try:
             user_count = await db.users.count_documents({})
-            if user_count == 0:
+            if user_count == 0 and not demo_wiped:
                 try:
                     await _seed_demo()
                     logger.info('Auto-seeded demo data on startup')
                 except Exception as e:
                     logger.error(f'Seed failed: {e}')
+            elif demo_wiped:
+                logger.info('Demo data wiped flag set — skipping demo seed.')
         except Exception as e:
             logger.error(f'User count check failed (non-fatal): {e}')
-        # Always ensure Wrecker Mode demo data exists (idempotent)
+        # Always ensure Wrecker Mode demo data exists (idempotent) — UNLESS wiped
         try:
-            result = await seed_wrecker_demo(db, hash_password)
-            logger.info(f'Wrecker seed: {result}')
+            if not demo_wiped:
+                result = await seed_wrecker_demo(db, hash_password)
+                logger.info(f'Wrecker seed: {result}')
+            else:
+                logger.info('Demo wiped — skipping wrecker demo seed.')
         except Exception as e:
             logger.error(f'Wrecker seed failed: {e}')
         # FOUNDER BOOTSTRAP — guarantees Mike (or whoever owns FOUNDER_EMAILS)

@@ -1,30 +1,34 @@
 [
   {
-    "content": "Fix App.js syntax error (DONE)",
+    "content": "Backend: PUT /admin/super/users/{id} - edit email/name (DONE)",
     "status": "completed"
   },
   {
-    "content": "Verify MediaHub renders at /media (DONE)",
+    "content": "Backend: PUT /admin/super/users/{id}/role - role change (PROVEN END-TO-END)",
     "status": "completed"
   },
   {
-    "content": "Build InspectionVoice.jsx (full-screen hands-free DVIR walkthrough)",
+    "content": "Frontend: Edit user inline form (DONE)",
     "status": "completed"
   },
   {
-    "content": "Add /driver/inspection/:id/voice route in App.js",
+    "content": "Allow 'super_admin' as role option in invite-company (DONE)",
     "status": "completed"
   },
   {
-    "content": "Add 'Voice Walkthrough' CTA on Inspection.jsx",
+    "content": "Test: edit Kenny email + promote to super_admin via API (PROVEN — see verified curl output)",
     "status": "completed"
   },
   {
-    "content": "Backend: support voice_mode in start_inspection action + update prompt",
+    "content": "Global Co-Pilot FAB on every page (DONE — visible bottom-right)",
     "status": "completed"
   },
   {
-    "content": "Test the voice walkthrough + regressions with testing agent (95% pass, bug in WreckerShell auto-fixed)",
+    "content": "Multi-tenant + tenant_id assignment + is_demo flagging on seeds (DONE)",
+    "status": "completed"
+  },
+  {
+    "content": "Per-tenant wipe button accessible to ANY super_admin (DONE - both /admin/super/wipe-demo and /admin/wipe-sample-data routes)",
     "status": "completed"
   }
 ]

@@ -3,7 +3,8 @@ import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
 import { Logo } from '@/components/Logo';
 import { Home, Route, Truck, Settings, LogOut, User } from 'lucide-react';
 import { auth, getUser } from '@/lib/api';
-import { WakeWordBar } from '@/components/WakeWordBar';
+// Wake-word listening was lifted to the GlobalCopilotFAB so the mic now lives
+// on every page — not just driver. WakeWordBar import retired.
 import { CrashGuardian } from '@/components/CrashGuardian';
 import DriverOnboardingTour from '@/components/DriverOnboardingTour';
 
@@ -29,7 +30,6 @@ export default function DriverShell() {
         <button data-testid="driver-logout" onClick={logout} className="text-slate-500 hover:text-white p-1"><LogOut className="w-4 h-4" /></button>
       </header>
       <main className="flex-1 pb-24"><Outlet /></main>
-      <WakeWordBar />
       <CrashGuardian />
       <DriverOnboardingTour />
       <nav style={{ zIndex: 2147483000 }} className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-[#0a0e14]/95 backdrop-blur border-t border-white/10 grid grid-cols-4">

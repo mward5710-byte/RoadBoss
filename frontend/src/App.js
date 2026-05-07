@@ -13,6 +13,7 @@ import Cuts from '@/pages/Cuts';
 import SuperAdmin from '@/pages/SuperAdmin';
 import MediaHub from '@/pages/MediaHub';
 import ImpersonationBanner from '@/components/ImpersonationBanner';
+import GlobalCopilotFAB from '@/components/GlobalCopilotFAB';
 import TryPage from '@/pages/TryPage';
 import ShareKit from '@/pages/ShareKit';
 import UserGuide from '@/pages/UserGuide';
@@ -98,6 +99,7 @@ function App() {
       <BrowserRouter>
         <Toaster theme="dark" position="top-right" richColors closeButton />
         <ImpersonationBanner />
+        <GlobalCopilotFAB />
         <Routes>
           <Route path="/" element={<Marketing />} />
           <Route path="/pricing" element={<Pricing />} />

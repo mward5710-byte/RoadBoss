@@ -4,7 +4,8 @@ import { motion } from 'framer-motion';
 import {
   Shield, Users, Briefcase, Truck, ChevronRight, LogOut,
   UserPlus, Eye, RefreshCw, Mail, Copy, Search,
-  ShieldCheck, Loader2, Sparkles, Megaphone,
+  ShieldCheck, Loader2, Sparkles, Megaphone, Pencil, Save, X, Trash2,
+  AlertTriangle, EyeOff, Check,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +15,11 @@ import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader,
+  AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Logo } from '@/components/Logo';
 import { api, getUser, beginImpersonation, auth } from '@/lib/api';
 import { toast } from 'sonner';
@@ -78,6 +84,26 @@ export default function SuperAdmin() {
   return (
     <div className="min-h-screen bg-[#070b12] text-slate-200" data-testid="super-admin-page">
       <Header me={me} navigate={navigate} />
+      {/* IDENTITY STRIP — Mike asked: who am I right now? Always show it, big.
+          When impersonating, the rose ImpersonationBanner sits ABOVE this and
+          this stays the source of truth for "your real super-admin login". */}
+      <div className="border-b border-emerald-500/20 bg-emerald-500/[0.06]" data-testid="super-identity-strip">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 py-2.5 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-4 h-4 text-emerald-300" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-[0.25em] text-emerald-300/80 font-bold leading-none">Signed in as</div>
+            <div className="text-sm sm:text-base font-bold text-white truncate" data-testid="super-identity-email">
+              {me.name || me.email}
+              <span className="text-slate-400 font-normal ml-2">· {me.email}</span>
+            </div>
+          </div>
+          <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-300 text-[10px] uppercase tracking-widest shrink-0">
+            Super Admin
+          </Badge>
+        </div>
+      </div>
       <main className="max-w-6xl mx-auto px-3 sm:px-6 py-5 pb-12">
         {/* BIG SHORTCUTS — Mike asked for this. One-tap jump straight into
             the main parts of the platform, without hunting through menus. */}
@@ -218,12 +244,18 @@ function Header({ me, navigate }) {
 function StatsPanel() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [demoStatus, setDemoStatus] = useState(null);
+  const [restoring, setRestoring] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
     try {
       const r = await api.get('/admin/super/stats');
       setStats(r.data);
+      try {
+        const ds = await api.get('/admin/super/demo-status');
+        setDemoStatus(ds.data);
+      } catch (_) {}
     } catch (e) {
       toast.error('Could not load stats.');
     } finally {
@@ -231,6 +263,20 @@ function StatsPanel() {
     }
   };
   useEffect(() => { refresh(); }, []);
+
+  const restoreDemo = async () => {
+    if (!window.confirm('Restore the demo accounts and seed data? This is just for testing or to undo an accidental wipe.')) return;
+    setRestoring(true);
+    try {
+      await api.post('/admin/super/restore-demo');
+      toast.success('Demo data restored.');
+      await refresh();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Restore failed.');
+    } finally {
+      setRestoring(false);
+    }
+  };
 
   if (loading && !stats) return <div className="text-center py-12 text-slate-500"><Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" /> Loading…</div>;
   if (!stats) return null;
@@ -265,10 +311,30 @@ function StatsPanel() {
           </Card>
         ))}
       </div>
-      <Card className="mt-5 bg-slate-900/40 border-slate-800 p-4 text-xs text-slate-400">
-        <strong className="text-slate-300">Note:</strong> Some figures include seeded demo records (e.g. 11 sample tow jobs)
-        so the dispatch board doesn't render empty. Real users + real jobs grow on top of those baselines.
-      </Card>
+      {demoStatus?.wiped ? (
+        <Card className="mt-5 bg-emerald-500/5 border-emerald-500/30 p-4 text-xs text-slate-300 flex flex-wrap items-center gap-3" data-testid="super-stats-wiped-banner">
+          <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+          <div className="flex-1 min-w-[200px]">
+            <strong className="text-white">Clean slate active.</strong> Demo data has been wiped and won't be re-seeded on restart. Real customer accounts only.
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={restoreDemo}
+            disabled={restoring}
+            className="border-slate-700 text-slate-200 shrink-0"
+            data-testid="super-restore-demo"
+          >
+            {restoring ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+            Restore demo
+          </Button>
+        </Card>
+      ) : (
+        <Card className="mt-5 bg-slate-900/40 border-slate-800 p-4 text-xs text-slate-400">
+          <strong className="text-slate-300">Note:</strong> Some figures include seeded demo records (e.g. {stats.tow_jobs} sample tow jobs)
+          so the dispatch board doesn't render empty. Use <strong className="text-rose-300">Wipe Demo Data</strong> in the Users tab when you're ready to hand off to real customers.
+        </Card>
+      )}
     </div>
   );
 }
@@ -280,6 +346,11 @@ function UsersPanel({ navigate }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
+  const [hideDemo, setHideDemo] = useState(false); // demo accounts visible by default — they make the platform look populated for sales demos. Toggle to hide before customer hand-off.
+  const [editingId, setEditingId] = useState(null);
+  const [savingRoleId, setSavingRoleId] = useState(null);
+  const [demoStatus, setDemoStatus] = useState(null);
+  const [wiping, setWiping] = useState(false);
 
   const me = getUser();
 
@@ -297,15 +368,41 @@ function UsersPanel({ navigate }) {
       setLoading(false);
     }
   };
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [roleFilter]);
+
+  const refreshDemoStatus = async () => {
+    try {
+      const r = await api.get('/admin/super/demo-status');
+      setDemoStatus(r.data);
+    } catch (e) { /* non-fatal */ }
+  };
+
+  useEffect(() => { refresh(); refreshDemoStatus(); /* eslint-disable-next-line */ }, [roleFilter]);
 
   const changeRole = async (userId, newRole) => {
+    setSavingRoleId(userId);
     try {
       await api.put(`/admin/super/users/${userId}/role`, { role: newRole });
       toast.success(`Role updated.`);
       setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, role: newRole } : u));
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Could not change role.');
+    } finally {
+      // brief delay so the user sees the green check flash
+      setTimeout(() => setSavingRoleId(null), 600);
+    }
+  };
+
+  const saveUserEdits = async (userId, patch) => {
+    try {
+      const r = await api.put(`/admin/super/users/${userId}`, patch);
+      const fresh = r.data?.user;
+      if (fresh) {
+        setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, ...fresh } : u)));
+      }
+      toast.success('User updated.');
+      setEditingId(null);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not save changes.');
     }
   };
 
@@ -329,9 +426,35 @@ function UsersPanel({ navigate }) {
     }
   };
 
+  const wipeDemoData = async () => {
+    setWiping(true);
+    try {
+      const r = await api.post('/admin/super/wipe-demo');
+      const d = r.data?.deleted || {};
+      const total = Object.values(d).reduce((s, n) => s + (n || 0), 0);
+      toast.success(`Wiped ${total} demo records. Clean slate ready.`);
+      await refresh();
+      await refreshDemoStatus();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Wipe failed.');
+    } finally {
+      setWiping(false);
+    }
+  };
+
+  // Apply client-side demo-hiding filter on top of the server response
+  const visibleUsers = users.filter((u) => {
+    if (!hideDemo) return true;
+    const e = (u.email || '').toLowerCase();
+    return !e.endsWith('@highwaypilot.io');
+  });
+
+  const demoCountInList = users.filter((u) => (u.email || '').toLowerCase().endsWith('@highwaypilot.io')).length;
+  const showWipeButton = !demoStatus?.wiped && (demoStatus?.demo_users || 0) > 0;
+
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-3">
         <div className="relative flex-1 min-w-[220px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
           <Input
@@ -359,56 +482,250 @@ function UsersPanel({ navigate }) {
         </Button>
       </div>
 
-      {users.length === 0 && !loading && (
-        <Card className="bg-slate-900/60 border-slate-800 p-8 text-center text-slate-500">No users match the filter.</Card>
+      {/* Demo data control bar */}
+      <div className="flex flex-wrap items-center gap-2 mb-4 p-2.5 rounded-lg bg-slate-900/40 border border-slate-800">
+        <button
+          onClick={() => setHideDemo(!hideDemo)}
+          data-testid="super-toggle-demo-visibility"
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold border transition-colors ${
+            hideDemo
+              ? 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-600'
+              : 'bg-amber-500/15 border-amber-500/40 text-amber-200 hover:bg-amber-500/25'
+          }`}
+        >
+          {hideDemo ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+          {hideDemo ? 'Demo accounts hidden' : 'Demo accounts visible'}
+          {demoCountInList > 0 && (
+            <Badge variant="outline" className="ml-1 border-slate-700 text-slate-400 text-[10px]">
+              {demoCountInList}
+            </Badge>
+          )}
+        </button>
+
+        {showWipeButton && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button
+                data-testid="super-wipe-demo-btn"
+                className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-rose-500/15 border border-rose-500/40 text-rose-200 hover:bg-rose-500/25 text-xs font-semibold transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Wipe Demo Data
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent className="bg-slate-950 border-slate-800 text-slate-200">
+              <AlertDialogHeader>
+                <AlertDialogTitle className="text-white flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-rose-400" />
+                  Wipe all demo data?
+                </AlertDialogTitle>
+                <AlertDialogDescription className="text-slate-400 leading-relaxed">
+                  Deletes every <span className="font-mono text-rose-300">@highwaypilot.io</span> account
+                  ({demoStatus?.demo_users || 0} users), all seeded tow jobs ({demoStatus?.tow_jobs || 0}),
+                  impounds ({demoStatus?.impounds || 0}), motor clubs, fuel tanks, and demo vehicles.
+                  <br /><br />
+                  <strong className="text-white">Your founder accounts and any real customers (Kenny, etc.) are NOT touched.</strong>
+                  <br /><br />
+                  After wipe, demo data won't auto-recreate on server restart.
+                  You can restore later from the Stats tab.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel className="bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={wipeDemoData}
+                  data-testid="super-wipe-demo-confirm"
+                  className="bg-rose-500 text-white hover:bg-rose-600 font-semibold"
+                >
+                  {wiping ? <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Wiping…</> : <><Trash2 className="w-4 h-4 mr-1.5" /> Yes, wipe it all</>}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+
+        {demoStatus?.wiped && (
+          <Badge variant="outline" className="ml-auto border-emerald-500/40 bg-emerald-500/10 text-emerald-300 text-[10px] uppercase tracking-widest">
+            <Check className="w-3 h-3 mr-1" /> Demo Wiped — Clean Slate
+          </Badge>
+        )}
+      </div>
+
+      {visibleUsers.length === 0 && !loading && (
+        <Card className="bg-slate-900/60 border-slate-800 p-8 text-center text-slate-500">
+          {hideDemo && demoCountInList > 0
+            ? 'All matching users are demo accounts — toggle "Demo accounts hidden" to see them, or wipe the demo data above.'
+            : 'No users match the filter.'}
+        </Card>
       )}
 
       <div className="space-y-2">
-        {users.map((u) => {
+        {visibleUsers.map((u) => {
           const tint = roleTint(u.role);
           const isMe = u.id === me?.id;
+          const isEditing = editingId === u.id;
+          const isDemo = (u.email || '').toLowerCase().endsWith('@highwaypilot.io');
           return (
             <Card key={u.id} data-testid={`super-user-${u.email}`} className="bg-slate-900/60 border-slate-800 p-3 sm:p-4">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className={`w-10 h-10 rounded-full border flex items-center justify-center text-sm font-semibold ${TINT_CLASSES[tint]} shrink-0`}>
-                  {(u.name || u.email).split(' ').map((s) => s[0]).slice(0, 2).join('').toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-[180px]">
-                  <div className="text-sm font-semibold text-white flex items-center gap-2 flex-wrap">
-                    {u.name || '(no name)'}
-                    {isMe && <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/5 text-emerald-300 text-[9px] uppercase tracking-widest">You</Badge>}
-                    {u.company_name && <Badge variant="outline" className="border-slate-700 text-slate-400 text-[10px]">{u.company_name}</Badge>}
+              {isEditing ? (
+                <UserEditForm
+                  user={u}
+                  onCancel={() => setEditingId(null)}
+                  onSave={(patch) => saveUserEdits(u.id, patch)}
+                />
+              ) : (
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className={`w-10 h-10 rounded-full border flex items-center justify-center text-sm font-semibold ${TINT_CLASSES[tint]} shrink-0`}>
+                    {(u.name || u.email).split(' ').map((s) => s[0]).slice(0, 2).join('').toUpperCase()}
                   </div>
-                  <div className="text-[11px] text-slate-500 truncate">{u.email}</div>
+                  <div className="flex-1 min-w-[180px]">
+                    <div className="text-sm font-semibold text-white flex items-center gap-2 flex-wrap">
+                      {u.name || '(no name)'}
+                      {isMe && <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/5 text-emerald-300 text-[9px] uppercase tracking-widest">You</Badge>}
+                      {isDemo && <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300 text-[9px] uppercase tracking-widest">Demo</Badge>}
+                      {u.company_name && <Badge variant="outline" className="border-slate-700 text-slate-400 text-[10px]">{u.company_name}</Badge>}
+                    </div>
+                    <div className="text-[11px] text-slate-500 truncate">{u.email}</div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative">
+                      <Select
+                        value={u.role}
+                        onValueChange={(v) => changeRole(u.id, v)}
+                        disabled={isMe}
+                      >
+                        <SelectTrigger className="w-[180px] bg-slate-950 border-slate-800 text-white text-xs h-9" data-testid={`super-role-select-${u.email}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ROLE_OPTIONS.map((r) => (<SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>))}
+                        </SelectContent>
+                      </Select>
+                      {savingRoleId === u.id && (
+                        <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 border-slate-900 flex items-center justify-center animate-in zoom-in">
+                          <Check className="w-3 h-3 text-slate-950" />
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setEditingId(u.id)}
+                      className="border-slate-700 text-slate-200 hover:bg-slate-800"
+                      data-testid={`super-edit-${u.email}`}
+                      title="Edit name & email"
+                    >
+                      <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => impersonate(u)}
+                      disabled={isMe}
+                      className="border-slate-700 text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+                      data-testid={`super-impersonate-${u.email}`}
+                    >
+                      <Eye className="w-3.5 h-3.5 mr-1.5" /> Login as
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Select
-                    value={u.role}
-                    onValueChange={(v) => changeRole(u.id, v)}
-                    disabled={isMe}
-                  >
-                    <SelectTrigger className="w-[180px] bg-slate-950 border-slate-800 text-white text-xs h-9" data-testid={`super-role-select-${u.email}`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ROLE_OPTIONS.map((r) => (<SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => impersonate(u)}
-                    disabled={isMe}
-                    className="border-slate-700 text-slate-200 hover:bg-slate-800 disabled:opacity-40"
-                    data-testid={`super-impersonate-${u.email}`}
-                  >
-                    <Eye className="w-3.5 h-3.5 mr-1.5" /> Login as
-                  </Button>
-                </div>
-              </div>
+              )}
             </Card>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/* ----- inline edit form for a single user ----- */
+function UserEditForm({ user, onSave, onCancel }) {
+  const [name, setName] = useState(user.name || '');
+  const [email, setEmail] = useState(user.email || '');
+  const [companyName, setCompanyName] = useState(user.company_name || '');
+  const [phone, setPhone] = useState(user.phone || '');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!email.trim()) {
+      toast.error('Email is required.');
+      return;
+    }
+    setSaving(true);
+    await onSave({
+      name: name.trim() || undefined,
+      email: email.trim().toLowerCase(),
+      company_name: companyName.trim(),
+      phone: phone.trim(),
+    });
+    setSaving(false);
+  };
+
+  return (
+    <div className="space-y-3" data-testid={`super-edit-form-${user.email}`}>
+      <div className="text-[10px] uppercase tracking-widest text-amber-400 font-bold">Editing user</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <Label className="text-[10px] uppercase tracking-widest text-slate-500">Name</Label>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Kenny Smith"
+            className="bg-slate-950 border-slate-800 text-white mt-1 h-10"
+            data-testid={`super-edit-name-${user.email}`}
+          />
+        </div>
+        <div>
+          <Label className="text-[10px] uppercase tracking-widest text-slate-500">Email</Label>
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="kenny@martinwrecker.com"
+            className="bg-slate-950 border-slate-800 text-white mt-1 h-10"
+            data-testid={`super-edit-email-${user.email}`}
+          />
+        </div>
+        <div>
+          <Label className="text-[10px] uppercase tracking-widest text-slate-500">Company</Label>
+          <Input
+            value={companyName}
+            onChange={(e) => setCompanyName(e.target.value)}
+            placeholder="Martin Wrecker Service"
+            className="bg-slate-950 border-slate-800 text-white mt-1 h-10"
+            data-testid={`super-edit-company-${user.email}`}
+          />
+        </div>
+        <div>
+          <Label className="text-[10px] uppercase tracking-widest text-slate-500">Phone</Label>
+          <Input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+1 765 555 1212"
+            className="bg-slate-950 border-slate-800 text-white mt-1 h-10"
+            data-testid={`super-edit-phone-${user.email}`}
+          />
+        </div>
+      </div>
+      <div className="flex items-center gap-2 justify-end pt-1">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onCancel}
+          className="border-slate-700 text-slate-200"
+          data-testid={`super-edit-cancel-${user.email}`}
+        >
+          <X className="w-3.5 h-3.5 mr-1.5" /> Cancel
+        </Button>
+        <Button
+          size="sm"
+          onClick={submit}
+          disabled={saving}
+          className="bg-amber-500 hover:bg-amber-400 text-slate-900 font-semibold"
+          data-testid={`super-edit-save-${user.email}`}
+        >
+          {saving ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Saving…</> : <><Save className="w-3.5 h-3.5 mr-1.5" /> Save</>}
+        </Button>
       </div>
     </div>
   );
@@ -513,6 +830,7 @@ function InvitePanel() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="super_admin">Super Admin (full owner — Kenny's company)</SelectItem>
                 <SelectItem value="fleet_admin">Fleet Admin (full company control)</SelectItem>
                 <SelectItem value="wrecker_supervisor">Wrecker Supervisor (manages drivers)</SelectItem>
               </SelectContent>

@@ -29,10 +29,17 @@ DEMO_COLLECTIONS = [
 
 
 def _dated(payload: Dict[str, Any], when) -> Dict[str, Any]:
-    """Inject id + backdated created_at/updated_at."""
+    """Inject id + backdated created_at/updated_at + demo tenancy markers.
+
+    Every seeded record carries `is_demo: True` and `tenant_id: 'demo'` so
+    the multi-tenant wipe button can safely strip seeded sample data without
+    risking real customer data — which never has these flags set.
+    """
     payload['id'] = str(uuid.uuid4())
     payload['created_at'] = when.isoformat()
     payload['updated_at'] = when.isoformat()
+    payload['is_demo'] = True
+    payload['tenant_id'] = 'demo'
     return payload
 
 
@@ -66,13 +73,13 @@ async def seed_demo(
 
     # ---------------- Users (login accounts) ----------------
     user_specs = [
-        {'name': 'Mike Ward (Founder)', 'email': 'super_admin@highwaypilot.io', 'role': 'super_admin', 'phone': '+17654808889'},
-        {'name': 'Sarah Chen (Fleet Admin)', 'email': 'fleet_admin@highwaypilot.io', 'role': 'fleet_admin', 'phone': '+12145550110'},
-        {'name': 'Diego Ruiz (Driver)', 'email': 'driver@highwaypilot.io', 'role': 'driver'},
-        {'name': 'Marcus Bell (Driver)', 'email': 'marcus@highwaypilot.io', 'role': 'driver'},
-        {'name': 'Aaliyah Johnson (Driver)', 'email': 'aaliyah@highwaypilot.io', 'role': 'driver'},
-        {'name': 'Tyler Brooks (Driver)', 'email': 'tyler@highwaypilot.io', 'role': 'driver'},
-        {'name': 'Rosa Delgado (Driver)', 'email': 'rosa@highwaypilot.io', 'role': 'driver'},
+        {'name': 'Mike Ward (Founder)', 'email': 'super_admin@wrecker-logix.com', 'role': 'super_admin', 'phone': '+17654808889'},
+        {'name': 'Sarah Chen (Fleet Admin)', 'email': 'fleet_admin@wrecker-logix.com', 'role': 'fleet_admin', 'phone': '+12145550110'},
+        {'name': 'Diego Ruiz (Driver)', 'email': 'driver@wrecker-logix.com', 'role': 'driver'},
+        {'name': 'Marcus Bell (Driver)', 'email': 'marcus@wrecker-logix.com', 'role': 'driver'},
+        {'name': 'Aaliyah Johnson (Driver)', 'email': 'aaliyah@wrecker-logix.com', 'role': 'driver'},
+        {'name': 'Tyler Brooks (Driver)', 'email': 'tyler@wrecker-logix.com', 'role': 'driver'},
+        {'name': 'Rosa Delgado (Driver)', 'email': 'rosa@wrecker-logix.com', 'role': 'driver'},
     ]
     for u in user_specs:
         doc = {
@@ -82,6 +89,8 @@ async def seed_demo(
             'role': u['role'],
             'password_hash': hash_password(SHARED_PASSWORD),
             'created_at': (NOW - timedelta(days=42)).isoformat(),
+            'is_demo': True,
+            'tenant_id': 'demo',
         }
         if u.get('phone'):
             doc['phone'] = u['phone']
@@ -104,11 +113,11 @@ async def seed_demo(
     # ---------------- Drivers ----------------
     # Phone numbers use NANP fictional 555-01XX block (reserved for demos, won't text real people)
     driver_specs = [
-        {'name': 'Diego Ruiz', 'email': 'driver@highwaypilot.io', 'phone': '+12145550101', 'license_state': 'TX', 'license_number': 'DL-7733-A', 'home_terminal': 'Dallas, TX', 'status': 'driving', 'lat': 32.7767, 'lng': -96.7970, 'hos_remaining_minutes': 235, 'avatar_color': '#22d3ee'},
-        {'name': 'Marcus Bell', 'email': 'marcus@highwaypilot.io', 'phone': '+19015550102', 'license_state': 'TN', 'license_number': 'DL-1102-B', 'home_terminal': 'Memphis, TN', 'status': 'on_duty', 'lat': 35.1495, 'lng': -90.0490, 'hos_remaining_minutes': 480, 'avatar_color': '#f59e0b'},
-        {'name': 'Aaliyah Johnson', 'email': 'aaliyah@highwaypilot.io', 'phone': '+14045550103', 'license_state': 'GA', 'license_number': 'DL-9921-C', 'home_terminal': 'Atlanta, GA', 'status': 'driving', 'lat': 33.7490, 'lng': -84.3880, 'hos_remaining_minutes': 75, 'avatar_color': '#ef4444'},
-        {'name': 'Tyler Brooks', 'email': 'tyler@highwaypilot.io', 'phone': '+16145550104', 'license_state': 'OH', 'license_number': 'DL-3318-D', 'home_terminal': 'Columbus, OH', 'status': 'sleeper', 'lat': 39.9612, 'lng': -82.9988, 'hos_remaining_minutes': 660, 'avatar_color': '#a855f7'},
-        {'name': 'Rosa Delgado', 'email': 'rosa@highwaypilot.io', 'phone': '+16025550105', 'license_state': 'AZ', 'license_number': 'DL-5550-E', 'home_terminal': 'Phoenix, AZ', 'status': 'off_duty', 'lat': 33.4484, 'lng': -112.0740, 'hos_remaining_minutes': 660, 'avatar_color': '#10b981'},
+        {'name': 'Diego Ruiz', 'email': 'driver@wrecker-logix.com', 'phone': '+12145550101', 'license_state': 'TX', 'license_number': 'DL-7733-A', 'home_terminal': 'Dallas, TX', 'status': 'driving', 'lat': 32.7767, 'lng': -96.7970, 'hos_remaining_minutes': 235, 'avatar_color': '#22d3ee'},
+        {'name': 'Marcus Bell', 'email': 'marcus@wrecker-logix.com', 'phone': '+19015550102', 'license_state': 'TN', 'license_number': 'DL-1102-B', 'home_terminal': 'Memphis, TN', 'status': 'on_duty', 'lat': 35.1495, 'lng': -90.0490, 'hos_remaining_minutes': 480, 'avatar_color': '#f59e0b'},
+        {'name': 'Aaliyah Johnson', 'email': 'aaliyah@wrecker-logix.com', 'phone': '+14045550103', 'license_state': 'GA', 'license_number': 'DL-9921-C', 'home_terminal': 'Atlanta, GA', 'status': 'driving', 'lat': 33.7490, 'lng': -84.3880, 'hos_remaining_minutes': 75, 'avatar_color': '#ef4444'},
+        {'name': 'Tyler Brooks', 'email': 'tyler@wrecker-logix.com', 'phone': '+16145550104', 'license_state': 'OH', 'license_number': 'DL-3318-D', 'home_terminal': 'Columbus, OH', 'status': 'sleeper', 'lat': 39.9612, 'lng': -82.9988, 'hos_remaining_minutes': 660, 'avatar_color': '#a855f7'},
+        {'name': 'Rosa Delgado', 'email': 'rosa@wrecker-logix.com', 'phone': '+16025550105', 'license_state': 'AZ', 'license_number': 'DL-5550-E', 'home_terminal': 'Phoenix, AZ', 'status': 'off_duty', 'lat': 33.4484, 'lng': -112.0740, 'hos_remaining_minutes': 660, 'avatar_color': '#10b981'},
     ]
     drivers: List[Dict[str, Any]] = []
     for i, d in enumerate(driver_specs):

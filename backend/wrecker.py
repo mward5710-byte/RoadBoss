@@ -2751,27 +2751,27 @@ async def seed_wrecker_demo(db, hash_password):
     """Seed demo wrecker data. Idempotent: only seeds if collections empty."""
     # Demo users — full chain of command
     demo_users = [
-        {'email': 'wrecker@highwaypilot.io',
+        {'email': 'wrecker@wrecker-logix.com',
          'password': 'Demo!Wrecker2026',
          'name': 'Steve Carroll',
          'role': 'wrecker_operator',
          'rotation_order': 1, 'on_duty': True},
-        {'email': 'wrecker2@highwaypilot.io',
+        {'email': 'wrecker2@wrecker-logix.com',
          'password': 'Demo!Wrecker2026',
          'name': 'Tony Marquez',
          'role': 'wrecker_operator',
          'rotation_order': 2, 'on_duty': True},
-        {'email': 'wrecker3@highwaypilot.io',
+        {'email': 'wrecker3@wrecker-logix.com',
          'password': 'Demo!Wrecker2026',
          'name': 'Jake Boudreaux',
          'role': 'wrecker_operator',
          'rotation_order': 3, 'on_duty': True},
-        {'email': 'dispatcher@highwaypilot.io',
+        {'email': 'dispatcher@wrecker-logix.com',
          'password': 'Demo!Dispatch2026',
          'name': 'Pam Henderson',
          'role': 'wrecker_dispatcher',
          'company_name': 'Apex Towing & Recovery'},
-        {'email': 'supervisor@highwaypilot.io',
+        {'email': 'supervisor@wrecker-logix.com',
          'password': 'Demo!Super2026',
          'name': 'Bill Kearney',
          'role': 'wrecker_supervisor',
@@ -2798,6 +2798,8 @@ async def seed_wrecker_demo(db, hash_password):
                 'role': u['role'],
                 'company_name': u.get('company_name', 'Apex Towing & Recovery'),
                 'created_at': _now(),
+                'is_demo': True,
+                'tenant_id': 'demo',
             }
             if 'rotation_order' in u:
                 doc['rotation_order'] = u['rotation_order']
@@ -2811,7 +2813,7 @@ async def seed_wrecker_demo(db, hash_password):
     if await db.motor_clubs.count_documents({}) == 0:
         for mc in DEFAULT_MOTOR_CLUBS:
             doc = dict(mc)
-            doc.update({'id': _new_id(), 'created_at': _now()})
+            doc.update({'id': _new_id(), 'created_at': _now(), 'is_demo': True, 'tenant_id': 'demo'})
             await db.motor_clubs.insert_one(doc)
 
     # Fuel tanks
@@ -2824,7 +2826,7 @@ async def seed_wrecker_demo(db, hash_password):
              'capacity_gallons': 250, 'current_estimate_gallons': 180},
         ]:
             doc = dict(tank)
-            doc.update({'id': _new_id(), 'created_at': _now()})
+            doc.update({'id': _new_id(), 'created_at': _now(), 'is_demo': True, 'tenant_id': 'demo'})
             await db.fuel_tanks.insert_one(doc)
 
     # Tow jobs (active dispatch board) — pre-assigned to drivers in rotation order
@@ -2927,6 +2929,8 @@ async def seed_wrecker_demo(db, hash_password):
                 'updated_at': _now() - timedelta(minutes=10 * i),
                 'photo_urls': [],
                 'status_history': [{'status': sj['status'], 'at': _now(), 'by': 'seed'}],
+                'is_demo': True,
+                'tenant_id': 'demo',
             })
             await db.tow_jobs.insert_one(doc)
 
@@ -2964,6 +2968,8 @@ async def seed_wrecker_demo(db, hash_password):
                 'released_to': None,
                 'amount_paid': 0.0,
                 'created_by': 'seed',
+                'is_demo': True,
+                'tenant_id': 'demo',
             })
             await db.impounds.insert_one(doc)
 
