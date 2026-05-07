@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { api } from '@/lib/api';
 import { Truck, Lock, Activity, DollarSign, Clock, MapPin, Phone, Plus, RefreshCw, ArrowUpRight, Zap, UserPlus, Navigation, Mic, X } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -195,6 +195,26 @@ export default function WreckerDashboard() {
   const [qaForm, setQaForm] = useState({ name: '', truck_number: '', phone: '', email: '' });
   const [qaSaving, setQaSaving] = useState(false);
 
+  // Towbook-style top tabs. Each maps to a job filter predicate so the
+  // existing kanban below auto-filters when a tab is selected.
+  const [activeTab, setActiveTab] = useState('active');
+  const tabPredicates = useMemo(() => ({
+    active: (j) => !['completed', 'paid', 'cancelled', 'quote', 'scheduled'].includes(j.status),
+    completed: (j) => j.status === 'completed' || j.status === 'paid',
+    scheduled: (j) => j.status === 'scheduled' || (j.eta && new Date(j.eta) > new Date() && j.status === 'pending'),
+    cancelled: (j) => j.status === 'cancelled',
+    quotes: (j) => j.status === 'quote',
+  }), []);
+  // Counts (always reflect the full jobs list, not the filtered slice)
+  const tabCounts = useMemo(() => {
+    const out = {};
+    Object.entries(tabPredicates).forEach(([k, fn]) => {
+      out[k] = jobs.filter(fn).length;
+    });
+    return out;
+  }, [jobs, tabPredicates]);
+  const filteredJobs = useMemo(() => jobs.filter(tabPredicates[activeTab] || (() => true)), [jobs, activeTab, tabPredicates]);
+
   const submitQuickAddDriver = async (e) => {
     e?.preventDefault?.();
     const name = (qaForm.name || '').trim();
@@ -263,7 +283,7 @@ export default function WreckerDashboard() {
   if (loading) return <div className="p-8 text-slate-400">Loading dispatch board...</div>;
 
   const grouped = BOARD_STATUSES.reduce((acc, s) => {
-    acc[s] = jobs.filter((j) => j.status === s);
+    acc[s] = filteredJobs.filter((j) => j.status === s);
     return acc;
   }, {});
 
@@ -311,6 +331,42 @@ export default function WreckerDashboard() {
         </div>
       </header>
 
+      {/* Towbook-style horizontally scrollable tab bar — Active / Completed
+          / Scheduled / Cancelled / Quotes. Each tab shows a live count badge
+          and instantly filters the kanban below. Search icon stays right. */}
+      <div className="-mx-4 sm:mx-0 px-4 sm:px-0" data-testid="dispatch-tab-bar">
+        <div className="flex items-center gap-1 overflow-x-auto pb-1.5 -mb-1.5 [&::-webkit-scrollbar]:hidden">
+          {[
+            { key: 'active',    label: 'Active' },
+            { key: 'completed', label: 'Completed' },
+            { key: 'scheduled', label: 'Scheduled' },
+            { key: 'cancelled', label: 'Cancelled' },
+            { key: 'quotes',    label: 'Quotes' },
+          ].map((tab) => {
+            const sel = activeTab === tab.key;
+            const count = tabCounts[tab.key] || 0;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                data-testid={`dispatch-tab-${tab.key}`}
+                className={`shrink-0 px-3.5 h-9 rounded-full inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider transition ${
+                  sel
+                    ? 'bg-sky-500 text-white shadow shadow-sky-500/30'
+                    : 'bg-slate-900 border border-white/10 text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${sel ? 'bg-white/20 text-white' : 'bg-amber-500/20 text-amber-300'}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {overview && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Kpi
@@ -352,16 +408,50 @@ export default function WreckerDashboard() {
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-4">
-        {/* KANBAN */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-3" data-testid="dispatch-board">
-          {BOARD_STATUSES.map((s) => (
-            <div key={s} className="hp-panel rounded-xl p-3 min-h-[40vh] flex flex-col">
-              <div className="flex items-center justify-between mb-3">
-                <div className={`text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border ${STATUS_COLORS[s]}`}>{prettyStatus(s)}</div>
-                <span className="text-xs text-slate-500">{grouped[s]?.length || 0}</span>
+        {/* KANBAN — shown only for Active tab. Other tabs show a flat list. */}
+        {activeTab === 'active' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-3" data-testid="dispatch-board">
+            {BOARD_STATUSES.map((s) => (
+              <div key={s} className="hp-panel rounded-xl p-3 min-h-[40vh] flex flex-col">
+                <div className="flex items-center justify-between mb-3">
+                  <div className={`text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border ${STATUS_COLORS[s]}`}>{prettyStatus(s)}</div>
+                  <span className="text-xs text-slate-500">{grouped[s]?.length || 0}</span>
+                </div>
+                <div className="space-y-2 flex-1 overflow-y-auto">
+                  {(grouped[s] || []).map((j) => (
+                    <JobCard
+                      key={j.id}
+                      job={j}
+                      onAdvance={advanceJob}
+                      onPickDriver={pickDriver}
+                      isSelected={selectedJobId === j.id}
+                    />
+                  ))}
+                  {(!grouped[s] || grouped[s].length === 0) && (
+                    <div className="text-center text-xs text-slate-600 py-6">— empty —</div>
+                  )}
+                </div>
               </div>
-              <div className="space-y-2 flex-1 overflow-y-auto">
-                {(grouped[s] || []).map((j) => (
+            ))}
+          </div>
+        )}
+
+        {/* Flat-list view for non-active tabs */}
+        {activeTab !== 'active' && (
+          <div className="space-y-3" data-testid={`dispatch-flatlist-${activeTab}`}>
+            {filteredJobs.length === 0 ? (
+              <div className="hp-panel rounded-xl p-12 text-center">
+                <div className="text-base text-slate-300 font-semibold mb-1">No {activeTab} jobs</div>
+                <div className="text-sm text-slate-500">
+                  {activeTab === 'completed' && 'Finished jobs will land here.'}
+                  {activeTab === 'scheduled' && 'Calls with a future ETA will appear here.'}
+                  {activeTab === 'cancelled' && 'Voided jobs are kept here for audit.'}
+                  {activeTab === 'quotes' && 'Quoted but not-yet-dispatched calls will live here.'}
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {filteredJobs.map((j) => (
                   <JobCard
                     key={j.id}
                     job={j}
@@ -370,13 +460,10 @@ export default function WreckerDashboard() {
                     isSelected={selectedJobId === j.id}
                   />
                 ))}
-                {(!grouped[s] || grouped[s].length === 0) && (
-                  <div className="text-center text-xs text-slate-600 py-6">— empty —</div>
-                )}
               </div>
-            </div>
-          ))}
-        </div>
+            )}
+          </div>
+        )}
 
         {/* DRIVERS + ROTATION (desktop side-rail; on mobile the same panel
             also lives inside the Pick Driver dialog so it's always reachable) */}

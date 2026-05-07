@@ -145,6 +145,25 @@ class TowJobIn(BaseModel):
     payment_method: Optional[str] = 'invoice'
     assigned_driver_id: Optional[str] = None
     assigned_truck_id: Optional[str] = None
+    # Towbook-parity dispatch metadata. All optional — the lean form path
+    # still works exactly as before; these are just the deeper fields the
+    # full "New Call" screen captures.
+    account: Optional[str] = None
+    bill_to: Optional[str] = None
+    reason: Optional[str] = None
+    invoice_number: Optional[str] = None
+    eta: Optional[datetime] = None
+    odometer_start: Optional[int] = None
+    odometer_pickup: Optional[int] = None
+    odometer_dropoff: Optional[int] = None
+    odometer_state_line: Optional[int] = None
+    unit_number: Optional[str] = None
+    location_type: Optional[str] = 'simple'      # 'simple' | 'multiple'
+    destination_type: Optional[str] = 'address'  # 'address' | 'impound'
+    discount: Optional[float] = None             # flat $ discount
+    fuel_surcharge_pct: Optional[float] = None   # 0..100
+    tax_rate_pct: Optional[float] = None         # 0..100
+    assigned_driver_ids: Optional[List[str]] = None  # multi-driver assignment
 
 class TowJobUpdate(BaseModel):
     status: Optional[str] = None
