@@ -105,14 +105,14 @@ export default function GlobalCopilotFAB() {
   const inIframe = isInIframe();
   const sttSupported = supportsSTT();
 
+  // Visibility decision — computed BEFORE hooks so render bails early but
+  // hook order is preserved (we still call all hooks regardless).
+  const hidden = !me || pathHidden(location.pathname);
+
   // Persist unlock so next navigation doesn't ask again
   useEffect(() => {
     try { if (unlocked) localStorage.setItem(STORAGE_KEY, '1'); } catch {}
   }, [unlocked]);
-
-  // Don't render on hidden routes or when not signed in
-  if (!me) return null;
-  if (pathHidden(location.pathname)) return null;
 
   const submitCommand = useCallback(async (command) => {
     const t = (command || '').trim();
@@ -135,6 +135,8 @@ export default function GlobalCopilotFAB() {
         if (ty === 'log_fuel') toast.success('Fuel logged');
         if (ty === 'tow_job_status') toast.success(`Job → ${action.new_status?.replace('_', ' ')}`);
         if (ty === 'send_sms' && action.recipient_email) toast.success(`Text sent to ${action.recipient_email}`);
+        if (ty === 'inspection_mark_all') toast.success(`${action.items_marked} items marked ${action.status}`);
+        if (ty === 'new_tow_job') toast.success(`New tow job created for ${action.customer_name}`);
       } else if (action?.error) {
         toast.info(action.error);
       }
@@ -167,7 +169,7 @@ export default function GlobalCopilotFAB() {
   }, [submitCommand]);
 
   const { listening, armed, lastError, lastHeard } = useWakeWord({
-    enabled: unlocked && !inIframe && sttSupported,
+    enabled: !hidden && unlocked && !inIframe && sttSupported,
     wakePhrases: ['hey co-pilot', 'hey copilot', 'co-pilot', 'copilot', 'hey roadboss', 'roadboss', 'hey boss', 'highway pilot'],
     onCommand: onWake,
   });
@@ -180,6 +182,9 @@ export default function GlobalCopilotFAB() {
       try { localStorage.removeItem(STORAGE_KEY); } catch {}
     }
   }, [lastError]);
+
+  // ALL hooks above this line. Now we can safely bail on hidden routes.
+  if (hidden) return null;
 
   const handleOrbTap = () => {
     if (!unlocked) {
