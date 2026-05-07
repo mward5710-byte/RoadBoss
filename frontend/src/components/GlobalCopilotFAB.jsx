@@ -137,6 +137,8 @@ export default function GlobalCopilotFAB() {
         if (ty === 'send_sms' && action.recipient_email) toast.success(`Text sent to ${action.recipient_email}`);
         if (ty === 'inspection_mark_all') toast.success(`${action.items_marked} items marked ${action.status}`);
         if (ty === 'new_tow_job') toast.success(`New tow job created for ${action.customer_name}`);
+        if (ty === 'set_job_price') toast.success(`$${action.amount?.toFixed(2)} charged${action.customer ? ' · ' + action.customer : ''}`);
+        if (ty === 'mark_paid') toast.success(`Paid · ${action.payment_method?.replace('_', ' ')}${action.amount ? ' · $' + action.amount.toFixed(2) : ''}`);
       } else if (action?.error) {
         toast.info(action.error);
       }

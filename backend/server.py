@@ -2502,6 +2502,10 @@ NEW HANDS-FREE ACTIONS:
   Use when the user calls out a specific item: "headlights pass", "left mirror is cracked, mark it failed", "skip the fire extinguisher", "tires are good".
 - new_tow_job — args: {"customer_name":"...","phone":"<optional>","location":"<pickup>","destination":"<optional dropoff>","vehicle":"<make/model/color>","service_type":"tow"|"jumpstart"|"lockout"|"tire_change"|"fuel_delivery"|"winch"|"recovery","quoted_price":<optional float>}
   Use when the user says: "log a new call for...", "create a tow ticket", "new job", "Co-Pilot, new job: Smith on I-65 mile 142, blue F-150, jumpstart". Voice-creates a tow job in WreckerLogix tagged created_via=copilot_voice. Don't ask for every field — fill what you heard, leave the rest blank, and the dispatcher can polish on the screen.
+- set_job_price — args: {"amount": <float>}
+  Use when the user says: "charge 185", "set price 95", "this one's 165", "the bill is 425". Sets BOTH the quoted price and final price on the most recent / active tow job. Always parse the dollar amount from the user's spoken phrasing.
+- mark_paid — args: {"method":"cash"|"card"|"check"|"invoice"|"motor_club"|"square"|"venmo"|"zelle","amount":<optional float>}
+  Use when the user says: "mark paid", "paid in cash", "card 185", "they paid by card", "all settled up", "customer paid". Defaults to cash if no method given. If an amount is given AND the job has no price yet, this also sets the price. Auto-completes the job status to "completed". This is how Mike practices the full receipt-to-revenue cycle while testing.
 
 GOD-MODE for super_admin:
 - If the user's role is "super_admin" (Mike, the founder, OR a company owner promoted to super_admin), TREAT EVERY ACTION AS AVAILABLE regardless of role gates. The system has already given them a phantom driver record so duty_change, start_trip, start_inspection, mark_all, etc. all work. Just oblige.
@@ -2553,6 +2557,18 @@ You: "10-4. Marked you on scene.
 Operator: "Job complete."
 You: "10-4. Marking job complete.
 <<<ACTION:{"type":"tow_job_status","args":{"status":"completed"}}>>>"
+
+Mike (super_admin): "Charge 185 on this run."
+You: "Got it boss, $185 logged.
+<<<ACTION:{"type":"set_job_price","args":{"amount":185}}>>>"
+
+Mike (super_admin): "Mark paid in cash."
+You: "Marking paid cash, job closed.
+<<<ACTION:{"type":"mark_paid","args":{"method":"cash"}}>>>"
+
+Mike (super_admin): "Paid by card, 95 dollars."
+You: "Card payment of $95 logged. All settled up.
+<<<ACTION:{"type":"mark_paid","args":{"method":"card","amount":95}}>>>"
 
 Mike (super_admin): "Mark all as passed."
 You: "You got it boss, marking every item passed and pulling up sign-off.
@@ -3079,6 +3095,173 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
                 'impound_id': doc['id'],
                 'reason': reason,
                 'redirect': '/wrecker/impound',
+            })
+            return result
+
+        # ----- set_job_price (set quoted/final price on the active job) -----
+        # Mike: "Co-Pilot, charge 185 on this run." / "Set price 95."
+        if action_type == 'set_job_price':
+            job = await _resolve_active_tow_job(user)
+            if not job:
+                # No active job? Fall back to the most-recent job created by user
+                job = await db.tow_jobs.find_one(
+                    {'created_by': user['id']},
+                    {'_id': 0},
+                    sort=[('created_at', -1)],
+                )
+            if not job:
+                result['error'] = 'No tow job to attach a price to.'
+                return result
+            try:
+                amount = float(args.get('amount') or args.get('price') or 0)
+            except Exception:
+                amount = 0
+            if amount <= 0:
+                result['error'] = 'Need a positive dollar amount.'
+                return result
+            # Push a real CHARGE line item so accounting totals roll up
+            # correctly (the revenue dashboard reads tow_jobs.charges[] +
+            # tow_jobs.payments[] — not just the legacy quoted_price field).
+            new_charge = {
+                'id': str(uuid.uuid4()),
+                'description': str(args.get('description') or 'Tow service'),
+                'rate': amount,
+                'qty': 1,
+                'subtotal': amount,
+                'added_at': now_utc().isoformat(),
+                'added_by': user['id'],
+                'added_via': 'copilot_voice',
+            }
+            charges = list(job.get('charges') or []) + [new_charge]
+            payments_list = job.get('payments') or []
+            subtotal = sum(round(float(c.get('rate', 0)) * float(c.get('qty', 0)), 2) for c in charges)
+            tax_rate = float(job.get('tax_rate', 0) or 0)
+            tax = round(subtotal * tax_rate, 2)
+            invoice_total = round(subtotal + tax, 2)
+            paid = round(sum(float(p.get('amount', 0)) for p in payments_list), 2)
+            balance = round(invoice_total - paid, 2)
+            await db.tow_jobs.update_one(
+                {'id': job['id']},
+                {'$set': {
+                    'charges': charges,
+                    'subtotal': subtotal,
+                    'tax': tax,
+                    'invoice_total': invoice_total,
+                    'amount_paid': paid,
+                    'balance_due': balance,
+                    # Keep legacy quoted/final fields in sync for any older UI bits
+                    'quoted_price': invoice_total,
+                    'final_price': invoice_total,
+                    'updated_at': now_utc(),
+                }}
+            )
+            result.update({
+                'executed': True,
+                'job_id': job['id'],
+                'amount': amount,
+                'invoice_total': invoice_total,
+                'customer': (job.get('customer') or {}).get('name') or job.get('customer_name'),
+            })
+            return result
+
+        # ----- mark_paid (close out a tow job as paid) -----
+        # Mike: "Co-Pilot, mark paid cash." / "Paid by card 185."
+        # Pushes a real payments[] entry so totals reconcile in accounting.
+        if action_type == 'mark_paid':
+            job = await _resolve_active_tow_job(user)
+            if not job:
+                job = await db.tow_jobs.find_one(
+                    {'created_by': user['id']},
+                    {'_id': 0},
+                    sort=[('created_at', -1)],
+                )
+            if not job:
+                result['error'] = 'No tow job to mark paid.'
+                return result
+            method = str(args.get('method', 'cash')).lower().strip().replace(' ', '_')
+            valid_methods = {'cash', 'card', 'check', 'invoice', 'motor_club', 'square', 'venmo', 'zelle'}
+            if method not in valid_methods:
+                method = 'cash'
+            try:
+                amount = float(args.get('amount') or 0)
+            except Exception:
+                amount = 0
+
+            # Make sure the job has a charge line — if not (driver paid before
+            # we knew the price), create one from the spoken amount or from
+            # legacy quoted_price.
+            charges = list(job.get('charges') or [])
+            if not charges:
+                charge_amount = amount or float(job.get('quoted_price') or 0)
+                if charge_amount > 0:
+                    charges.append({
+                        'id': str(uuid.uuid4()),
+                        'description': 'Tow service',
+                        'rate': charge_amount,
+                        'qty': 1,
+                        'subtotal': charge_amount,
+                        'added_at': now_utc().isoformat(),
+                        'added_by': user['id'],
+                        'added_via': 'copilot_voice',
+                    })
+
+            # If no amount given on this voice call, default to remaining balance
+            subtotal = sum(round(float(c.get('rate', 0)) * float(c.get('qty', 0)), 2) for c in charges)
+            tax_rate = float(job.get('tax_rate', 0) or 0)
+            tax = round(subtotal * tax_rate, 2)
+            invoice_total = round(subtotal + tax, 2)
+            existing_payments = list(job.get('payments') or [])
+            already_paid = round(sum(float(p.get('amount', 0)) for p in existing_payments), 2)
+            pay_amount = amount if amount > 0 else round(invoice_total - already_paid, 2)
+            if pay_amount <= 0:
+                pay_amount = invoice_total  # totally fresh job, no charges, no amount → mark as zero-balance paid
+
+            new_payment = {
+                'id': str(uuid.uuid4()),
+                'amount': pay_amount,
+                'method': method,
+                'reference': args.get('reference') or '',
+                'received_at': now_utc().isoformat(),
+                'received_by': user['id'],
+                'received_by_name': user.get('name'),
+                'received_via': 'copilot_voice',
+            }
+            payments = existing_payments + [new_payment]
+            paid = round(sum(float(p.get('amount', 0)) for p in payments), 2)
+            balance = round(invoice_total - paid, 2)
+
+            update: Dict[str, Any] = {
+                'charges': charges,
+                'payments': payments,
+                'subtotal': subtotal,
+                'tax': tax,
+                'invoice_total': invoice_total,
+                'amount_paid': paid,
+                'balance_due': balance,
+                'payment_method': method,
+                'payment_status': 'paid' if balance <= 0 else 'partial',
+                'paid_at': now_utc().isoformat() if balance <= 0 else None,
+                'paid_by_user': user['id'],
+                'updated_at': now_utc(),
+            }
+            # Auto-complete the job if it isn't already
+            if job.get('status') != 'completed':
+                update['status'] = 'completed'
+                update['status_history'] = (job.get('status_history') or []) + [{
+                    'status': 'completed',
+                    'at': now_utc().isoformat(),
+                    'by': user['id'],
+                    'note': 'Auto-completed on payment via voice.',
+                }]
+            await db.tow_jobs.update_one({'id': job['id']}, {'$set': update})
+            result.update({
+                'executed': True,
+                'job_id': job['id'],
+                'payment_method': method,
+                'amount': pay_amount,
+                'invoice_total': invoice_total,
+                'balance_due': balance,
+                'customer': (job.get('customer') or {}).get('name') or job.get('customer_name'),
             })
             return result
 
