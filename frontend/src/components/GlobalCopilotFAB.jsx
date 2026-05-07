@@ -1,36 +1,32 @@
 // GlobalCopilotFAB — the always-on floating Co-Pilot mic that lives on
 // every authenticated page in RoadBoss / WreckerLogix.
 //
-// Mike's spec (verbatim): "Co-Pilot should be a quick action on every page."
+// MODE: Push-to-Talk by DEFAULT (zero false triggers).
 //
-// Behavior:
-//   - Bottom-right corner, fixed position, above all content (z-2147483500).
-//   - Hidden on auth / marketing / public pages and on screens that already
-//     own a full-screen voice UI (the Co-Pilot screen itself, the DVIR voice
-//     walkthrough, the wrecker voice page, public pay-link).
-//   - First tap: unlocks iOS audio (silent utterance), enables wake-word
-//     listening, and pops a quick "say Hey Co-Pilot" hint. iOS Safari REQUIRES
-//     a user gesture before any audio API will work — that's why the orb
-//     glows amber until tapped, then green when armed.
-//   - Once unlocked, wake word stays armed across page navigations (state
-//     held inside this single mounted component at the App.js level).
-//   - When wake word fires → captures command → POST /copilot/chat → speaks
-//     the reply → executes any returned action (navigate, status change, etc).
-//   - Long-press / second-tap-while-unlocked = open quick command popover so
-//     Mike can type if he's in a noisy bay or doesn't want to wake Kenny up.
+// Flow:
+//   1. Tap orb → mic turns on, captures one utterance.
+//   2. Auto-stops on ~1.5s of silence, OR user taps stop.
+//   3. Transcript appears in popover. User reviews → taps "Send" or "Cancel".
+//   4. On Send → POST /copilot/chat → speaks reply → executes any action.
+//
+// Wake-word ("Hey Co-Pilot") is now an OPT-IN advanced toggle in the panel.
+// It's OFF by default because hot-mic wake words misfire constantly in the
+// real world (background voices, partial words, etc). Push-to-talk is rock-
+// solid and demo-grade reliable — we'll polish wake word later.
 //
 // What we explicitly DON'T promise:
 //   - Wake word does NOT work on a locked iPhone screen. Apple suspends mic.
 //   - Wake word does NOT work in the Emergent preview iframe (cross-origin
 //     mic block). The component shows an "Open in tab" hint when iframed.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  Mic, X, Sparkles, Send, AlertTriangle, ExternalLink,
-  Loader2, Volume2,
+  Mic, MicOff, X, Sparkles, Send, AlertTriangle, ExternalLink,
+  Loader2, Volume2, Settings, Square, Check,
 } from 'lucide-react';
 import { useWakeWord, isInIframe, supportsSTT } from '@/hooks/useWakeWord';
+import { usePushToTalk } from '@/hooks/usePushToTalk';
 import { api, getUser } from '@/lib/api';
 import { toast } from 'sonner';
 
@@ -52,9 +48,10 @@ function pathHidden(pathname) {
   return false;
 }
 
-const STORAGE_KEY = 'roadboss.globalfab.unlocked.v1';
+const STORAGE_UNLOCK = 'roadboss.globalfab.unlocked.v1';
+const STORAGE_WAKE = 'roadboss.globalfab.wakeword.v2'; // OFF by default now
 
-// Small audible cue so user KNOWS the wake word fired
+// Small audible cue so user KNOWS the mic just opened
 function chime() {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -96,12 +93,19 @@ export default function GlobalCopilotFAB() {
   const me = getUser();
 
   const [unlocked, setUnlocked] = useState(() => {
-    try { return localStorage.getItem(STORAGE_KEY) === '1'; } catch { return false; }
+    try { return localStorage.getItem(STORAGE_UNLOCK) === '1'; } catch { return false; }
+  });
+  // Wake-word OPT-IN. Default OFF — push-to-talk is the reliable mode.
+  const [wakeEnabled, setWakeEnabled] = useState(() => {
+    try { return localStorage.getItem(STORAGE_WAKE) === '1'; } catch { return false; }
   });
   const [open, setOpen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [mode, setMode] = useState('idle'); // idle | thinking | speaking
   const [reply, setReply] = useState('');
   const [typed, setTyped] = useState('');
+  // Captured push-to-talk transcript awaiting user confirmation
+  const [pendingCommand, setPendingCommand] = useState('');
   const inIframe = isInIframe();
   const sttSupported = supportsSTT();
 
@@ -111,8 +115,12 @@ export default function GlobalCopilotFAB() {
 
   // Persist unlock so next navigation doesn't ask again
   useEffect(() => {
-    try { if (unlocked) localStorage.setItem(STORAGE_KEY, '1'); } catch {}
+    try { if (unlocked) localStorage.setItem(STORAGE_UNLOCK, '1'); } catch {}
   }, [unlocked]);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_WAKE, wakeEnabled ? '1' : '0'); } catch {}
+  }, [wakeEnabled]);
 
   const submitCommand = useCallback(async (command) => {
     const t = (command || '').trim();
@@ -120,6 +128,7 @@ export default function GlobalCopilotFAB() {
     setMode('thinking');
     setReply('');
     setOpen(true);
+    setPendingCommand('');
     try {
       const r = await api.post('/copilot/chat', { message: t });
       const text = r.data?.reply || '';
@@ -163,7 +172,6 @@ export default function GlobalCopilotFAB() {
       const errMsg = e?.response?.data?.detail || 'Co-Pilot is offline right now.';
       setReply(errMsg);
       setMode('idle');
-      // Credit / auth errors get a long-lived toast so the user actually reads them
       if (status === 402 || status === 401) {
         toast.error(errMsg, { duration: 12000 });
       } else if (status === 429) {
@@ -174,41 +182,60 @@ export default function GlobalCopilotFAB() {
     }
   }, [navigate]);
 
-  // Wake word — captures command after the trigger phrase fires
-  const onWake = useCallback(async (command) => {
-    chime();
-    submitCommand(command);
-  }, [submitCommand]);
+  // ---- Push-to-Talk ----
+  // When transcript finalizes, stash it for user review (no auto-send).
+  const onTranscript = useCallback((text) => {
+    setPendingCommand(text);
+    setOpen(true);
+  }, []);
+  const ptt = usePushToTalk({ onTranscript, silenceMs: 1500 });
 
-  const { listening, armed, lastError, lastHeard } = useWakeWord({
-    enabled: !hidden && unlocked && !inIframe && sttSupported,
-    wakePhrases: ['hey co-pilot', 'hey copilot', 'co-pilot', 'copilot', 'hey roadboss', 'roadboss', 'hey boss', 'highway pilot'],
+  // ---- Wake Word (opt-in only) ----
+  const onWake = useCallback((command) => {
+    chime();
+    // Wake word still goes through the confirm flow — show transcript first.
+    setPendingCommand(command);
+    setOpen(true);
+  }, []);
+
+  // Tightened wake phrases — only "hey co-pilot" variants. Removed the loose
+  // ones that misfire on background speech ("copilot", "boss", "roadboss").
+  const wakeWord = useWakeWord({
+    enabled: wakeEnabled && !hidden && unlocked && !inIframe && sttSupported,
+    wakePhrases: ['hey co-pilot', 'hey copilot'],
     onCommand: onWake,
   });
 
-  // Auto-disable + warn on persistent permission errors
+  // Auto-disable + warn on persistent permission errors (wake-word path)
   useEffect(() => {
-    if (lastError === 'not-allowed' || lastError === 'service-not-allowed') {
+    if (wakeWord.lastError === 'not-allowed' || wakeWord.lastError === 'service-not-allowed') {
       toast.error('Mic permission denied. Tap the address-bar lock → Microphone → Allow, then reload.', { duration: 8000 });
       setUnlocked(false);
-      try { localStorage.removeItem(STORAGE_KEY); } catch {}
+      setWakeEnabled(false);
+      try { localStorage.removeItem(STORAGE_UNLOCK); } catch {}
     }
-  }, [lastError]);
+  }, [wakeWord.lastError]);
+
+  // Show ptt errors
+  useEffect(() => {
+    if (ptt.error === 'not-allowed' || ptt.error === 'service-not-allowed') {
+      toast.error('Mic permission denied. Tap the address-bar lock → Microphone → Allow, then reload.', { duration: 8000 });
+    } else if (ptt.error === 'not_supported') {
+      toast.error('Voice not supported on this browser. Use the type box instead.', { duration: 5000 });
+    }
+  }, [ptt.error]);
 
   // ALL hooks above this line. Now we can safely bail on hidden routes.
   if (hidden) return null;
 
-  // Lift the orb up over the bottom nav on driver/wrecker pages (those layouts
-  // pin a 4-tab bottom bar at h-20). Everywhere else (super-admin console,
-  // marketing, etc.) it sits in the natural bottom-right corner. iOS safe-area
-  // is already accounted for by the parent layouts.
+  // Lift the orb up over the bottom nav on driver/wrecker pages.
   const hasBottomNav = location.pathname.startsWith('/driver') || location.pathname.startsWith('/wrecker');
   const fabPositionCls = hasBottomNav ? 'bottom-24 right-4 sm:bottom-24 sm:right-5' : 'bottom-4 right-4 sm:bottom-5 sm:right-5';
   const popoverBottomCls = hasBottomNav ? 'bottom-44 right-3 sm:bottom-44 sm:right-5' : 'bottom-[88px] right-3 sm:right-5';
 
   const handleOrbTap = () => {
+    // First-time: unlock iOS audio
     if (!unlocked) {
-      // iOS audio gesture unlock + speechSynthesis prime
       try {
         const u = new SpeechSynthesisUtterance(' ');
         u.volume = 0.01;
@@ -221,11 +248,35 @@ export default function GlobalCopilotFAB() {
       } else if (!sttSupported) {
         toast.error('Voice not supported on this browser. Use the type box instead.', { duration: 5000 });
       } else {
-        toast.success('Co-Pilot armed. Just say "Hey Co-Pilot…" any time.', { duration: 5000 });
+        toast.success('Co-Pilot ready. Tap the orb to talk.', { duration: 4000 });
       }
       return;
     }
-    setOpen((o) => !o);
+
+    // If currently recording → stop and let onTranscript fire
+    if (ptt.recording) {
+      ptt.stop();
+      return;
+    }
+
+    // If thinking/speaking → just open the panel (don't interrupt)
+    if (mode === 'thinking' || mode === 'speaking') {
+      setOpen(true);
+      return;
+    }
+
+    // Cannot record in iframe or unsupported browser
+    if (inIframe || !sttSupported) {
+      setOpen(true);
+      return;
+    }
+
+    // Start a fresh push-to-talk capture
+    setPendingCommand('');
+    setReply('');
+    setOpen(true);
+    chime();
+    ptt.start();
   };
 
   const onTypedSubmit = (e) => {
@@ -234,11 +285,22 @@ export default function GlobalCopilotFAB() {
     setTyped('');
   };
 
+  const sendPending = () => {
+    if (!pendingCommand.trim()) return;
+    submitCommand(pendingCommand);
+  };
+
+  const cancelPending = () => {
+    setPendingCommand('');
+    ptt.cancel();
+  };
+
   const orbCls = (() => {
     if (mode === 'thinking') return 'bg-amber-500 border-amber-300 text-slate-950';
     if (mode === 'speaking') return 'bg-emerald-500 border-emerald-300 text-slate-950';
-    if (armed) return 'bg-red-500 border-red-300 text-white hp-voice-ring';
-    if (unlocked && listening) return 'bg-sky-500 border-sky-300 text-slate-950';
+    if (ptt.recording) return 'bg-red-500 border-red-300 text-white animate-pulse';
+    if (wakeEnabled && wakeWord.armed) return 'bg-red-500 border-red-300 text-white animate-pulse';
+    if (wakeEnabled && wakeWord.listening) return 'bg-sky-500 border-sky-300 text-slate-950';
     if (unlocked) return 'bg-sky-600 border-sky-400 text-white';
     return 'bg-slate-900 border-amber-500/70 text-amber-300';
   })();
@@ -246,9 +308,10 @@ export default function GlobalCopilotFAB() {
   const statusLabel = (() => {
     if (mode === 'thinking') return 'Thinking…';
     if (mode === 'speaking') return 'Speaking…';
-    if (armed) return 'Listening — speak now';
-    if (unlocked && listening) return 'Say "Hey Co-Pilot…"';
-    if (unlocked) return 'Wake mic starting…';
+    if (ptt.recording) return 'Listening — tap to stop';
+    if (wakeEnabled && wakeWord.armed) return 'Heard you — say command';
+    if (wakeEnabled && wakeWord.listening) return 'Wake word: Say "Hey Co-Pilot…"';
+    if (unlocked) return 'Tap to talk';
     return 'Tap to enable Co-Pilot';
   })();
 
@@ -265,23 +328,24 @@ export default function GlobalCopilotFAB() {
         >
           {mode === 'thinking' ? <Loader2 className="w-7 h-7 animate-spin" />
             : mode === 'speaking' ? <Volume2 className="w-7 h-7" />
+            : ptt.recording ? <Square className="w-6 h-6 fill-current" />
             : <Mic className="w-7 h-7" />}
           {/* Status indicator dot */}
           <span
             className={`absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-slate-900 ${
               !unlocked ? 'bg-amber-400 animate-pulse'
-                : armed ? 'bg-red-400 animate-pulse'
-                : listening ? 'bg-emerald-400'
+                : ptt.recording ? 'bg-red-400 animate-pulse'
+                : wakeEnabled && wakeWord.armed ? 'bg-red-400 animate-pulse'
+                : wakeEnabled && wakeWord.listening ? 'bg-emerald-400'
                 : 'bg-slate-500'
             }`}
             data-testid="global-copilot-fab-status"
           />
-          {/* Subtle Sparkles peek */}
           <Sparkles className="absolute -bottom-1 -left-1 w-3 h-3 text-sky-300/60" />
         </button>
       </div>
 
-      {/* Popover panel — appears on demand or when wake word fires */}
+      {/* Popover panel */}
       {open && (
         <div
           className={`fixed ${popoverBottomCls} z-[2147483501] w-[300px] sm:w-[340px] rounded-2xl bg-slate-950/97 border border-slate-800 backdrop-blur shadow-2xl shadow-black/50`}
@@ -293,23 +357,34 @@ export default function GlobalCopilotFAB() {
               <span className="text-[10px] uppercase tracking-widest text-sky-300/90 font-bold">Co-Pilot</span>
               {unlocked && (
                 <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded font-semibold ${
-                  armed ? 'bg-red-500/20 text-red-200'
-                    : listening ? 'bg-emerald-500/20 text-emerald-200'
+                  ptt.recording ? 'bg-red-500/20 text-red-200'
+                    : wakeEnabled && wakeWord.armed ? 'bg-red-500/20 text-red-200'
+                    : wakeEnabled && wakeWord.listening ? 'bg-emerald-500/20 text-emerald-200'
                     : 'bg-slate-800 text-slate-400'
                 }`}>{statusLabel}</span>
               )}
             </div>
-            <button
-              onClick={() => setOpen(false)}
-              className="text-slate-500 hover:text-white"
-              data-testid="global-copilot-close"
-              aria-label="Close Co-Pilot panel"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setShowSettings((s) => !s)}
+                className={`p-1 rounded hover:bg-slate-800 ${showSettings ? 'text-sky-300' : 'text-slate-500 hover:text-white'}`}
+                data-testid="global-copilot-settings-btn"
+                aria-label="Co-Pilot settings"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => { setOpen(false); setShowSettings(false); }}
+                className="text-slate-500 hover:text-white p-1"
+                data-testid="global-copilot-close"
+                aria-label="Close Co-Pilot panel"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
-          <div className="p-3 space-y-2.5 text-sm text-slate-200 max-h-[40vh] overflow-y-auto">
+          <div className="p-3 space-y-2.5 text-sm text-slate-200 max-h-[55vh] overflow-y-auto">
             {!unlocked && (
               <div className="text-xs text-amber-300 leading-relaxed">
                 Tap the orb once to enable voice. iOS needs that single gesture before the mic can listen.
@@ -331,57 +406,126 @@ export default function GlobalCopilotFAB() {
               </div>
             )}
 
-            {unlocked && lastHeard && !armed && mode === 'idle' && (
-              <div className="text-[11px] text-slate-500 truncate">heard: "{lastHeard}"</div>
+            {/* Settings drawer (opt-in wake word) */}
+            {showSettings && unlocked && (
+              <div className="rounded-lg bg-slate-900 border border-slate-800 p-3 space-y-2.5" data-testid="global-copilot-settings">
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Voice settings</div>
+                <label className="flex items-start justify-between gap-3 cursor-pointer">
+                  <div className="flex-1">
+                    <div className="text-sm text-slate-100 font-semibold">Hands-free wake word</div>
+                    <div className="text-[11px] text-slate-400 leading-snug">
+                      Listen continuously for "Hey Co-Pilot." May misfire in noisy areas — leave OFF for demos and customer-facing runs.
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={wakeEnabled}
+                    onChange={(e) => setWakeEnabled(e.target.checked)}
+                    className="mt-1 w-4 h-4 accent-sky-500"
+                    data-testid="global-copilot-wakeword-toggle"
+                  />
+                </label>
+                {wakeEnabled && (
+                  <div className="text-[11px] text-emerald-300 leading-snug bg-emerald-500/5 border border-emerald-500/20 rounded p-2">
+                    ✓ Wake word ON. Say <span className="font-semibold">"Hey Co-Pilot"</span>, pause, then your command.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Live interim transcript while recording */}
+            {ptt.recording && (
+              <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-slate-100 text-sm">
+                <div className="text-[10px] uppercase tracking-wider text-red-300 font-bold mb-1 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> Recording…
+                </div>
+                <div className="text-slate-200 italic min-h-[1.2em]">
+                  {ptt.interim || 'Speak now…'}
+                </div>
+                <button
+                  onClick={() => ptt.stop()}
+                  className="mt-2 inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-100"
+                  data-testid="global-copilot-stop-recording"
+                >
+                  <Square className="w-3 h-3" /> Stop
+                </button>
+              </div>
+            )}
+
+            {/* Captured transcript awaiting confirmation */}
+            {pendingCommand && !ptt.recording && mode !== 'thinking' && (
+              <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 space-y-2" data-testid="global-copilot-pending">
+                <div className="text-[10px] uppercase tracking-wider text-amber-300 font-bold">I heard:</div>
+                <div className="text-slate-100 text-sm leading-relaxed">"{pendingCommand}"</div>
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    onClick={sendPending}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-semibold"
+                    data-testid="global-copilot-confirm-send"
+                  >
+                    <Check className="w-3.5 h-3.5" /> Send
+                  </button>
+                  <button
+                    onClick={cancelPending}
+                    className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm"
+                    data-testid="global-copilot-confirm-cancel"
+                  >
+                    <X className="w-3.5 h-3.5" /> Cancel
+                  </button>
+                </div>
+              </div>
             )}
 
             {mode === 'thinking' && (
               <div className="text-amber-300 inline-flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Thinking…</div>
             )}
 
-            {reply && (
+            {reply && !pendingCommand && (
               <div className="rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-slate-100 text-sm leading-relaxed" data-testid="global-copilot-reply">
                 {reply}
               </div>
             )}
 
-            {/* Always-available text fallback so Mike can use Co-Pilot
-                without speaking (noisy bay, kids asleep, etc) */}
-            <form onSubmit={onTypedSubmit} className="flex items-center gap-2">
-              <input
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-                placeholder="Type a command instead…"
-                className="flex-1 bg-slate-900 border border-slate-800 text-white text-sm rounded-md h-9 px-2.5 focus:outline-none focus:border-sky-500/50"
-                data-testid="global-copilot-input"
-              />
-              <button
-                type="submit"
-                disabled={!typed.trim() || mode === 'thinking'}
-                className="h-9 px-3 rounded-md bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-slate-950 font-semibold flex items-center gap-1 text-sm"
-                data-testid="global-copilot-send"
-              >
-                <Send className="w-3.5 h-3.5" /> Send
-              </button>
-            </form>
+            {/* Always-available text fallback */}
+            {!ptt.recording && (
+              <form onSubmit={onTypedSubmit} className="flex items-center gap-2">
+                <input
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  placeholder="Type a command instead…"
+                  className="flex-1 bg-slate-900 border border-slate-800 text-white text-sm rounded-md h-9 px-2.5 focus:outline-none focus:border-sky-500/50"
+                  data-testid="global-copilot-input"
+                />
+                <button
+                  type="submit"
+                  disabled={!typed.trim() || mode === 'thinking'}
+                  className="h-9 px-3 rounded-md bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-slate-950 font-semibold flex items-center gap-1 text-sm"
+                  data-testid="global-copilot-send"
+                >
+                  <Send className="w-3.5 h-3.5" /> Send
+                </button>
+              </form>
+            )}
 
             {/* Quick-prompt chips so first-timers know what to say */}
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {[
-                "What's my next call",
-                'Start pre-trip',
-                'I am en route',
-                'Job complete',
-              ].map((p) => (
-                <button
-                  key={p}
-                  onClick={() => submitCommand(p)}
-                  className="text-[11px] px-2 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300 hover:border-sky-500/40 hover:text-sky-300"
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
+            {!ptt.recording && !pendingCommand && mode === 'idle' && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {[
+                  "What's my next call",
+                  'Start pre-trip',
+                  'I am en route',
+                  'Job complete',
+                ].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => submitCommand(p)}
+                    className="text-[11px] px-2 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300 hover:border-sky-500/40 hover:text-sky-300"
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
