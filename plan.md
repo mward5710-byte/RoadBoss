@@ -255,9 +255,23 @@ Deliverable: `/app/memory/wreckerlogix_master_spec.md`
 ---
 
 ## Next Session Priorities (RoadBoss)
-- **P0: Testing sweep** — voice DVIR walkthrough + standard DVIR form + signing flow (no regressions)
-- **P1: Square Web Payments SDK add-ons** — Google Pay + ACH
-- **P2: Public vehicle lookup** — `/lookup` for police/customers to check impound inventory by VIN/Plate
+- **P0: Quote Detail Page Overhaul** — `/wrecker/quotes/:id` page (Towbook screenshots from Mike). Header (Back/Quote#/View toggle), Mapbox map, circular action buttons (Convert/Photos/Email), collapsible Location, Account/Vehicle, searchable Charges, and a CONVERT button that flips status `quote` → `pending`.
+- **P0: Custom card layouts** for Quotes + Cancelled tabs on Dispatch Board (different field set from active jobs).
+- **P1: Mapbox auto-mileage wiring** — helpers exist in `wrecker.py` (`_mapbox_geocode`, `_mapbox_drive_miles`); inject into `create_job` + add a backfill endpoint for existing jobs.
+- **P1: Driver Job Detail mobile overhaul** (paused for Quote Detail).
+- **P2: Square Web Payments SDK add-ons** — Google Pay + ACH
+- **P3: Public vehicle lookup** — `/lookup` for police/customers to check impound inventory by VIN/Plate
+- **P3: Deepgram STT** — replace Web Speech API (waiting on user API key) — paused per Mike's request to lock manual UI/UX first.
+
+## Recent UX Wins (May 7, 2026 — UI Refinement Sprint)
+- **Inline Navigate pills on every address.** WreckerJobCockpit `LocationRow` now renders a clearly-labeled sky-blue "Navigate" pill button RIGHT NEXT TO each pickup + drop-off address. No more grouped-at-bottom nav buttons. Each pill is its own one-tap deep-link to the user's preferred nav app (Google/Apple/Waze).
+- **Driver Home dropoff visibility.** Added the dropoff address line + its own emerald "Navigate" pill on the current call card.
+- **Driver Assignment timeline now updates instantly.** `handleAssign()` does an optimistic `setJob(r.data)` from the assign-endpoint response, plus calls `load()` to pull fresh `status_history`. Toast now reads "Dispatched to <Name> — timeline updated".
+- **Inline Quick-Add Driver — zero page jumps.** New reusable component `QuickAddDriverForm.jsx`. Embedded in:
+  - Pick Driver dialog on `/wrecker` Dispatch Board (collapsible "+ Quick Add" button above the rotation list).
+  - Driver Assignment card on `/wrecker/jobs/:id` Job Cockpit (button sits inline between the Select dropdown and the Assign button; auto-selects newly added driver in dropdown so dispatch can hit Assign immediately).
+  - DriversPanel now accepts a `refreshKey` prop so parent surfaces can trigger a refetch after a quick-add.
+- **Backend validation:** 13/13 tests passed (iteration_16). `/wrecker/drivers/quick-add` enforces auth, validates name, handles duplicates. `/wrecker/jobs/{id}/assign` correctly appends BOTH the `status='assigned'` history entry AND the `note='Assigned to <name>'` entry when a pending job gets dispatched.
 
 ---
 
