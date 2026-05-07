@@ -159,10 +159,18 @@ export default function GlobalCopilotFAB() {
         if (action?.executed && action?.redirect) navigate(action.redirect);
       }
     } catch (e) {
+      const status = e?.response?.status;
       const errMsg = e?.response?.data?.detail || 'Co-Pilot is offline right now.';
       setReply(errMsg);
       setMode('idle');
-      toast.error(errMsg);
+      // Credit / auth errors get a long-lived toast so the user actually reads them
+      if (status === 402 || status === 401) {
+        toast.error(errMsg, { duration: 12000 });
+      } else if (status === 429) {
+        toast.warning(errMsg, { duration: 6000 });
+      } else {
+        toast.error(errMsg);
+      }
     }
   }, [navigate]);
 
