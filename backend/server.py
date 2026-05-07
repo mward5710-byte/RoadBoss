@@ -2506,6 +2506,10 @@ NEW HANDS-FREE ACTIONS:
   Use when the user says: "charge 185", "set price 95", "this one's 165", "the bill is 425". Sets BOTH the quoted price and final price on the most recent / active tow job. Always parse the dollar amount from the user's spoken phrasing.
 - mark_paid — args: {"method":"cash"|"card"|"check"|"invoice"|"motor_club"|"square"|"venmo"|"zelle","amount":<optional float>}
   Use when the user says: "mark paid", "paid in cash", "card 185", "they paid by card", "all settled up", "customer paid". Defaults to cash if no method given. If an amount is given AND the job has no price yet, this also sets the price. Auto-completes the job status to "completed". This is how Mike practices the full receipt-to-revenue cycle while testing.
+- daily_summary — args: {} (no args)
+  Use when the user asks: "how much have I made today", "what's the books look like", "daily total", "give me today's revenue", "where am I at today". Returns total_invoiced, total_paid, outstanding, job_count, paid_count, unpaid_count for today's REAL (non-demo) tow jobs. After the action, you should speak back the numbers conversationally ("You've billed $530 today across 3 runs, $390 already paid, $140 still out").
+- log_expense — args: {"amount":<float>,"kind":"fuel"|"parts"|"tolls"|"repair"|"misc"|"food"|"lodging"|"permit","vendor":"<optional>","truck_id":"<optional>","notes":"<optional>","gallons":<optional float>}
+  Use when the user says: "log expense 75 dollars fuel for truck 3", "log a $40 toll", "expense 120 parts", "$200 lunch with the crew". Voice-creates an expense entry tagged created_via=copilot_voice.
 
 GOD-MODE for super_admin:
 - If the user's role is "super_admin" (Mike, the founder, OR a company owner promoted to super_admin), TREAT EVERY ACTION AS AVAILABLE regardless of role gates. The system has already given them a phantom driver record so duty_change, start_trip, start_inspection, mark_all, etc. all work. Just oblige.
@@ -2565,6 +2569,17 @@ You: "Got it boss, $185 logged.
 Mike (super_admin): "Mark paid in cash."
 You: "Marking paid cash, job closed.
 <<<ACTION:{"type":"mark_paid","args":{"method":"cash"}}>>>"
+
+Mike (super_admin): "How much have I made today?"
+You: "Pulling up today's books.
+<<<ACTION:{"type":"daily_summary","args":{}}>>>"
+(Then on the next turn, after the system gives you the numbers, you'd reply
+naturally: "You've billed $530 across 3 runs today, boss — $390 already paid,
+$140 still out.")
+
+Mike (super_admin): "Log expense 75 dollars fuel for truck 3."
+You: "Got it boss, logging $75 fuel expense for truck 3.
+<<<ACTION:{"type":"log_expense","args":{"amount":75,"kind":"fuel","truck_id":"3"}}>>>"
 
 Mike (super_admin): "Paid by card, 95 dollars."
 You: "Card payment of $95 logged. All settled up.
@@ -3262,6 +3277,92 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
                 'invoice_total': invoice_total,
                 'balance_due': balance,
                 'customer': (job.get('customer') or {}).get('name') or job.get('customer_name'),
+            })
+            return result
+
+        # ----- daily_summary (Einstein mode — speak today's books back) -----
+        # Mike: "How much have I made today?" / "What's the books look like?"
+        # / "Daily total." Returns revenue numbers shaped for the LLM to
+        # speak conversationally. Counts ONLY real (non-demo) records.
+        if action_type == 'daily_summary':
+            from datetime import datetime as _dt, timezone as _tz, time as _t
+            today_start = _dt.now(_tz.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            q = {
+                'is_demo': {'$ne': True},
+                'created_at': {'$gte': today_start},
+            }
+            if user.get('hide_demo_data'):
+                pass  # already filtered above
+            jobs_today = await db.tow_jobs.find(q, {'_id': 0}).to_list(500)
+            total_invoiced = 0.0
+            total_paid = 0.0
+            paid_count = 0
+            unpaid_count = 0
+            for j in jobs_today:
+                charges = j.get('charges') or []
+                subtotal = sum(round(float(c.get('rate', 0)) * float(c.get('qty', 0)), 2) for c in charges)
+                tax_rate = float(j.get('tax_rate', 0) or 0)
+                inv = round(subtotal + (subtotal * tax_rate), 2)
+                if inv == 0:
+                    inv = float(j.get('invoice_total') or j.get('quoted_price') or 0)
+                payments = j.get('payments') or []
+                paid = round(sum(float(p.get('amount', 0)) for p in payments), 2)
+                total_invoiced += inv
+                total_paid += paid
+                if paid >= inv and inv > 0:
+                    paid_count += 1
+                elif inv > 0:
+                    unpaid_count += 1
+            outstanding = round(total_invoiced - total_paid, 2)
+            result.update({
+                'executed': True,
+                'period': 'today',
+                'job_count': len(jobs_today),
+                'total_invoiced': round(total_invoiced, 2),
+                'total_paid': round(total_paid, 2),
+                'outstanding': outstanding,
+                'paid_count': paid_count,
+                'unpaid_count': unpaid_count,
+            })
+            return result
+
+        # ----- log_expense (voice quick-add to wrecker expenses) -----
+        # Mike: "Log expense 75 dollars fuel truck 3" / "Log a $40 toll expense"
+        if action_type == 'log_expense':
+            try:
+                amount = float(args.get('amount') or 0)
+            except Exception:
+                amount = 0
+            if amount <= 0:
+                result['error'] = 'Need a positive dollar amount.'
+                return result
+            kind = str(args.get('kind') or args.get('category') or 'misc').lower().strip()
+            valid_kinds = {'fuel', 'parts', 'tolls', 'repair', 'misc', 'food', 'lodging', 'permit'}
+            if kind not in valid_kinds:
+                kind = 'misc'
+            doc = {
+                'id': str(uuid.uuid4()),
+                'kind': kind,
+                'amount': amount,
+                'gallons': args.get('gallons'),
+                'vendor': args.get('vendor'),
+                'truck_id': args.get('truck_id'),
+                'driver_id': driver.get('id') if driver else None,
+                'notes': args.get('notes') or args.get('description'),
+                'reimbursable': bool(args.get('reimbursable', True)),
+                'date': now_utc(),
+                'created_at': now_utc(),
+                'created_by': user['id'],
+                'created_via': 'copilot_voice',
+                'is_demo': False,
+                'tenant_id': user.get('tenant_id', 'founder'),
+            }
+            await db.expenses.insert_one(doc)
+            result.update({
+                'executed': True,
+                'expense_id': doc['id'],
+                'amount': amount,
+                'kind': kind,
             })
             return result
 

@@ -1,22 +1,22 @@
 [
   {
-    "content": "Backend: PUT/GET /api/me/hide-demo endpoints (DONE)",
-    "status": "completed"
+    "content": "Voice action: daily_summary - 'How much have I made today?' speaks revenue back",
+    "status": "in_progress"
   },
   {
-    "content": "Backend: filter is_demo on tow_jobs / impounds / drivers / inspections lists when caller has flag set (DONE)",
-    "status": "completed"
+    "content": "Voice action: log_expense - 'Log expense 75 dollars fuel truck 3'",
+    "status": "pending"
   },
   {
-    "content": "Backend: one-time backfill stamps legacy seed records with is_demo:true (DONE)",
-    "status": "completed"
+    "content": "Math validator: backend integrity check (totals always reconcile)",
+    "status": "pending"
   },
   {
-    "content": "Frontend: Personal Stealth Mode toggle banner on /super (DONE)",
-    "status": "completed"
+    "content": "Update Co-Pilot prompt with new actions + examples",
+    "status": "pending"
   },
   {
-    "content": "End-to-end PROVEN: stealth ON → Mike sees only real records, demo stays in DB (DONE)",
-    "status": "completed"
+    "content": "End-to-end test: voice -> revenue speaker",
+    "status": "pending"
   }
 ]
