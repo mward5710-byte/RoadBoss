@@ -150,16 +150,6 @@ export default function WreckerShell() {
             ))}
           </div>
         ))}
-        <div className="pt-3 mt-3 border-t border-white/5">
-          <Link
-            to="/wrecker/voice"
-            data-testid="wrecker-nav-voice"
-            onClick={() => setMobileOpen(false)}
-            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-sky-300 hover:bg-sky-500/10 border border-transparent transition"
-          >
-            <Mic className="w-4 h-4" /> Hands-Free Mode
-          </Link>
-        </div>
       </nav>
       <div className="p-3 border-t border-white/5">
         <a

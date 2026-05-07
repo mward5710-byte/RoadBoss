@@ -95,9 +95,14 @@ export default function GlobalCopilotFAB() {
   const [unlocked, setUnlocked] = useState(() => {
     try { return localStorage.getItem(STORAGE_UNLOCK) === '1'; } catch { return false; }
   });
-  // Wake-word OPT-IN. Default OFF — push-to-talk is the reliable mode.
+  // Wake-word DEFAULT ON. Mike's rule: "Hey Co-Pilot" is the entry point.
+  // Push-to-talk still works (tap the orb) — wake word is the always-on hands-free path.
   const [wakeEnabled, setWakeEnabled] = useState(() => {
-    try { return localStorage.getItem(STORAGE_WAKE) === '1'; } catch { return false; }
+    try {
+      const v = localStorage.getItem(STORAGE_WAKE);
+      // null = never set → default ON; otherwise honor user toggle
+      return v === null ? true : v === '1';
+    } catch { return true; }
   });
   const [open, setOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -126,21 +131,21 @@ export default function GlobalCopilotFAB() {
     const t = (command || '').trim();
     if (!t) return;
 
-    // ⚡ LOCAL ROUTING — Detect phrases that should launch a dedicated voice
-    // surface BEFORE hitting the LLM. Saves $$$ and is more reliable.
+    // ⚡ LOCAL ROUTING — Detect phrases that should launch a dedicated page
+    // BEFORE hitting the LLM. Saves $$$ and is more reliable.
     const lower = t.toLowerCase();
-    const wantsNewJobWizard = (
+    const wantsNewJob = (
       /(start|create|new|log|open|begin)\b.*\b(tow\s*job|new\s*job|job)\b/.test(lower) ||
       /\b(tow\s*job|new\s*tow|new\s*job)\b/.test(lower)
-    ) && lower.length < 60; // long sentences = likely actual data, not just a launcher
-    if (wantsNewJobWizard) {
+    ) && lower.length < 60; // long sentences = likely actual data, not a launcher
+    if (wantsNewJob) {
       const role = (me?.role || '').toLowerCase();
       const wreckerRoles = ['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'dispatcher', 'super_admin'];
       if (wreckerRoles.includes(role)) {
         setOpen(false);
         setPendingCommand('');
-        toast.success('Launching Hands-Free Voice Fill…', { duration: 2500 });
-        navigate('/wrecker/jobs/new?voice=1');
+        toast.success('Opening New Tow Job…', { duration: 2000 });
+        navigate('/wrecker/jobs/new');
         return;
       }
     }
@@ -529,48 +534,22 @@ export default function GlobalCopilotFAB() {
 
             {/* Quick-prompt chips so first-timers know what to say */}
             {!ptt.recording && !pendingCommand && mode === 'idle' && (
-              <>
-                {/* Hands-Free Job Wizard launcher — Mike's signature flow */}
-                {(() => {
-                  const role = (me?.role || '').toLowerCase();
-                  const wreckerRoles = ['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'dispatcher', 'super_admin'];
-                  if (!wreckerRoles.includes(role)) return null;
-                  return (
-                    <button
-                      onClick={() => { setOpen(false); navigate('/wrecker/jobs/new?voice=1'); }}
-                      className="w-full mt-1 inline-flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-gradient-to-r from-emerald-500/20 to-sky-500/20 border border-emerald-500/40 hover:border-emerald-400 transition group"
-                      data-testid="global-copilot-launch-wizard"
-                    >
-                      <div className="flex items-center gap-2 text-left">
-                        <div className="w-7 h-7 rounded-md bg-emerald-500/30 flex items-center justify-center">
-                          <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
-                        </div>
-                        <div>
-                          <div className="text-[12px] font-semibold text-white leading-tight">Hands-Free Voice Fill</div>
-                          <div className="text-[10px] text-emerald-200/80">Watch Co-Pilot fill every field</div>
-                        </div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-emerald-300 group-hover:translate-x-0.5 transition" />
-                    </button>
-                  );
-                })()}
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {[
-                    "What's my next call",
-                    'Start pre-trip',
-                    'I am en route',
-                    'Job complete',
-                  ].map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => submitCommand(p)}
-                      className="text-[11px] px-2 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300 hover:border-sky-500/40 hover:text-sky-300"
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
-              </>
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {[
+                  "What's my next call",
+                  'Start pre-trip',
+                  'I am en route',
+                  'Job complete',
+                ].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => submitCommand(p)}
+                    className="text-[11px] px-2 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300 hover:border-sky-500/40 hover:text-sky-300"
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>

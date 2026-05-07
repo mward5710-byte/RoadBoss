@@ -1,18 +1,22 @@
 [
   {
-    "content": "Extend photoCapture.js with a library-picker mode (no `capture` attr) for camera roll uploads",
+    "content": "STRIP the inline Voice Fill bar from New Call form",
     "status": "completed"
   },
   {
-    "content": "Rewrite Photos tab burst flow: explicit '+ Take Another / ✓ Done' prompt after each shot (no auto-reopen)",
+    "content": "Remove the auto-start-voice ?voice=1 logic + Hands-Free button on dispatch",
     "status": "completed"
   },
   {
-    "content": "Add 'Upload from Library' button next to 'Take Photo' on the Photos tab",
+    "content": "Re-enable wake-word 'Hey Co-Pilot' as DEFAULT in GlobalCopilotFAB",
     "status": "completed"
   },
   {
-    "content": "Verify with screenshots + lint check",
+    "content": "Audit page for any other mic/listening UI — hide them all except the GlobalCopilotFAB",
+    "status": "completed"
+  },
+  {
+    "content": "Lint check + screenshot New Call to confirm only ONE mic on screen",
     "status": "completed"
   }
 ]

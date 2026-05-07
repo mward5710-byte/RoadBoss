@@ -15,9 +15,9 @@
 // Voice Fill is still there at the top for hands-free entry — it just
 // targets the same form keys these sections render.
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, getUser } from '@/lib/api';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,13 +26,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import {
-  ArrowLeft, Save, Mic, Square, Pause, Sparkles, Volume2, ChevronDown,
-  Plus, X, Check, Search, ScanBarcode, Calendar, Edit3, MapPin, UserPlus,
+  ArrowLeft, ChevronDown, Calendar,
+  Plus, X, Search, ScanBarcode, MapPin, UserPlus,
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { usePushToTalk } from '@/hooks/usePushToTalk';
-import { isInIframe, supportsSTT } from '@/hooks/useWakeWord';
 
 // ─────────────────────────────────────────────────────────────────────
 // Towbook-spec lookups
@@ -155,51 +153,10 @@ function Section({ title, badge, children, testid, defaultOpen = true }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Voice helpers (kept lean — full voice fill is in the hands-free wizard)
-// ─────────────────────────────────────────────────────────────────────
-function speak(text, onEnd) {
-  try {
-    if (!('speechSynthesis' in window) || !text) { onEnd?.(); return; }
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1.08; u.pitch = 1; u.volume = 1; u.lang = 'en-US';
-    u.onend = () => onEnd?.(); u.onerror = () => onEnd?.();
-    window.speechSynthesis.cancel();
-    try { window.speechSynthesis.resume(); } catch {}
-    window.speechSynthesis.speak(u);
-  } catch { onEnd?.(); }
-}
-function chime(freq = 880) {
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx(); const now = ctx.currentTime;
-    const osc = ctx.createOscillator(); const gain = ctx.createGain();
-    osc.frequency.value = freq; osc.type = 'sine';
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.16, now + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start(now); osc.stop(now + 0.2);
-    setTimeout(() => { try { ctx.close(); } catch {} }, 400);
-  } catch {}
-}
-
-const VOICE_STEPS = [
-  { key: 'customer_name',  prompt: 'Customer name?',         apply: (t, set) => set('customer_name', t.trim()) },
-  { key: 'customer_phone', prompt: 'Phone? Or skip.',        apply: (t, set) => set('customer_phone', t.replace(/[^\d() \-+]/g, '').trim()) },
-  { key: 'pickup_address', prompt: 'Pickup address?',        apply: (t, set) => set('pickup_address', t.trim()) },
-  { key: 'dropoff_address',prompt: 'Drop-off? Or skip.',     apply: (t, set) => set('dropoff_address', t.trim()) },
-  { key: 'veh_make',       prompt: 'Vehicle make and model? Or skip.', apply: (t, set) => set('veh_make', t.trim()) },
-];
-const VOICE_SKIP_RE = /\b(skip|none|no\s+(phone|address|drop\s*off|vehicle)|leave\s+blank|pass|next)\b/i;
-
-// ─────────────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────────────
 export default function WreckerJobNew() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const autoStartVoice = searchParams.get('voice') === '1';
   const me = getUser();
 
   const [clubs, setClubs] = useState([]);
@@ -313,80 +270,11 @@ export default function WreckerJobNew() {
     api.get('/wrecker/drivers').then((r) => setDrivers(r.data)).catch(() => {});
   }, []);
 
-  // ─── Voice fill (lean — only fills the most-used core fields) ──────
-  const [voiceMode, setVoiceMode] = useState(false);
-  const [voiceUnlocked, setVoiceUnlocked] = useState(false);
-  const [stepIdx, setStepIdx] = useState(0);
-  const stepIdxRef = useRef(0);
-  const voiceModeRef = useRef(false);
-  useEffect(() => { stepIdxRef.current = stepIdx; }, [stepIdx]);
-  useEffect(() => { voiceModeRef.current = voiceMode; }, [voiceMode]);
-  const inIframe = isInIframe();
-  const sttSupported = supportsSTT();
-
-  const handleTranscript = useCallback((text) => {
-    const raw = (text || '').trim();
-    if (!raw) return;
-    if (!voiceModeRef.current) return;
-    const idx = stepIdxRef.current;
-    const step = VOICE_STEPS[idx];
-    if (!step) return;
-    if (VOICE_SKIP_RE.test(raw)) {
-      chime(660);
-    } else if (/\b(cancel|stop voice|exit voice)\b/i.test(raw)) {
-      pauseVoice();
-      return;
-    } else {
-      step.apply(raw, setField);
-      chime(1320);
-    }
-    advanceVoice(idx + 1);
-  }, [setField]);
-
-  const ptt = usePushToTalk({ onTranscript: handleTranscript, silenceMs: 1300 });
-  const startStep = useCallback((idx) => {
-    if (idx >= VOICE_STEPS.length) {
-      setVoiceMode(false);
-      chime(1320);
-      toast.success('Voice fill complete. Review fields and create.');
-      return;
-    }
-    const step = VOICE_STEPS[idx];
-    setStepIdx(idx);
-    speak(step.prompt, () => {
-      if (!voiceModeRef.current) return;
-      chime(880); ptt.start();
-    });
-  }, [ptt]);
-  const advanceVoice = useCallback((idx) => {
-    setTimeout(() => { if (voiceModeRef.current) startStep(idx); }, 350);
-  }, [startStep]);
-  const pauseVoice = useCallback(() => {
-    setVoiceMode(false);
-    try { window.speechSynthesis.cancel(); } catch {}
-    try { ptt.cancel(); } catch {}
-  }, [ptt]);
-  const startVoiceFlow = useCallback(() => {
-    if (inIframe) { toast.error('Mic blocked in preview iframe.'); return; }
-    if (!sttSupported) { toast.error('Voice not supported on this browser.'); return; }
-    try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0.01; window.speechSynthesis.speak(u); } catch {}
-    setVoiceUnlocked(true); setVoiceMode(true);
-    setTimeout(() => startStep(0), 200);
-  }, [inIframe, sttSupported, startStep]);
-
-  useEffect(() => {
-    if (autoStartVoice && !voiceUnlocked) {
-      const t = setTimeout(() => startVoiceFlow(), 400);
-      return () => clearTimeout(t);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStartVoice]);
-
-  useEffect(() => () => {
-    try { window.speechSynthesis.cancel(); } catch {}
-    try { ptt.cancel(); } catch {}
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // VOICE: One Co-Pilot in charge. The inline Voice Fill bar that lived
+  // here was confusing — drivers had three different mic surfaces fighting
+  // each other (this bar, the GlobalCopilotFAB, and the wake-word listener).
+  // It's gone. Co-Pilot (the floating mic, "Hey Co-Pilot...") is the ONLY
+  // voice surface now. Mike's rule: one Co-Pilot, no extras.
 
   // ─── Submit (Done button) ──────────────────────────────────────────
   const submit = async (e) => {
@@ -394,9 +282,6 @@ export default function WreckerJobNew() {
     if (!form.customer_name) { toast.error('Customer name is required'); return; }
     if (!form.pickup_address) { toast.error('Pickup address is required'); return; }
     setSaving(true);
-    try { window.speechSynthesis.cancel(); } catch {}
-    try { ptt.cancel(); } catch {}
-    setVoiceMode(false);
 
     try {
       const club = clubs.find((c) => c.id === form.motor_club_id);
@@ -500,38 +385,6 @@ export default function WreckerJobNew() {
       </div>
 
       <div className="p-4 lg:p-6 max-w-3xl mx-auto space-y-4">
-        {/* Voice Fill bar */}
-        <div className={`rounded-xl border p-3 flex items-center gap-3 transition ${
-          voiceMode ? 'bg-emerald-500/10 border-emerald-500/40' : 'bg-slate-900/60 border-slate-800'
-        }`}>
-          <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
-            voiceMode ? 'bg-emerald-500/30 text-emerald-200' : 'bg-slate-800 text-slate-400'
-          }`}>
-            {ptt.recording ? <Mic className="w-4 h-4 animate-pulse" />
-              : voiceMode ? <Volume2 className="w-4 h-4" />
-              : <Sparkles className="w-4 h-4" />}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-white leading-tight">
-              {voiceMode
-                ? (ptt.recording ? 'Listening — speak now' : VOICE_STEPS[stepIdx]?.prompt || 'Co-Pilot speaking…')
-                : 'Hands-Free Voice Fill'}
-            </div>
-            <div className="text-[11px] text-slate-400 truncate">
-              {voiceMode ? `Step ${Math.min(stepIdx + 1, VOICE_STEPS.length)} of ${VOICE_STEPS.length}` : 'Quickly populate the core fields by voice'}
-            </div>
-          </div>
-          <Button
-            type="button"
-            onClick={voiceMode ? pauseVoice : startVoiceFlow}
-            disabled={inIframe || !sttSupported}
-            className={voiceMode ? 'bg-amber-500 text-slate-950 hover:bg-amber-400' : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold'}
-            size="sm"
-          >
-            {voiceMode ? <><Pause className="w-3.5 h-3.5 mr-1" /> Pause</> : <><Mic className="w-3.5 h-3.5 mr-1" /> Voice</>}
-          </Button>
-        </div>
-
         {/* ──── 1. CUSTOMER ──── (always required up top) */}
         <Section title="Customer" testid="section-customer">
           <div className="grid md:grid-cols-2 gap-4">

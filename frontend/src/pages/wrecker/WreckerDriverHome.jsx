@@ -85,11 +85,6 @@ export default function WreckerDriverHome() {
           <Button data-testid="driver-refresh" variant="outline" size="sm" onClick={load} className="border-white/10 text-slate-300">
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
           </Button>
-          <Link to="/wrecker/voice">
-            <Button data-testid="driver-voice-cta" size="sm" className="bg-sky-500 text-black hover:bg-sky-400">
-              <Mic className="w-4 h-4 mr-1" /> Hands-Free
-            </Button>
-          </Link>
         </div>
       </header>
 
