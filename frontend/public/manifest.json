@@ -2,7 +2,7 @@
   "name": "RoadBoss — Wreckerlogix",
   "short_name": "RoadBoss",
   "description": "Voice-first command center for professional truck drivers.",
-  "start_url": "/driver",
+  "start_url": "/login",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

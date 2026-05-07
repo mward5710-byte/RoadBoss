@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { auth, setSession } from '@/lib/api';
+import { auth, setSession, getUser } from '@/lib/api';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Truck, Zap, ChevronDown } from 'lucide-react';
@@ -36,6 +36,22 @@ export default function Login() {
   React.useEffect(() => {
     const ge = params.get('google_error');
     if (ge) toast.error(`Google sign-in: ${ge}`);
+    // Auto-redirect already-authenticated users to their landing page so the
+    // PWA home-screen icon (start_url=/login) drops them right into work
+    // instead of forcing them through the login form again every cold start.
+    const me = getUser();
+    if (me && !ge) {
+      const skip = params.get('force') === '1';
+      if (!skip) {
+        const role = me.role;
+        const dest = role === 'driver' ? '/driver'
+          : role === 'wrecker_operator' ? '/wrecker/me'
+          : ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin'].includes(role) ? '/wrecker'
+          : role === 'super_admin' ? '/super'
+          : '/app';
+        navigate(dest, { replace: true });
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

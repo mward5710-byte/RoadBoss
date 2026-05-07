@@ -161,6 +161,61 @@ export default function SuperAdmin() {
               <ChevronRight className="w-6 h-6 text-purple-300 group-hover:translate-x-1 transition-transform shrink-0" />
             </div>
           </button>
+
+          {/* Mike asked for these — the "what hat am I wearing" picker */}
+          <button
+            onClick={() => navigate('/driver')}
+            data-testid="super-shortcut-driver"
+            className="group relative overflow-hidden rounded-2xl border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-500/15 via-emerald-600/10 to-emerald-900/10 p-5 sm:p-6 text-left transition-all hover:border-emerald-400/70 hover:from-emerald-500/25 active:scale-[0.98]"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 shrink-0 rounded-xl bg-emerald-500/25 border border-emerald-400/40 flex items-center justify-center">
+                <Truck className="w-7 h-7 text-emerald-300" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] uppercase tracking-[0.3em] text-emerald-300/80 font-bold">Open</div>
+                <div className="text-xl sm:text-2xl font-black text-white leading-tight">Driver / Cab</div>
+                <div className="text-xs text-emerald-200/80 mt-0.5">DVIR · trips · HOS · voice</div>
+              </div>
+              <ChevronRight className="w-6 h-6 text-emerald-300 group-hover:translate-x-1 transition-transform shrink-0" />
+            </div>
+          </button>
+
+          <button
+            onClick={() => navigate('/wrecker/billing')}
+            data-testid="super-shortcut-accounting"
+            className="group relative overflow-hidden rounded-2xl border-2 border-cyan-500/40 bg-gradient-to-br from-cyan-500/15 via-cyan-600/10 to-cyan-900/10 p-5 sm:p-6 text-left transition-all hover:border-cyan-400/70 hover:from-cyan-500/25 active:scale-[0.98]"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 shrink-0 rounded-xl bg-cyan-500/25 border border-cyan-400/40 flex items-center justify-center">
+                <Briefcase className="w-7 h-7 text-cyan-300" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] uppercase tracking-[0.3em] text-cyan-300/80 font-bold">Open</div>
+                <div className="text-xl sm:text-2xl font-black text-white leading-tight">Accounting</div>
+                <div className="text-xs text-cyan-200/80 mt-0.5">Invoices · revenue · Square</div>
+              </div>
+              <ChevronRight className="w-6 h-6 text-cyan-300 group-hover:translate-x-1 transition-transform shrink-0" />
+            </div>
+          </button>
+
+          <button
+            onClick={() => navigate('/wrecker/settings')}
+            data-testid="super-shortcut-settings"
+            className="group relative overflow-hidden rounded-2xl border-2 border-slate-500/40 bg-gradient-to-br from-slate-500/15 via-slate-600/10 to-slate-900/10 p-5 sm:p-6 text-left transition-all hover:border-slate-400/70 hover:from-slate-500/25 active:scale-[0.98]"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 shrink-0 rounded-xl bg-slate-500/25 border border-slate-400/40 flex items-center justify-center">
+                <ShieldCheck className="w-7 h-7 text-slate-300" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] uppercase tracking-[0.3em] text-slate-300/80 font-bold">Open</div>
+                <div className="text-xl sm:text-2xl font-black text-white leading-tight">Settings</div>
+                <div className="text-xs text-slate-300/80 mt-0.5">Business profile · integrations · nav app</div>
+              </div>
+              <ChevronRight className="w-6 h-6 text-slate-300 group-hover:translate-x-1 transition-transform shrink-0" />
+            </div>
+          </button>
         </div>
 
         <MobileTabBar navigate={navigate} />

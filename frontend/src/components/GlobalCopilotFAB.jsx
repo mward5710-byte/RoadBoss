@@ -186,6 +186,14 @@ export default function GlobalCopilotFAB() {
   // ALL hooks above this line. Now we can safely bail on hidden routes.
   if (hidden) return null;
 
+  // Lift the orb up over the bottom nav on driver/wrecker pages (those layouts
+  // pin a 4-tab bottom bar at h-20). Everywhere else (super-admin console,
+  // marketing, etc.) it sits in the natural bottom-right corner. iOS safe-area
+  // is already accounted for by the parent layouts.
+  const hasBottomNav = location.pathname.startsWith('/driver') || location.pathname.startsWith('/wrecker');
+  const fabPositionCls = hasBottomNav ? 'bottom-24 right-4 sm:bottom-24 sm:right-5' : 'bottom-4 right-4 sm:bottom-5 sm:right-5';
+  const popoverBottomCls = hasBottomNav ? 'bottom-44 right-3 sm:bottom-44 sm:right-5' : 'bottom-[88px] right-3 sm:right-5';
+
   const handleOrbTap = () => {
     if (!unlocked) {
       // iOS audio gesture unlock + speechSynthesis prime
@@ -235,7 +243,7 @@ export default function GlobalCopilotFAB() {
   return (
     <>
       {/* Orb (always present) */}
-      <div className="fixed bottom-4 right-4 sm:bottom-5 sm:right-5 z-[2147483500]" data-testid="global-copilot-fab-wrapper">
+      <div className={`fixed ${fabPositionCls} z-[2147483500]`} data-testid="global-copilot-fab-wrapper">
         <button
           onClick={handleOrbTap}
           className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 shadow-xl shadow-black/40 flex items-center justify-center transition-all active:scale-95 ${orbCls}`}
@@ -264,7 +272,7 @@ export default function GlobalCopilotFAB() {
       {/* Popover panel — appears on demand or when wake word fires */}
       {open && (
         <div
-          className="fixed bottom-[88px] right-3 sm:right-5 z-[2147483501] w-[300px] sm:w-[340px] rounded-2xl bg-slate-950/97 border border-slate-800 backdrop-blur shadow-2xl shadow-black/50"
+          className={`fixed ${popoverBottomCls} z-[2147483501] w-[300px] sm:w-[340px] rounded-2xl bg-slate-950/97 border border-slate-800 backdrop-blur shadow-2xl shadow-black/50`}
           data-testid="global-copilot-popover"
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800">
