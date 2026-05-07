@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import DriversPanel from './DriversPanel';
+import QuickAddDriverForm from './QuickAddDriverForm';
 import { navUrl, NAV_APPS, getNavApp, setNavApp } from '@/lib/navPref';
 
 // Haversine distance between two lat/lng pairs, in miles. Returns null if any coord is missing.
@@ -190,6 +191,12 @@ export default function WreckerDashboard() {
   // Pick-Driver sheet — opens directly when dispatcher taps "Pick Driver"
   // on any pending job. No more "select first, then click panel" guesswork.
   const [assignSheetOpen, setAssignSheetOpen] = useState(false);
+  // When dispatcher taps "+ Quick Add" inside the Pick Driver dialog, we
+  // expand a small inline form right above the rotation list. Submit →
+  // bump driversRefreshKey so DriversPanel refetches and the new driver
+  // shows up instantly, ready to assign.
+  const [inlineQuickAddOpen, setInlineQuickAddOpen] = useState(false);
+  const [driversRefreshKey, setDriversRefreshKey] = useState(0);
   // Quick Add Driver dialog (top-right "Add Driver" button)
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [qaForm, setQaForm] = useState({ name: '', truck_number: '', phone: '', email: '' });
@@ -234,6 +241,9 @@ export default function WreckerDashboard() {
       toast.success(`${drv?.name || 'Driver'} added to rotation${drv?.truck_number ? ' (Truck #' + drv.truck_number + ')' : ''}`);
       setQuickAddOpen(false);
       setQaForm({ name: '', truck_number: '', phone: '', email: '' });
+      // Bump DriversPanel refresh so the new driver appears immediately
+      // in the side-rail rotation without a full page reload.
+      setDriversRefreshKey((k) => k + 1);
       load(); // refresh dispatch board so new driver appears immediately
     } catch (err) {
       toast.error(err?.response?.data?.detail || 'Could not add driver.');
@@ -475,13 +485,14 @@ export default function WreckerDashboard() {
               const j = jobs.find((x) => x.id === selectedJobId);
               return j?.pickup ? { lat: j.pickup.lat, lng: j.pickup.lng } : null;
             })()}
+            refreshKey={driversRefreshKey}
           />
         </div>
       </div>
 
       {/* Pick Driver dialog — opens when dispatcher taps "Pick Driver" on a card.
           Tapping a driver inside fires onAssign which closes the sheet. */}
-      <Dialog open={assignSheetOpen} onOpenChange={(v) => { if (!v) { setAssignSheetOpen(false); setSelectedJobId(null); } }}>
+      <Dialog open={assignSheetOpen} onOpenChange={(v) => { if (!v) { setAssignSheetOpen(false); setSelectedJobId(null); setInlineQuickAddOpen(false); } }}>
         <DialogContent className="bg-[#0a0e14] border-white/10 text-white max-w-lg max-h-[85vh] overflow-y-auto" data-testid="pick-driver-dialog">
           <DialogHeader>
             <DialogTitle className="text-white flex items-center gap-2">
@@ -500,6 +511,39 @@ export default function WreckerDashboard() {
               })()}
             </DialogDescription>
           </DialogHeader>
+
+          {/* Inline Quick Add — Mike's "stay on the board" rule. Driver
+              missing from the rotation? Tap "+ Quick Add", fill name,
+              submit, and they appear in the list below — ready to assign. */}
+          <div className="mt-3 space-y-2">
+            {!inlineQuickAddOpen ? (
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-dashed border-sky-500/30 bg-sky-500/[0.03] px-3 py-2">
+                <div className="text-xs text-slate-400">
+                  Driver not in the list?
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setInlineQuickAddOpen(true)}
+                  data-testid="open-inline-quick-add"
+                  className="border-sky-500/40 text-sky-300 hover:bg-sky-500/10 hover:text-sky-200 h-8"
+                >
+                  <UserPlus className="w-4 h-4 mr-1" /> Quick Add
+                </Button>
+              </div>
+            ) : (
+              <QuickAddDriverForm
+                onAdded={() => {
+                  setInlineQuickAddOpen(false);
+                  setDriversRefreshKey((k) => k + 1);
+                }}
+                onCancel={() => setInlineQuickAddOpen(false)}
+                submitLabel="Add & Show in List"
+              />
+            )}
+          </div>
+
           <div className="mt-2">
             <DriversPanel
               onAssign={onAssigned}
@@ -508,6 +552,7 @@ export default function WreckerDashboard() {
                 const j = jobs.find((x) => x.id === selectedJobId);
                 return j?.pickup ? { lat: j.pickup.lat, lng: j.pickup.lng } : null;
               })()}
+              refreshKey={driversRefreshKey}
             />
           </div>
         </DialogContent>

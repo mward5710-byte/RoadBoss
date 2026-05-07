@@ -55,7 +55,7 @@ const MODE_ICONS = { [MODE_AUTO]: Wand2, [MODE_DAY]: Sun, [MODE_NIGHT]: Moon };
  *  - After-hours: rotation rank (1st-call, 2nd-call...) — busy drivers bumped to bottom,
  *    so the highest-rank AVAILABLE driver always gets the next call. Once they free up, they're back on top.
  */
-export default function DriversPanel({ onAssign, selectedJobId, selectedJobPickup }) {
+export default function DriversPanel({ onAssign, selectedJobId, selectedJobPickup, refreshKey = 0 }) {
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [businessHours, setBusinessHours] = useState(null);
@@ -84,7 +84,9 @@ export default function DriversPanel({ onAssign, selectedJobId, selectedJobPicku
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // Re-fetch whenever the parent bumps refreshKey (e.g. after Quick Add Driver
+  // fires inside the Pick Driver dialog so the new driver appears instantly).
+  useEffect(() => { load(); }, [load, refreshKey]);
 
   const toggleDuty = async (d, on_duty) => {
     try {

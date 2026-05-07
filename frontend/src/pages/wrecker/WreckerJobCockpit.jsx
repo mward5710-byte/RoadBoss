@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { openCameraAsDataUrl } from '@/lib/photoCapture';
 import { NAV_APPS, getNavApp, setNavApp, navUrl } from '@/lib/navPref';
 import SquareCardCharge from '@/components/SquareCardCharge';
+import QuickAddDriverForm from './QuickAddDriverForm';
 
 // 7-stage Towbook-style flow + colors
 const STATUS_FLOW = ['pending', 'assigned', 'en_route', 'on_scene', 'towing', 'dest_arrival', 'completed'];
@@ -108,6 +109,10 @@ export default function WreckerJobCockpit() {
   const [rateSheet, setRateSheet] = useState([]);
   const [loading, setLoading] = useState(true);
   const [reassignTo, setReassignTo] = useState('');
+  // Inline Quick-Add Driver toggle inside the Driver Assignment card.
+  // Mike's rule: don't make dispatch hop pages — add the missing driver
+  // RIGHT HERE, then dispatch in the same screen.
+  const [inlineQuickAddOpen, setInlineQuickAddOpen] = useState(false);
   const [photoStage, setPhotoStage] = useState('all');
   const [captureStage, setCaptureStage] = useState('on_scene');
   const [busy, setBusy] = useState(false);
@@ -162,9 +167,13 @@ export default function WreckerJobCockpit() {
   const handleAssign = async () => {
     if (!reassignTo) { toast.error('Pick a driver first'); return; }
     try {
-      await api.post(`/wrecker/jobs/${id}/assign`, { driver_id: reassignTo });
-      toast.success('Driver assigned');
+      const r = await api.post(`/wrecker/jobs/${id}/assign`, { driver_id: reassignTo });
+      const drvName = drivers.find((d) => d.id === reassignTo)?.name || 'driver';
+      toast.success(`Dispatched to ${drvName} — timeline updated`);
       setReassignTo('');
+      // Optimistic patch so the assignment + new status flips instantly.
+      if (r?.data) setJob(r.data);
+      // Pull a fresh copy so the status_history reflects every server entry.
       load();
     } catch (e) { toast.error(e?.response?.data?.detail || 'Assign failed'); }
   };
@@ -635,25 +644,66 @@ export default function WreckerJobCockpit() {
                 <div className="text-sm text-slate-400 mb-3">Unassigned. Pick a driver from rotation:</div>
               )}
               {(canReassign || !job.assigned_driver_id) && job.status !== 'completed' && job.status !== 'cancelled' ? (
-                <div className="flex items-end gap-2">
-                  <div className="flex-1">
-                    <Select value={reassignTo} onValueChange={setReassignTo}>
-                      <SelectTrigger data-testid="reassign-select" className="bg-[#07090d] border-white/10 text-white">
-                        <SelectValue placeholder="Select driver..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {drivers.map((d) => (
-                          <SelectItem key={d.id} value={d.id}>
-                            {d.name} {d.next_in_rotation ? '👑 NEXT UP' : ''} {!d.on_duty ? '(off duty)' : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                <>
+                  <div className="flex items-end gap-2 flex-wrap sm:flex-nowrap">
+                    <div className="flex-1 min-w-[140px]">
+                      <Select value={reassignTo} onValueChange={setReassignTo}>
+                        <SelectTrigger data-testid="reassign-select" className="bg-[#07090d] border-white/10 text-white">
+                          <SelectValue placeholder="Select driver..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {drivers.map((d) => (
+                            <SelectItem key={d.id} value={d.id}>
+                              {d.name} {d.next_in_rotation ? '👑 NEXT UP' : ''} {!d.on_duty ? '(off duty)' : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {/* Inline Quick-Add — driver missing from the list?
+                        One tap and add them right here, no page-jump. */}
+                    <Button
+                      type="button"
+                      data-testid="cockpit-open-quick-add"
+                      variant="outline"
+                      onClick={() => setInlineQuickAddOpen((v) => !v)}
+                      className={`border-sky-500/40 hover:bg-sky-500/10 hover:text-sky-200 ${inlineQuickAddOpen ? 'bg-sky-500/15 text-sky-200' : 'text-sky-300'}`}
+                      title="Add a new driver without leaving this screen"
+                    >
+                      <UserPlus className="w-4 h-4 mr-1" /> {inlineQuickAddOpen ? 'Cancel Add' : 'Quick Add'}
+                    </Button>
+                    <Button data-testid="confirm-assign" onClick={handleAssign} disabled={!reassignTo || reassignTo === job.assigned_driver_id} className="bg-amber-500 text-black hover:bg-amber-400">
+                      {job.assigned_driver_id ? 'Reassign' : 'Assign'}
+                    </Button>
                   </div>
-                  <Button data-testid="confirm-assign" onClick={handleAssign} disabled={!reassignTo || reassignTo === job.assigned_driver_id} className="bg-amber-500 text-black hover:bg-amber-400">
-                    {job.assigned_driver_id ? 'Reassign' : 'Assign'}
-                  </Button>
-                </div>
+
+                  {/* Inline Quick Add Driver form — slides in below the
+                      dropdown row. On submit: appends the new driver to
+                      local state, auto-selects them in the dropdown so
+                      the dispatcher can hit Assign immediately. */}
+                  {inlineQuickAddOpen && (
+                    <div className="mt-3" data-testid="cockpit-inline-quick-add">
+                      <QuickAddDriverForm
+                        onAdded={(drv) => {
+                          if (drv?.id) {
+                            // Prepend so they show at the top of the list
+                            setDrivers((prev) => {
+                              const exists = prev.some((p) => p.id === drv.id);
+                              return exists ? prev : [drv, ...prev];
+                            });
+                            setReassignTo(drv.id);
+                          }
+                          setInlineQuickAddOpen(false);
+                          // Pull a fresh roster too — picks up rotation rank
+                          // calculations from the server.
+                          load();
+                        }}
+                        onCancel={() => setInlineQuickAddOpen(false)}
+                        submitLabel="Add & Auto-Select"
+                      />
+                    </div>
+                  )}
+                </>
               ) : null}
             </Card>
           )}
@@ -1250,15 +1300,29 @@ function Field({ label, value, icon, mono, full }) {
 function LocationRow({ label, address, lat, lng, icon }) {
   if (!address) return null;
   const mapsUrl = navUrl(address, lat, lng);
+  const navAppLabel = NAV_APPS.find((n) => n.key === getNavApp())?.label || 'Maps';
+  const slug = label.toLowerCase().replace(/\s+/g, '-');
+  // Per Mike: each address gets its OWN "Navigate" pill RIGHT next to it —
+  // no more grouped nav buttons at the bottom. Tap the pill, route launches
+  // for THAT specific destination.
   return (
     <div className="flex items-start gap-3">
       <div className="shrink-0 mt-0.5">{icon}</div>
       <div className="flex-1 min-w-0">
         <div className="text-[10px] uppercase tracking-wider text-slate-500">{label}</div>
-        <div className="text-sm text-white">{address}</div>
+        <div className="text-sm text-white break-words">{address}</div>
       </div>
-      <a href={mapsUrl} target="_blank" rel="noreferrer" data-testid={`directions-${label.toLowerCase().replace(/\s+/g, '-')}`} className="shrink-0 text-sky-300 hover:text-sky-200 p-1 hover:bg-sky-500/10 rounded transition" title={`Open in ${NAV_APPS.find((n) => n.key === getNavApp())?.label || 'Maps'}`}>
-        <ExternalLink className="w-4 h-4" />
+      <a
+        href={mapsUrl}
+        target="_blank"
+        rel="noreferrer"
+        data-testid={`nav-${slug}`}
+        onClick={(e) => e.stopPropagation()}
+        className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-sky-500/15 border border-sky-500/40 text-sky-200 hover:bg-sky-500/25 hover:text-white hover:border-sky-400/60 active:bg-sky-500/30 transition text-[11px] font-bold uppercase tracking-wider"
+        title={`Open in ${navAppLabel}`}
+        aria-label={`Navigate to ${label}`}
+      >
+        <Navigation className="w-3.5 h-3.5" /> Navigate
       </a>
     </div>
   );

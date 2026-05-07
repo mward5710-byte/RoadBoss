@@ -1,22 +1,30 @@
 [
   {
-    "content": "Backend: Add /api/copilot/wizard/parse-field endpoint (regex-first, LLM fallback)",
+    "content": "Upgrade Cockpit LocationRow to a prominent 'Navigate' pill button inline next to each address (Pickup + Drop Off)",
     "status": "completed"
   },
   {
-    "content": "Backend: Add /api/copilot/wizard/create-job endpoint (zero LLM, direct insert)",
+    "content": "Fix Cockpit handleAssign — call load() after success so timeline + driver assignment refresh immediately",
     "status": "completed"
   },
   {
-    "content": "Frontend: Build /wrecker/voice-job-wizard page with state machine",
+    "content": "Add inline Drop-Off address + Navigate button on Driver Home current call card (currently only pickup is shown)",
     "status": "completed"
   },
   {
-    "content": "Frontend: Wire GlobalCopilotFAB to launch wizard on 'new tow job' (no LLM)",
+    "content": "Create reusable QuickAddDriverForm.jsx (inline form, no nested dialog)",
     "status": "completed"
   },
   {
-    "content": "Test the full hands-free flow end-to-end with curl + manual",
+    "content": "Embed QuickAddDriverForm inside Pick Driver dialog on Dispatch Board (collapsible) + refresh DriversPanel on add",
     "status": "completed"
+  },
+  {
+    "content": "Add 'Quick Add' button next to Select Driver dropdown in Cockpit Driver Assignment + auto-select new driver",
+    "status": "completed"
+  },
+  {
+    "content": "Lint + build check + take screenshots + run backend testing for the assign + quick-add flow",
+    "status": "in_progress"
   }
 ]

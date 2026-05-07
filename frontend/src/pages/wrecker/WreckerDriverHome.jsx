@@ -146,6 +146,25 @@ export default function WreckerDriverHome() {
             )}
           </div>
 
+          {/* Drop-off address with its OWN Navigate button — Mike: each
+              destination gets its own one-tap nav, no scrolling. */}
+          {current.dropoff?.address && (
+            <div className="mt-2 flex items-start gap-2 text-sm text-slate-300">
+              <Truck className="w-4 h-4 text-emerald-300 mt-0.5 shrink-0" />
+              <div className="flex-1">{current.dropoff.address}</div>
+              <a
+                href={navUrl(current.dropoff.address, current.dropoff.lat, current.dropoff.lng)}
+                target="_blank"
+                rel="noreferrer"
+                data-testid="navigate-to-dropoff"
+                className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200 transition text-xs font-semibold"
+                title={`Open in ${NAV_APPS.find((n) => n.key === getNavApp())?.label || 'Maps'}`}
+              >
+                <Navigation className="w-3.5 h-3.5" /> Navigate
+              </a>
+            </div>
+          )}
+
           {current.notes && (
             <div className="mt-3 p-3 rounded-lg bg-black/30 border border-white/5 text-sm text-slate-300 leading-relaxed">
               <span className="text-[10px] uppercase tracking-wider text-slate-500 block mb-1">Dispatch Notes</span>
