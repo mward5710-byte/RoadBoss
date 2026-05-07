@@ -1,30 +1,18 @@
 [
   {
-    "content": "Upgrade Cockpit LocationRow to a prominent 'Navigate' pill button inline next to each address (Pickup + Drop Off)",
+    "content": "Extend photoCapture.js with a library-picker mode (no `capture` attr) for camera roll uploads",
     "status": "completed"
   },
   {
-    "content": "Fix Cockpit handleAssign — call load() after success so timeline + driver assignment refresh immediately",
+    "content": "Rewrite Photos tab burst flow: explicit '+ Take Another / ✓ Done' prompt after each shot (no auto-reopen)",
     "status": "completed"
   },
   {
-    "content": "Add inline Drop-Off address + Navigate button on Driver Home current call card (currently only pickup is shown)",
+    "content": "Add 'Upload from Library' button next to 'Take Photo' on the Photos tab",
     "status": "completed"
   },
   {
-    "content": "Create reusable QuickAddDriverForm.jsx (inline form, no nested dialog)",
-    "status": "completed"
-  },
-  {
-    "content": "Embed QuickAddDriverForm inside Pick Driver dialog on Dispatch Board (collapsible) + refresh DriversPanel on add",
-    "status": "completed"
-  },
-  {
-    "content": "Add 'Quick Add' button next to Select Driver dropdown in Cockpit Driver Assignment + auto-select new driver",
-    "status": "completed"
-  },
-  {
-    "content": "Lint + build check + take screenshots + run backend testing for the assign + quick-add flow",
+    "content": "Verify with screenshots + lint check",
     "status": "completed"
   }
 ]

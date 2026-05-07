@@ -15,7 +15,7 @@ import {
   Paperclip, Download, Upload, File as FileIcon, Search, Navigation,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { openCameraAsDataUrl } from '@/lib/photoCapture';
+import { openCameraAsDataUrl, pickFromLibraryAsDataUrl } from '@/lib/photoCapture';
 import { NAV_APPS, getNavApp, setNavApp, navUrl } from '@/lib/navPref';
 import SquareCardCharge from '@/components/SquareCardCharge';
 import QuickAddDriverForm from './QuickAddDriverForm';
@@ -190,54 +190,93 @@ export default function WreckerJobCockpit() {
     finally { setBusy(false); }
   };
 
-  // BURST MODE — Mike's "stop kicking me out after every photo" fix.
+  // CAPTURE SESSION — Mike's "Done button BEFORE it exits" fix.
   //
-  // Driver hits "Take Photos" once → captures keep looping until they
-  // dismiss the camera (or hit Done). All photos upload in the background
-  // while we keep firing the camera back open, so the driver feels like
-  // they're holding a real camera, not fumbling through a form.
+  // We explicitly DO NOT auto-reopen the camera. After every shot the
+  // driver lands on a giant overlay with two buttons: [+ Take Another]
+  // and [✓ Done]. They consciously choose the next action — no more
+  // feeling trapped in a camera loop, no more accidentally exiting the
+  // session by hitting Cancel on the camera UI.
   //
-  // Each photo gets stage = current `captureStage` so drivers don't lose
-  // their tagging selection between shots.
-  const [burstMode, setBurstMode] = useState(false);
-  const [burstCount, setBurstCount] = useState(0);
-  const burstAbortRef = React.useRef(false);
+  // Same overlay drives library-picker uploads so the UX is identical
+  // whether the photo came from the camera or the camera roll.
+  const [burstMode, setBurstMode] = useState(false);          // true while a session is active
+  const [burstCount, setBurstCount] = useState(0);            // photos taken THIS session
+  const [promptOpen, setPromptOpen] = useState(false);        // big prompt overlay visible?
+  const [lastSource, setLastSource] = useState('camera');     // 'camera' | 'library'
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const stopBurst = useCallback(() => {
-    burstAbortRef.current = true;
     setBurstMode(false);
+    setPromptOpen(false);
+    setBurstCount(0);
     // Final reload so any in-flight uploads land in the UI
     load();
   }, [load]);
 
+  // Pull a photo from EITHER the camera or the camera roll, upload it,
+  // and then surface the post-photo prompt so the driver decides what
+  // happens next.
+  const runOneCapture = useCallback(async (source = 'camera') => {
+    const stage = captureStage;
+    let dataUrl = null;
+    try {
+      if (source === 'library') {
+        dataUrl = await pickFromLibraryAsDataUrl();
+      } else {
+        dataUrl = await openCameraAsDataUrl();
+      }
+    } catch { dataUrl = null; }
+    if (!dataUrl) {
+      // User cancelled — surface the prompt anyway so they can hit Done
+      // (or try again) without being kicked out of the capture session.
+      if (burstCount > 0) {
+        setLastSource(source);
+        setPromptOpen(true);
+      } else {
+        // Nothing captured yet, just exit the session quietly
+        setBurstMode(false);
+      }
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      await api.post(`/wrecker/jobs/${id}/photo`, { data_url: dataUrl, stage });
+      setBurstCount((n) => n + 1);
+      setLastSource(source);
+      setPromptOpen(true);
+    } catch {
+      toast.error('Photo upload failed — try again');
+      setLastSource(source);
+      setPromptOpen(true);
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }, [captureStage, id, burstCount]);
+
+  // Entry point — replaces the old auto-burst loop. Starts a session
+  // (so the burst banner shows), captures one shot, then shows the
+  // explicit prompt. Driver chooses + Take Another or ✓ Done.
   const startBurstCapture = useCallback(async () => {
-    if (burstMode) return;
-    burstAbortRef.current = false;
     setBurstMode(true);
     setBurstCount(0);
-    const stage = captureStage;
-    try {
-      // Loop: open camera → if we get a photo, upload it (don't await, keeps UI snappy)
-      // → reopen camera. If user dismisses (no dataUrl), stop.
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        if (burstAbortRef.current) break;
-        let dataUrl = null;
-        try {
-          dataUrl = await openCameraAsDataUrl();
-        } catch { dataUrl = null; }
-        if (!dataUrl) break; // user cancelled the camera = end the burst
-        // Upload in parallel — don't block the next shot
-        api.post(`/wrecker/jobs/${id}/photo`, { data_url: dataUrl, stage })
-          .then(() => setBurstCount((n) => n + 1))
-          .catch(() => toast.error('One photo failed to upload'));
-      }
-    } finally {
-      setBurstMode(false);
-      // Wait a tick for last in-flight upload, then refresh once
-      setTimeout(() => load(), 600);
-    }
-  }, [burstMode, captureStage, id, load]);
+    setPromptOpen(false);
+    await runOneCapture('camera');
+  }, [runOneCapture]);
+
+  // "+ Take Another" handler from the overlay.
+  const continueBurst = useCallback(async (source = lastSource) => {
+    setPromptOpen(false);
+    await runOneCapture(source);
+  }, [runOneCapture, lastSource]);
+
+  // Library picker — a SINGLE photo from the camera roll. Joins the same
+  // capture session so multiple library uploads show one count + prompt.
+  const startLibraryUpload = useCallback(async () => {
+    setBurstMode(true);
+    if (!promptOpen) setBurstCount(0); // fresh session if no overlay was up
+    await runOneCapture('library');
+  }, [runOneCapture, promptOpen]);
 
   const deletePhoto = async (photoId) => {
     if (!window.confirm('Delete this photo?')) return;
@@ -489,6 +528,65 @@ export default function WreckerJobCockpit() {
 
   return (
     <div className="p-6 lg:p-8 max-w-5xl space-y-6">
+      {/* CAPTURE PROMPT OVERLAY — Mike's "Done button before exit" rule.
+          After every photo lands, the driver sees this giant full-screen
+          prompt with two unmissable buttons: + Take Another / ✓ Done.
+          No auto-reopen, no surprise exits. They consciously pick. */}
+      {promptOpen && (
+        <div
+          data-testid="photo-prompt-overlay"
+          className="fixed inset-0 z-[1000] bg-slate-950/85 backdrop-blur-sm flex flex-col items-center justify-center p-6 animate-in fade-in duration-150"
+        >
+          <div className="w-full max-w-md bg-[#0a0e14] border border-emerald-500/40 rounded-2xl p-6 shadow-2xl shadow-emerald-500/10">
+            <div className="flex flex-col items-center text-center gap-2 mb-6">
+              <div className="w-14 h-14 rounded-full bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center">
+                <Check className="w-7 h-7 text-emerald-300" />
+              </div>
+              <div className="text-2xl font-bold text-white">Photo Saved!</div>
+              <div className="text-sm text-slate-400">
+                <span className="font-bold text-emerald-300">{burstCount}</span>
+                {' '}{burstCount === 1 ? 'photo' : 'photos'} captured this session ·
+                {' '}<span className="text-amber-300">{PHOTO_STAGES.find((s) => s.key === captureStage)?.label || captureStage}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3">
+              <Button
+                data-testid="prompt-take-another"
+                onClick={() => continueBurst('camera')}
+                disabled={uploadingPhoto}
+                className="h-14 bg-amber-500 text-black hover:bg-amber-400 font-bold text-base"
+              >
+                <Camera className="w-5 h-5 mr-2" /> Take Another Photo
+              </Button>
+              <Button
+                data-testid="prompt-from-library"
+                onClick={() => continueBurst('library')}
+                disabled={uploadingPhoto}
+                variant="outline"
+                className="h-12 border-sky-500/40 text-sky-200 hover:bg-sky-500/15 hover:text-white font-semibold"
+              >
+                <Upload className="w-4 h-4 mr-2" /> Add from Library
+              </Button>
+              <Button
+                data-testid="prompt-done"
+                onClick={stopBurst}
+                disabled={uploadingPhoto}
+                className="h-14 bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-bold text-base"
+              >
+                <Check className="w-5 h-5 mr-2" /> Done — Save & Exit
+              </Button>
+            </div>
+
+            {uploadingPhoto && (
+              <div className="mt-4 text-center text-xs text-slate-400">
+                Uploading last photo…
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Sticky-ish header */}
       <header className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0">
@@ -724,12 +822,13 @@ export default function WreckerJobCockpit() {
             <div>
               <div className="text-xs uppercase tracking-wider text-slate-400">Photos & Videos</div>
               <div className="text-xs text-slate-500 mt-0.5">
-                Tag the stage, then tap <span className="text-amber-300 font-semibold">Take Photos</span> to start capturing.
-                Camera reopens after each shot — hit cancel/done when finished.
+                Tag the stage, then tap <span className="text-amber-300 font-semibold">Take Photo</span> or
+                <span className="text-sky-300 font-semibold"> Upload from Library</span>. After each shot you'll
+                see a <span className="text-emerald-300 font-semibold">DONE</span> button — no surprise exits.
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Select value={captureStage} onValueChange={setCaptureStage} disabled={burstMode}>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Select value={captureStage} onValueChange={setCaptureStage} disabled={burstMode || uploadingPhoto}>
                 <SelectTrigger className="bg-[#07090d] border-white/10 text-white w-36 h-9 text-xs">
                   <SelectValue />
                 </SelectTrigger>
@@ -737,11 +836,22 @@ export default function WreckerJobCockpit() {
                   {PHOTO_STAGES.map((s) => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}
                 </SelectContent>
               </Select>
+              {/* Camera roll / library picker — clearly the SECOND option. */}
+              <Button
+                data-testid="upload-from-library"
+                onClick={startLibraryUpload}
+                disabled={uploadingPhoto || busy}
+                variant="outline"
+                className="border-sky-500/40 text-sky-200 hover:bg-sky-500/15 hover:text-white font-semibold"
+                title="Pick a photo or video from your camera roll"
+              >
+                <Upload className="w-4 h-4 mr-1" /> Upload from Library
+              </Button>
               {burstMode ? (
                 <Button
                   data-testid="capture-stop"
                   onClick={stopBurst}
-                  className="bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold animate-pulse"
+                  className="bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-bold animate-pulse h-10 px-4"
                 >
                   <Check className="w-4 h-4 mr-1" /> Done · {burstCount}
                 </Button>
@@ -749,19 +859,30 @@ export default function WreckerJobCockpit() {
                 <Button
                   data-testid="capture-photo"
                   onClick={startBurstCapture}
-                  disabled={busy}
-                  className="bg-amber-500 text-black hover:bg-amber-400 font-semibold"
+                  disabled={busy || uploadingPhoto}
+                  className="bg-amber-500 text-black hover:bg-amber-400 font-bold"
                 >
-                  <Camera className="w-4 h-4 mr-1" /> Take Photos
+                  <Camera className="w-4 h-4 mr-1" /> Take Photo
                 </Button>
               )}
             </div>
           </div>
 
           {burstMode && (
-            <div className="rounded-lg p-2.5 bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200 flex items-center gap-2" data-testid="burst-status">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Capture mode ON — camera reopens after each shot. {burstCount} {burstCount === 1 ? 'photo' : 'photos'} saved. Tap <span className="font-semibold">Done</span> when finished.
+            <div className="rounded-lg p-3 bg-emerald-500/10 border border-emerald-500/30 text-sm text-emerald-200 flex items-center gap-2" data-testid="burst-status">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+              <span className="flex-1">
+                Capture session active — <span className="font-bold">{burstCount}</span> {burstCount === 1 ? 'photo' : 'photos'} saved.
+                Hit <span className="font-bold text-white">Done</span> when finished.
+              </span>
+              <Button
+                size="sm"
+                data-testid="capture-stop-banner"
+                onClick={stopBurst}
+                className="h-8 bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-bold shrink-0"
+              >
+                <Check className="w-4 h-4 mr-1" /> Done
+              </Button>
             </div>
           )}
 

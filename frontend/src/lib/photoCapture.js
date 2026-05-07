@@ -43,6 +43,9 @@ export async function fileToCompressedDataUrl(file) {
 /**
  * Open native camera (or file picker on desktop) and return a compressed data URL.
  * Returns null if the user cancels.
+ *
+ * Pass `capture: null` to disable the native camera prompt and force the
+ * file picker / camera roll instead.
  */
 export function openCameraAsDataUrl({ accept = 'image/*', capture = 'environment' } = {}) {
   return new Promise((resolve) => {
@@ -63,7 +66,7 @@ export function openCameraAsDataUrl({ accept = 'image/*', capture = 'environment
         resolved = true;
         resolve(null);
       } finally {
-        document.body.removeChild(input);
+        try { document.body.removeChild(input); } catch (_) { /* already gone */ }
       }
     };
     document.body.appendChild(input);
@@ -71,4 +74,15 @@ export function openCameraAsDataUrl({ accept = 'image/*', capture = 'environment
     // Safety: if user cancels, the dialog never fires onchange. We can't reliably detect that.
     // Caller should treat unresolved as "user closed".
   });
+}
+
+/**
+ * Open the device's photo library / camera roll (NOT the camera).
+ * On mobile this skips the "Take Photo or Choose Photo" prompt and goes
+ * straight to the picker. On desktop this opens the standard file dialog.
+ *
+ * Returns a compressed JPEG data URL, or null if the user cancels.
+ */
+export function pickFromLibraryAsDataUrl({ accept = 'image/*' } = {}) {
+  return openCameraAsDataUrl({ accept, capture: null });
 }
