@@ -1820,13 +1820,22 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
 
     @router.post('/jobs/{job_id}/charges')
     async def add_charge(job_id: str, body: ChargeIn, user=Depends(require_wrecker)):
-        # Drivers can add charges to their own jobs (they need to log mileage on scene).
+        # PRICING POLICY:
+        #   • Dispatch sets the initial quote.
+        #   • Drivers can add ON-SCENE adjustments (winch, wait time, CC fee,
+        #     extractions, etc.) — line items only, never edits to existing.
+        #   • Every charge is stamped with origin so audit trail stays clean
+        #     and dispatch can see which fees came from the field.
         existing = await _get_job_for_driver(job_id, user)
+        is_driver = _is_driver(user)
         line = body.model_dump()
         line['id'] = _new_id()
         line['subtotal'] = round(line['rate'] * line['qty'], 2)
         line['added_at'] = _now()
         line['added_by'] = user['id']
+        line['added_by_name'] = user.get('name')
+        line['added_by_role'] = user.get('role')
+        line['origin'] = 'driver_on_scene' if is_driver else 'dispatcher'
         charges = list(existing.get('charges') or [])
         charges.append(line)
         existing['charges'] = charges
@@ -1839,7 +1848,15 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
 
     @router.delete('/jobs/{job_id}/charges/{charge_id}')
     async def delete_charge(job_id: str, charge_id: str, user=Depends(require_wrecker)):
+        # Drivers can ONLY remove charges they personally added on-scene.
+        # Dispatchers/supervisors/admins can void anything.
         existing = await _get_job_for_driver(job_id, user)
+        target = next((c for c in (existing.get('charges') or []) if c.get('id') == charge_id), None)
+        if not target:
+            raise HTTPException(404, 'Charge not found')
+        if _is_driver(user):
+            if target.get('added_by') != user['id']:
+                raise HTTPException(403, "You can only remove fees you added on-scene. Talk to dispatch to void a quoted charge.")
         charges = [c for c in (existing.get('charges') or []) if c.get('id') != charge_id]
         existing['charges'] = charges
         totals = _recompute_totals(existing)
@@ -1851,7 +1868,9 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
 
     # ---------- Payments ----------
     @router.post('/jobs/{job_id}/payments')
-    async def add_payment(job_id: str, body: PaymentIn, user=Depends(require_wrecker)):
+    async def add_payment(job_id: str, body: PaymentIn, user=Depends(require_dispatcher)):
+        # PRICING LOCKDOWN: only dispatch can record payments. Drivers do
+        # NOT record cash/card take — that's a closeout step the boss owns.
         existing = await _get_job_for_driver(job_id, user)
         pay = body.model_dump()
         pay.update({
@@ -1871,7 +1890,8 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         return {'ok': True, 'payment': serialize_doc(pay), 'totals': totals}
 
     @router.delete('/jobs/{job_id}/payments/{payment_id}')
-    async def delete_payment(job_id: str, payment_id: str, user=Depends(require_wrecker)):
+    async def delete_payment(job_id: str, payment_id: str, user=Depends(require_dispatcher)):
+        # PRICING LOCKDOWN: only dispatch can void a payment.
         existing = await _get_job_for_driver(job_id, user)
         payments = [p for p in (existing.get('payments') or []) if p.get('id') != payment_id]
         existing['payments'] = payments

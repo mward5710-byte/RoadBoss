@@ -3116,6 +3116,12 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
         # ----- set_job_price (set quoted/final price on the active job) -----
         # Mike: "Co-Pilot, charge 185 on this run." / "Set price 95."
         if action_type == 'set_job_price':
+            # PRICING LOCKDOWN: drivers cannot set or change pricing via voice.
+            # Dispatchers, supervisors, fleet admins, and super_admin (God Mode)
+            # all retain access. This matches the REST gate on /jobs/*/charges.
+            if user.get('role') == 'wrecker_operator':
+                result['error'] = "Drivers can't set pricing. Talk to dispatch."
+                return result
             job = await _resolve_active_tow_job(user)
             if not job:
                 # No active job? Fall back to the most-recent job created by user
@@ -3183,6 +3189,11 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
         # Mike: "Co-Pilot, mark paid cash." / "Paid by card 185."
         # Pushes a real payments[] entry so totals reconcile in accounting.
         if action_type == 'mark_paid':
+            # PRICING LOCKDOWN: drivers cannot record payments via voice.
+            # Cash/card take is a dispatch-side closeout — the boss owns it.
+            if user.get('role') == 'wrecker_operator':
+                result['error'] = "Drivers can't record payments. Hand the money to dispatch."
+                return result
             job = await _resolve_active_tow_job(user)
             if not job:
                 job = await db.tow_jobs.find_one(

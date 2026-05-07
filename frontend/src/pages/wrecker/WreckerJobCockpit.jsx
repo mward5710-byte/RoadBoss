@@ -180,6 +180,55 @@ export default function WreckerJobCockpit() {
     finally { setBusy(false); }
   };
 
+  // BURST MODE — Mike's "stop kicking me out after every photo" fix.
+  //
+  // Driver hits "Take Photos" once → captures keep looping until they
+  // dismiss the camera (or hit Done). All photos upload in the background
+  // while we keep firing the camera back open, so the driver feels like
+  // they're holding a real camera, not fumbling through a form.
+  //
+  // Each photo gets stage = current `captureStage` so drivers don't lose
+  // their tagging selection between shots.
+  const [burstMode, setBurstMode] = useState(false);
+  const [burstCount, setBurstCount] = useState(0);
+  const burstAbortRef = React.useRef(false);
+
+  const stopBurst = useCallback(() => {
+    burstAbortRef.current = true;
+    setBurstMode(false);
+    // Final reload so any in-flight uploads land in the UI
+    load();
+  }, [load]);
+
+  const startBurstCapture = useCallback(async () => {
+    if (burstMode) return;
+    burstAbortRef.current = false;
+    setBurstMode(true);
+    setBurstCount(0);
+    const stage = captureStage;
+    try {
+      // Loop: open camera → if we get a photo, upload it (don't await, keeps UI snappy)
+      // → reopen camera. If user dismisses (no dataUrl), stop.
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        if (burstAbortRef.current) break;
+        let dataUrl = null;
+        try {
+          dataUrl = await openCameraAsDataUrl();
+        } catch { dataUrl = null; }
+        if (!dataUrl) break; // user cancelled the camera = end the burst
+        // Upload in parallel — don't block the next shot
+        api.post(`/wrecker/jobs/${id}/photo`, { data_url: dataUrl, stage })
+          .then(() => setBurstCount((n) => n + 1))
+          .catch(() => toast.error('One photo failed to upload'));
+      }
+    } finally {
+      setBurstMode(false);
+      // Wait a tick for last in-flight upload, then refresh once
+      setTimeout(() => load(), 600);
+    }
+  }, [burstMode, captureStage, id, load]);
+
   const deletePhoto = async (photoId) => {
     if (!window.confirm('Delete this photo?')) return;
     try {
@@ -284,7 +333,89 @@ export default function WreckerJobCockpit() {
 
   const deleteCharge = async (chargeId) => {
     try { await api.delete(`/wrecker/jobs/${id}/charges/${chargeId}`); load(); }
-    catch (e) { toast.error('Delete failed'); }
+    catch (e) { toast.error(e?.response?.data?.detail || 'Delete failed'); }
+  };
+
+  // Towbook-style standard charges. ONE dropdown, both dispatch and driver
+  // can pick from it. Items with `prompt: true` ask for qty/amount when tapped.
+  // Backend tags each charge by origin (dispatcher vs driver_on_scene) so audit
+  // stays clean, but the picker is identical for both roles.
+  const STANDARD_CHARGES = [
+    // ---- Tow & Hook ----
+    { key: 'hook_loaded',     label: 'Hook Fee — Loaded',          rate: 75,   unit: 'flat', group: 'Tow & Hook' },
+    { key: 'hook_unloaded',   label: 'Hook Fee — Unloaded',        rate: 50,   unit: 'flat', group: 'Tow & Hook' },
+    { key: 'tow_light',       label: 'Tow — Light Duty',           rate: 95,   unit: 'base', group: 'Tow & Hook' },
+    { key: 'tow_medium',      label: 'Tow — Medium Duty',          rate: 175,  unit: 'base', group: 'Tow & Hook' },
+    { key: 'tow_heavy',       label: 'Tow — Heavy Duty',           rate: 350,  unit: 'base', group: 'Tow & Hook' },
+    { key: 'mileage',         label: 'Mileage (per mile)',         rate: 4.5,  unit: '/mi',  group: 'Tow & Hook', prompt: true, promptLabel: 'Miles' },
+    // ---- Recovery / Equipment ----
+    { key: 'winch_out',       label: 'Winch-Out',                  rate: 75,   unit: 'flat', group: 'Recovery' },
+    { key: 'heavy_recovery',  label: 'Heavy Recovery',             rate: 250,  unit: 'flat', group: 'Recovery' },
+    { key: 'extraction',      label: 'Extraction / Special Eq.',   rate: 150,  unit: 'flat', group: 'Recovery' },
+    { key: 'dolly',           label: 'Dolly Use',                  rate: 50,   unit: 'flat', group: 'Recovery' },
+    // ---- Time & Storage ----
+    { key: 'wait_time',       label: 'Wait Time (per hour)',       rate: 60,   unit: '/hr',  group: 'Time & Storage', prompt: true, promptLabel: 'Hours' },
+    { key: 'storage',         label: 'Storage (per day)',          rate: 35,   unit: '/day', group: 'Time & Storage', prompt: true, promptLabel: 'Days' },
+    { key: 'after_hours',     label: 'After-Hours Surcharge',      rate: 50,   unit: 'flat', group: 'Time & Storage' },
+    // ---- Fees ----
+    { key: 'cc_fee',          label: 'Credit Card Fee',            rate: 0,    unit: 'flat', group: 'Fees', prompt: true, promptLabel: 'CC fee amount ($)' },
+    { key: 'gate_fee',        label: 'Gate Release Fee',           rate: 75,   unit: 'flat', group: 'Fees' },
+    // ---- Other ----
+    { key: 'custom',          label: 'Custom Charge…',             rate: 0,    unit: 'flat', group: 'Other', prompt: 'custom' },
+  ];
+
+  const [selectedStandardKey, setSelectedStandardKey] = useState('');
+
+  const addStandardCharge = async () => {
+    const preset = STANDARD_CHARGES.find((c) => c.key === selectedStandardKey);
+    if (!preset) { toast.error('Pick a charge first'); return; }
+    let label = preset.label.replace(/…$/, '').trim();
+    let rate = preset.rate;
+    let qty = 1;
+    let unit = preset.unit;
+
+    if (preset.prompt === 'custom') {
+      const customLabel = window.prompt('Charge description:', '');
+      if (!customLabel) return;
+      const amountStr = window.prompt(`Amount in dollars for "${customLabel}":`, '');
+      if (amountStr == null) return;
+      const amount = parseFloat(amountStr);
+      if (!amount || amount <= 0) { toast.error('Enter a positive dollar amount'); return; }
+      label = customLabel;
+      rate = amount;
+      qty = 1;
+      unit = 'flat';
+    } else if (preset.prompt) {
+      const promptText = preset.key === 'cc_fee'
+        ? 'Credit card surcharge amount in dollars (e.g., 8.50):'
+        : `${preset.promptLabel || 'Quantity'}:`;
+      const input = window.prompt(promptText, preset.key === 'cc_fee' ? '' : '1');
+      if (input == null) return;
+      const n = parseFloat(input);
+      if (!n || n <= 0) { toast.error('Enter a positive number'); return; }
+      if (preset.key === 'cc_fee') {
+        rate = n;
+        qty = 1;
+      } else {
+        qty = n;
+      }
+    }
+
+    try {
+      await api.post(`/wrecker/jobs/${id}/charges`, {
+        key: preset.key,
+        label: label,
+        rate: rate,
+        qty: qty,
+        unit: unit,
+      });
+      const subtotal = (rate * qty).toFixed(2);
+      toast.success(`+ $${subtotal} · ${label}${qty !== 1 ? ` × ${qty}` : ''}`);
+      setSelectedStandardKey('');
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not add charge');
+    }
   };
 
   const addPayment = async () => {
@@ -514,10 +645,13 @@ export default function WreckerJobCockpit() {
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <div className="text-xs uppercase tracking-wider text-slate-400">Photos & Videos</div>
-              <div className="text-xs text-slate-500 mt-0.5">Tag each photo by what stage you're in. Stays inside the app — never on your camera roll.</div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                Tag the stage, then tap <span className="text-amber-300 font-semibold">Take Photos</span> to start capturing.
+                Camera reopens after each shot — hit cancel/done when finished.
+              </div>
             </div>
             <div className="flex items-center gap-2">
-              <Select value={captureStage} onValueChange={setCaptureStage}>
+              <Select value={captureStage} onValueChange={setCaptureStage} disabled={burstMode}>
                 <SelectTrigger className="bg-[#07090d] border-white/10 text-white w-36 h-9 text-xs">
                   <SelectValue />
                 </SelectTrigger>
@@ -525,11 +659,80 @@ export default function WreckerJobCockpit() {
                   {PHOTO_STAGES.map((s) => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Button data-testid="capture-photo" onClick={() => capturePhoto()} disabled={busy} className="bg-amber-500 text-black hover:bg-amber-400">
-                <Camera className="w-4 h-4 mr-1" /> Add Photo
-              </Button>
+              {burstMode ? (
+                <Button
+                  data-testid="capture-stop"
+                  onClick={stopBurst}
+                  className="bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold animate-pulse"
+                >
+                  <Check className="w-4 h-4 mr-1" /> Done · {burstCount}
+                </Button>
+              ) : (
+                <Button
+                  data-testid="capture-photo"
+                  onClick={startBurstCapture}
+                  disabled={busy}
+                  className="bg-amber-500 text-black hover:bg-amber-400 font-semibold"
+                >
+                  <Camera className="w-4 h-4 mr-1" /> Take Photos
+                </Button>
+              )}
             </div>
           </div>
+
+          {burstMode && (
+            <div className="rounded-lg p-2.5 bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200 flex items-center gap-2" data-testid="burst-status">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Capture mode ON — camera reopens after each shot. {burstCount} {burstCount === 1 ? 'photo' : 'photos'} saved. Tap <span className="font-semibold">Done</span> when finished.
+            </div>
+          )}
+
+          {/* NAVIGATE BUTTONS — Right below the camera. Mike's "no scrolling" rule.
+              After photos, the very next thing the driver needs is the route. */}
+          {(job.pickup?.address || job.dropoff?.address) && (
+            <div className="rounded-lg bg-gradient-to-br from-sky-500/10 to-emerald-500/[0.04] border border-sky-500/30 p-3 space-y-2" data-testid="photos-nav-strip">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Navigation className="w-3.5 h-3.5 text-sky-300" />
+                  <div className="text-[11px] uppercase tracking-widest text-sky-300 font-bold">Get Rolling</div>
+                </div>
+                <NavAppPicker />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {job.pickup?.address && (
+                  <a
+                    href={navUrl(job.pickup.address, job.pickup.lat, job.pickup.lng)}
+                    target="_blank"
+                    rel="noreferrer"
+                    data-testid="nav-pickup-cta"
+                    className="flex items-center justify-between gap-2 px-3 py-3 rounded-lg bg-amber-500 text-slate-950 font-bold hover:bg-amber-400 transition shadow shadow-amber-500/20"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] uppercase tracking-wider text-slate-900/70 font-bold">Navigate to Pickup</div>
+                      <div className="text-sm truncate text-slate-950">{job.pickup.address}</div>
+                    </div>
+                    <MapPin className="w-5 h-5 shrink-0" />
+                  </a>
+                )}
+                {job.dropoff?.address && (
+                  <a
+                    href={navUrl(job.dropoff.address, job.dropoff.lat, job.dropoff.lng)}
+                    target="_blank"
+                    rel="noreferrer"
+                    data-testid="nav-dropoff-cta"
+                    className="flex items-center justify-between gap-2 px-3 py-3 rounded-lg bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400 transition shadow shadow-emerald-500/20"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] uppercase tracking-wider text-slate-900/70 font-bold">Navigate to Drop-Off</div>
+                      <div className="text-sm truncate text-slate-950">{job.dropoff.address}</div>
+                    </div>
+                    <Truck className="w-5 h-5 shrink-0" />
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+
           <StageTabs activeStage={photoStage} onChange={setPhotoStage} photos={photos} />
           {filteredPhotos.length === 0 ? (
             <div className="py-12 text-center text-slate-500 text-sm" data-testid="photos-empty">
@@ -562,57 +765,167 @@ export default function WreckerJobCockpit() {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-xs uppercase tracking-wider text-slate-400">Charges (line items)</div>
-              <div className="text-xs text-slate-500 mt-0.5">Pick a service, set qty, and we'll do the math.</div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                {isDriver
+                  ? 'Dispatch sets the main quote. Add on-scene fees below — winch, wait time, CC fee, etc.'
+                  : "Pick a service, set qty, and we'll do the math."}
+              </div>
             </div>
           </div>
 
-          {/* Add charge */}
-          <div className="flex items-end gap-2 flex-wrap p-3 rounded-lg bg-white/[0.02] border border-white/5">
-            <div className="flex-1 min-w-[200px]">
-              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Service</div>
-              <Select value={chargeKey} onValueChange={setChargeKey}>
-                <SelectTrigger data-testid="charge-key-select" className="bg-[#07090d] border-white/10 text-white">
-                  <SelectValue placeholder="Pick from rate sheet..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {rateSheet.map((r) => (
-                    <SelectItem key={r.key} value={r.key}>
-                      {r.label} — ${r.rate.toFixed(2)}/{r.unit}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {/* Towbook-style "Add Charges" dropdown — visible to BOTH dispatch and drivers.
+              Industry-standard line items grouped (Tow & Hook, Recovery, Time, Fees).
+              Same workflow as Towbook so Mike + Kenny use it without thinking. */}
+          <div className="rounded-lg bg-gradient-to-br from-amber-500/[0.08] to-emerald-500/[0.04] border border-amber-500/30 p-3 space-y-2.5">
+            <div className="flex items-center gap-2">
+              <Plus className="w-4 h-4 text-amber-300" />
+              <div className="text-[11px] uppercase tracking-widest text-amber-300 font-bold">Add Charges</div>
+              <span className="text-[10px] text-slate-500 font-normal lowercase tracking-normal">· line items roll into the total below</span>
             </div>
-            <div className="w-24">
-              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Qty</div>
-              <Input data-testid="charge-qty-input" type="number" step="0.5" value={chargeQty} onChange={(e) => setChargeQty(e.target.value)} className="bg-[#07090d] border-white/10 text-white" />
+            <div className="flex items-end gap-2 flex-wrap">
+              <div className="flex-1 min-w-[220px]">
+                <Select value={selectedStandardKey} onValueChange={setSelectedStandardKey}>
+                  <SelectTrigger
+                    data-testid="standard-charge-select"
+                    className="bg-[#07090d] border-amber-500/30 text-white h-11"
+                  >
+                    <SelectValue placeholder="Pick a charge type..." />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[60vh]">
+                    {(() => {
+                      // Group items by `group` field so dropdown reads cleanly
+                      const groups = {};
+                      STANDARD_CHARGES.forEach((c) => {
+                        if (!groups[c.group]) groups[c.group] = [];
+                        groups[c.group].push(c);
+                      });
+                      return Object.entries(groups).flatMap(([groupName, items], gi) => [
+                        <div key={`hdr-${groupName}`} className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-widest text-slate-500 font-bold border-t border-slate-800 first:border-t-0">
+                          {groupName}
+                        </div>,
+                        ...items.map((c) => (
+                          <SelectItem key={c.key} value={c.key} data-testid={`charge-option-${c.key}`}>
+                            <span className="flex items-center justify-between gap-3 w-full">
+                              <span>{c.label}</span>
+                              {c.rate > 0 && (
+                                <span className="text-emerald-300 text-xs font-semibold tabular-nums">
+                                  ${c.rate}{c.unit && c.unit !== 'flat' && c.unit !== 'base' ? c.unit : ''}
+                                </span>
+                              )}
+                            </span>
+                          </SelectItem>
+                        )),
+                      ]);
+                    })()}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                data-testid="add-standard-charge-btn"
+                onClick={addStandardCharge}
+                disabled={!selectedStandardKey}
+                className="h-11 px-4 bg-amber-500 text-slate-950 hover:bg-amber-400 font-semibold disabled:opacity-40"
+              >
+                <Plus className="w-4 h-4 mr-1" /> Add to Total
+              </Button>
             </div>
-            <Button data-testid="charge-add-btn" onClick={addCharge} className="bg-amber-500 text-black hover:bg-amber-400">
-              <Plus className="w-4 h-4 mr-1" /> Add
-            </Button>
-          </div>
-
-          {/* Line items */}
-          {charges.length === 0 ? (
-            <div className="py-8 text-center text-slate-500 text-sm">No charges yet. Add the first line item above.</div>
-          ) : (
-            <div className="divide-y divide-white/5">
-              {charges.map((c) => (
-                <div key={c.id} className="flex items-center justify-between gap-3 py-3" data-testid={`charge-row-${c.id}`}>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm text-white font-medium truncate">{c.label}</div>
-                    <div className="text-[11px] text-slate-500">${c.rate?.toFixed(2)} × {c.qty} {c.unit || ''}</div>
-                  </div>
-                  <div className="text-sm text-emerald-300 font-semibold tabular-nums">${c.subtotal?.toFixed(2)}</div>
-                  <button data-testid={`charge-delete-${c.id}`} onClick={() => deleteCharge(c.id)} className="text-slate-500 hover:text-red-400 p-1">
-                    <X className="w-4 h-4" />
-                  </button>
+            {selectedStandardKey && (() => {
+              const sel = STANDARD_CHARGES.find((c) => c.key === selectedStandardKey);
+              if (!sel) return null;
+              return (
+                <div className="text-[11px] text-slate-400 leading-relaxed">
+                  Selected: <span className="text-amber-200 font-semibold">{sel.label}</span>
+                  {sel.rate > 0 && <> · Default rate <span className="text-emerald-300">${sel.rate}{sel.unit !== 'flat' && sel.unit !== 'base' ? sel.unit : ''}</span></>}
+                  {sel.prompt === 'custom' && <> · You'll enter description and amount</>}
+                  {sel.prompt && sel.prompt !== 'custom' && <> · You'll enter <span className="text-amber-200">{sel.promptLabel || 'quantity'}</span></>}
                 </div>
-              ))}
+              );
+            })()}
+          </div>
+
+          {/* Full rate-sheet picker — DISPATCH-ONLY for setting the main quote.
+              Drivers use Quick Fee chips above for on-scene adjustments. */}
+          {!isDriver && (
+            <div className="flex items-end gap-2 flex-wrap p-3 rounded-lg bg-white/[0.02] border border-white/5">
+              <div className="flex-1 min-w-[200px]">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Service (rate sheet)</div>
+                <Select value={chargeKey} onValueChange={setChargeKey}>
+                  <SelectTrigger data-testid="charge-key-select" className="bg-[#07090d] border-white/10 text-white">
+                    <SelectValue placeholder="Pick from rate sheet..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {rateSheet.map((r) => (
+                      <SelectItem key={r.key} value={r.key}>
+                        {r.label} — ${r.rate.toFixed(2)}/{r.unit}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-24">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Qty</div>
+                <Input data-testid="charge-qty-input" type="number" step="0.5" value={chargeQty} onChange={(e) => setChargeQty(e.target.value)} className="bg-[#07090d] border-white/10 text-white" />
+              </div>
+              <Button data-testid="charge-add-btn" onClick={addCharge} className="bg-amber-500 text-black hover:bg-amber-400">
+                <Plus className="w-4 h-4 mr-1" /> Add
+              </Button>
             </div>
           )}
 
-          {/* Totals */}
+          {/* Line items — show all, badge by origin, conditional delete-X */}
+          {charges.length === 0 ? (
+            <div className="py-8 text-center text-slate-500 text-sm">
+              {isDriver
+                ? 'Dispatch hasn\'t set a main quote yet. You can still tap Quick Fee above to add on-scene charges.'
+                : 'No charges yet. Add the first line item above.'}
+            </div>
+          ) : (
+            <div className="divide-y divide-white/5">
+              {charges.map((c) => {
+                const origin = c.origin || (c.added_by_role === 'wrecker_operator' ? 'driver_on_scene' : 'dispatcher');
+                const isOnScene = origin === 'driver_on_scene';
+                // Drivers can only delete charges they personally added.
+                const canDelete = !isDriver || (c.added_by === me?.id);
+                return (
+                  <div key={c.id} className="flex items-center justify-between gap-3 py-3" data-testid={`charge-row-${c.id}`}>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-white font-medium truncate flex items-center gap-2 flex-wrap">
+                        {c.label}
+                        <span
+                          className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-semibold ${
+                            isOnScene ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                          }`}
+                          data-testid={`charge-origin-${c.id}`}
+                        >
+                          {isOnScene ? 'On-Scene' : 'Dispatch'}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        ${c.rate?.toFixed(2)} × {c.qty} {c.unit || ''}
+                        {c.added_by_name && <span className="ml-1.5 text-slate-600">· by {c.added_by_name}</span>}
+                      </div>
+                    </div>
+                    <div className="text-sm text-emerald-300 font-semibold tabular-nums">${c.subtotal?.toFixed(2)}</div>
+                    {canDelete ? (
+                      <button
+                        data-testid={`charge-delete-${c.id}`}
+                        onClick={() => deleteCharge(c.id)}
+                        className="text-slate-500 hover:text-red-400 p-1"
+                        title={isOnScene ? 'Remove this on-scene fee' : 'Remove this charge'}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <div className="w-6" /> /* spacer to keep alignment */
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Totals — read-only, auto-recompute as items are added/removed */}
           <div className="pt-3 border-t border-white/5 space-y-1 text-sm">
             <Total label="Sub Total" value={totals.subtotal} />
             <Total label="Tax" value={totals.tax} muted />
@@ -620,6 +933,12 @@ export default function WreckerJobCockpit() {
             <Total label="Payments" value={-totals.amount_paid} green />
             <Total label="Balance Due" value={totals.balance_due} bold red={totals.balance_due > 0} />
           </div>
+
+          {isDriver && (
+            <div className="text-[11px] text-slate-500 leading-relaxed pt-2 border-t border-white/5">
+              <span className="text-slate-400 font-semibold">Note:</span> You can only remove fees you added on-scene. To void a dispatch-set charge, message dispatch.
+            </div>
+          )}
         </Card>
       )}
 
@@ -627,10 +946,14 @@ export default function WreckerJobCockpit() {
         <Card className="p-5 bg-[#0a0e14] border-white/5 space-y-4" data-testid="payments-tab">
           <div>
             <div className="text-xs uppercase tracking-wider text-slate-400">Payments</div>
-            <div className="text-xs text-slate-500 mt-0.5">Log every payment received — cash, check, card, motor club, or Square.</div>
+            <div className="text-xs text-slate-500 mt-0.5">
+              {isDriver
+                ? 'Read-only view of payment history. Hand collected cash/check to dispatch — they record it here.'
+                : 'Log every payment received — cash, check, card, motor club, or Square.'}
+            </div>
           </div>
 
-          {/* Big totals banner */}
+          {/* Big totals banner — visible to everyone */}
           <div className="grid grid-cols-2 gap-2">
             <div className="p-4 rounded-xl bg-white/[0.03] border border-white/5">
               <div className="text-[10px] uppercase tracking-wider text-slate-500">Invoice Total</div>
@@ -642,8 +965,8 @@ export default function WreckerJobCockpit() {
             </div>
           </div>
 
-          {/* Square Card Charge — preferred, card data never touches our server */}
-          {totals.balance_due > 0 && (
+          {/* Square Card Charge — DISPATCH ONLY. Drivers don't run cards on the boss's account. */}
+          {!isDriver && totals.balance_due > 0 && (
             <div className="p-4 rounded-xl bg-gradient-to-br from-white/[0.04] to-white/[0.01] border border-white/10" data-testid="square-charge-section">
               <div className="flex items-center justify-between mb-3">
                 <div>
@@ -661,33 +984,36 @@ export default function WreckerJobCockpit() {
             </div>
           )}
 
-          {/* Add payment — manual fallback for cash/check/motor club */}
-          <div>
-            <div className="text-[11px] uppercase tracking-widest text-slate-500 mb-2">Or record a non-card payment</div>
-            <div className="flex items-end gap-2 flex-wrap p-3 rounded-lg bg-white/[0.02] border border-white/5">
-            <div className="w-28">
-              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Amount</div>
-              <Input data-testid="payment-amount-input" type="number" step="0.01" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0.00" className="bg-[#07090d] border-white/10 text-white" />
+          {/* Add payment — DISPATCH ONLY. Driver does NOT record cash/check take. */}
+          {!isDriver && (
+            <div>
+              <div className="text-[11px] uppercase tracking-widest text-slate-500 mb-2">Or record a non-card payment</div>
+              <div className="flex items-end gap-2 flex-wrap p-3 rounded-lg bg-white/[0.02] border border-white/5">
+              <div className="w-28">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Amount</div>
+                <Input data-testid="payment-amount-input" type="number" step="0.01" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0.00" className="bg-[#07090d] border-white/10 text-white" />
+              </div>
+              <div className="w-32">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Method</div>
+                <Select value={payMethod} onValueChange={setPayMethod}>
+                  <SelectTrigger data-testid="payment-method-select" className="bg-[#07090d] border-white/10 text-white"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {['cash','check','card','square','motor_club','other'].map((m) => <SelectItem key={m} value={m}>{m.replace('_', ' ')}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex-1 min-w-[120px]">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Reference (optional)</div>
+                <Input data-testid="payment-ref-input" value={payRef} onChange={(e) => setPayRef(e.target.value)} placeholder="check #, last-4, txn id" className="bg-[#07090d] border-white/10 text-white" />
+              </div>
+              <Button data-testid="payment-add-btn" onClick={addPayment} className="bg-emerald-500 text-black hover:bg-emerald-400">
+                <Plus className="w-4 h-4 mr-1" /> Mark Paid
+              </Button>
+              </div>
             </div>
-            <div className="w-32">
-              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Method</div>
-              <Select value={payMethod} onValueChange={setPayMethod}>
-                <SelectTrigger data-testid="payment-method-select" className="bg-[#07090d] border-white/10 text-white"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {['cash','check','card','square','motor_club','other'].map((m) => <SelectItem key={m} value={m}>{m.replace('_', ' ')}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex-1 min-w-[120px]">
-              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Reference (optional)</div>
-              <Input data-testid="payment-ref-input" value={payRef} onChange={(e) => setPayRef(e.target.value)} placeholder="check #, last-4, txn id" className="bg-[#07090d] border-white/10 text-white" />
-            </div>
-            <Button data-testid="payment-add-btn" onClick={addPayment} className="bg-emerald-500 text-black hover:bg-emerald-400">
-              <Plus className="w-4 h-4 mr-1" /> Mark Paid
-            </Button>
-            </div>
-          </div>
+          )}
 
+          {/* Payment history — visible to everyone, read-only for drivers */}
           {payments.length === 0 ? (
             <div className="py-8 text-center text-slate-500 text-sm">No payments recorded yet.</div>
           ) : (
