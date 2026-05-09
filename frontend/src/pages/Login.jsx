@@ -19,8 +19,10 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
  *  - Demo accounts hidden by default — only show with ?demo=1 in the URL
  *    so when Mike texts Kenny the link, Kenny sees ONLY the form and his
  *    own credentials, not a wall of demo buttons.
- *  - Tokens last 90 days (backend) so logging in once on a phone keeps you
- *    signed in until you swap devices, just like Towbook.
+ *  - Tokens last 10 years (backend) — true "set it and forget it." Drivers
+ *    sign in once on their phone and stay signed in until they tap Sign Out
+ *    or wipe the device. Mirrors how Towbook works in the cab. QuickBooks
+ *    integration is unaffected (uses its own OAuth tokens).
  */
 export default function Login() {
   const navigate = useNavigate();
@@ -145,7 +147,7 @@ export default function Login() {
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-500 inline-flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                Stays signed in for 90 days
+                Stays signed in until you sign out
               </span>
               <Link to="/forgot-password" className="text-sky-400 hover:text-sky-300">Forgot password?</Link>
             </div>

@@ -26,7 +26,13 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'highway-pilot-stealth-secret-2026-cha
 JWT_ALG = 'HS256'
 # Long-lived sessions — Mike's request: log in once on a phone, stay logged in
 # until you swap devices. 90 days mirrors how Towbook / dispatch tools work.
-JWT_EXP_HOURS = 24 * 90  # 90 days
+JWT_EXP_HOURS = 24 * 365 * 10  # 10 years — Mike's "one-time sign in" rule.
+                               # Stays signed in until the user taps Sign Out
+                               # or wipes the device. Per his V2 spec, this is
+                               # how WreckerLogix and Towbook-style field apps
+                               # actually work in the cab. QuickBooks integration
+                               # uses its OWN OAuth tokens (separate lifecycle),
+                               # so this has zero effect on QB connectivity.
 
 app = FastAPI(title="Highway Pilot API", version="0.1.0")
 api_router = APIRouter(prefix="/api")
