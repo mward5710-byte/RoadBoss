@@ -598,8 +598,9 @@ export default function PitchDeck() {
         </div>
       </div>
 
-      {/* Slide stage */}
-      <div className="absolute inset-0 pt-14 pb-16">
+      {/* Slide stage — overflow-y-auto so tall slides scroll within the
+          fixed-height shell (Mike's "non-scrollable pages" bug fix). */}
+      <div className="absolute inset-0 pt-14 pb-16 overflow-y-auto overscroll-contain">
         <AnimatePresence mode="wait">
           <motion.div
             key={slide.id}
@@ -608,7 +609,7 @@ export default function PitchDeck() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -14, scale: 0.995 }}
             transition={{ duration: 0.35, ease: [0.2, 0.8, 0.2, 1] }}
-            className="relative h-full w-full"
+            className="relative min-h-full w-full"
           >
             {slide.render()}
           </motion.div>

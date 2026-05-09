@@ -533,6 +533,11 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
             'photo_urls': [],
             'status_history': [{'status': 'pending', 'at': _now(), 'by': user['id']}],
         })
+        # Auto-compute deadhead + loaded miles using Mapbox.
+        # Mike's V2 fix: as soon as a dispatcher types the addresses, the
+        # job stores how many miles to pickup AND from pickup to drop-off.
+        # Best-effort: never blocks job creation if Mapbox is unreachable.
+        await _attach_distance_metrics(doc)
         # If creator pre-assigned a driver, mark assigned + bump rotation
         if doc.get('assigned_driver_id'):
             doc['status'] = 'assigned'
@@ -609,6 +614,15 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
             await _bump_rotation(new_driver)
 
         updates['updated_at'] = _now()
+        # If pickup or dropoff addresses changed (or coords missing), recompute
+        # the deadhead + loaded miles. Mike's rule: as soon as the address
+        # lands, the dispatcher sees the real number, not $0.
+        if any(k in updates for k in ('pickup', 'dropoff')):
+            merged = {**existing, **updates}
+            await _attach_distance_metrics(merged)
+            for k in ('pickup', 'dropoff', 'loaded_miles', 'deadhead_miles', 'base_address'):
+                if k in merged:
+                    updates[k] = merged[k]
         await db.tow_jobs.update_one({'id': job_id}, {'$set': updates})
         j = await db.tow_jobs.find_one({'id': job_id}, {'_id': 0})
         return serialize_doc(j)
@@ -620,6 +634,32 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         if res.deleted_count == 0:
             raise HTTPException(404, 'Job not found')
         return {'ok': True}
+
+    @router.post('/jobs/backfill-mileage')
+    async def backfill_mileage(user=Depends(require_dispatcher)):
+        """One-shot backfill — run Mapbox geocode + distance compute on every
+        existing job that's missing loaded_miles or deadhead_miles. Mike asked
+        for this so the historical $0-miles rows on the dispatch board catch up."""
+        cursor = db.tow_jobs.find({
+            '$or': [
+                {'loaded_miles': {'$in': [None, 0]}},
+                {'loaded_miles': {'$exists': False}},
+                {'deadhead_miles': {'$in': [None, 0]}},
+                {'deadhead_miles': {'$exists': False}},
+            ]
+        })
+        total = 0
+        updated = 0
+        async for j in cursor:
+            total += 1
+            await _attach_distance_metrics(j)
+            patch = {k: j.get(k) for k in ('pickup', 'dropoff', 'loaded_miles', 'deadhead_miles', 'base_address') if k in j}
+            if patch:
+                patch['updated_at'] = _now()
+                await db.tow_jobs.update_one({'id': j['id']}, {'$set': patch})
+                if j.get('loaded_miles') or j.get('deadhead_miles'):
+                    updated += 1
+        return {'ok': True, 'scanned': total, 'updated': updated}
 
     @router.post('/jobs/{job_id}/status')
     async def quick_status_update(job_id: str, body: Dict[str, str], user=Depends(require_wrecker)):
