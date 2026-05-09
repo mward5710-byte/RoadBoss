@@ -158,10 +158,35 @@ A small **edit pencil icon on every page** also opens the editor in context.
 - Only visible when `super_admin` (Mike) is logged in.
 - Contains the most powerful customization + system overrides.
 
-### Storage
-- Layout/menu/dropdown customizations save **per-device** (localStorage).
-- Each phone gets its own preference. Dispatchers can each set their own
-  muscle memory.
+### Storage — TWO TIERS (corrected 2026-05-09 per Mike)
+
+**Tier 1 — UNIVERSAL** (saved server-side, applies to every device + user
+in the company):
+- Add/remove/rename **dropdown values** (Service Types, Body Types, Charges)
+- **Add buttons** to pages
+- **Add new tabs** to pages
+- **Add new pages** to the menu
+- **Remove fields** from forms
+- **Settings → Call Creation Fields** toggles (which sections render)
+
+→ These changes require **password gate** + warning dialog
+  ("⚠️ This affects every user in your company. Continue?")
+
+**Tier 2 — PER-DEVICE** (saved in localStorage, just that one device):
+- Long-press section reorder (New Call form, Cockpit tabs, Dispatch columns)
+- Color scheme (light / dark / system)
+- Navigation app preference
+- Customize Menu Bar (active vs inactive items, per dispatcher)
+
+→ No password needed. Quick toggle.
+
+### North-Star Goal (Mike, 2026-05-09)
+> "Make everything in this app editable for me — that will help a ton."
+
+Phase 4 + Phase 6 deliver this incrementally. We start with the
+**Dropdown Editor** (Service Types first as proof-of-concept), then
+expand outward to buttons, tabs, pages, and finally a full inline
+edit mode.
 
 ---
 

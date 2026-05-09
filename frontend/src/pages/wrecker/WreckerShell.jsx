@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, NavLink, useNavigate, Link, Navigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Truck, Lock, Building2, Fuel, CreditCard, LogOut,
-  User, BookOpen, Mic, Wrench, Briefcase, Clock, Settings,
+  User, BookOpen, Mic, Wrench, Briefcase, Clock, Settings, Sliders,
   BarChart3, Camera, Navigation as NavIcon, Menu, X,
 } from 'lucide-react';
 import { auth, getUser } from '@/lib/api';
@@ -34,6 +34,7 @@ const NAV_GROUPS = [
       { to: '/wrecker/billing',    icon: CreditCard,      label: 'Billing',                       roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin'] },
       { to: '/wrecker/accounting', icon: BarChart3,       label: 'Accounting',                    roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin'] },
       { to: '/wrecker/photos',     icon: Camera,          label: 'Photo Vault',                   roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_dispatcher'] },
+      { to: '/wrecker/customize',  icon: Sliders,         label: 'Customize',                     roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
       { to: '/wrecker/settings',   icon: Settings,        label: 'Settings',                      roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
     ],
   },

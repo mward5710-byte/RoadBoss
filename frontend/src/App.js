@@ -73,6 +73,7 @@ import WreckerTrucks from '@/pages/wrecker/WreckerTrucks';
 import WreckerFuel from '@/pages/wrecker/WreckerFuel';
 import WreckerBilling from '@/pages/wrecker/WreckerBilling';
 import WreckerSettings from '@/pages/wrecker/WreckerSettings';
+import WreckerCustomize from '@/pages/wrecker/WreckerCustomize';
 import WreckerAccounting from '@/pages/wrecker/WreckerAccounting';
 import WreckerPhotoVault from '@/pages/wrecker/WreckerPhotoVault';
 import WreckerNavigation from '@/pages/wrecker/WreckerNavigation';
@@ -188,6 +189,7 @@ function App() {
             <Route path="photos" element={<WreckerPhotoVault />} />
             <Route path="navigation" element={<WreckerNavigation />} />
             <Route path="settings" element={<WreckerSettings />} />
+            <Route path="customize" element={<WreckerCustomize />} />
           </Route>
           {/* Full-screen wrecker sub-pages (no sidebar) */}
           <Route path="/wrecker/jobs/:id/damage-form" element={<RequireAuth roles={WRECKER_ROLES}><WreckerDamageForm /></RequireAuth>} />

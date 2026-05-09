@@ -852,6 +852,107 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         return serialize_doc(doc)
 
     # =========================================================
+    # Tenant Customizations — Mike's "Editor" foundation.
+    #
+    # TIER 1 (universal, server-saved). Everything in this collection
+    # applies to every user + every device in the company. Things like:
+    #   • service_types     — list of [key, label] pairs
+    #   • body_types        — list of [key, label] pairs
+    #   • charges           — array of charge catalog entries
+    #   • call_form_fields  — toggles for which sections render on New Call
+    #   • menu_items        — custom buttons / pages added to the menu
+    #
+    # Per V2 spec §6: changes here are gated by password re-entry on the
+    # frontend. Endpoints themselves only require dispatcher+ role for the
+    # write side; reads are open to any authenticated wrecker user so the
+    # form can pull the live config.
+    #
+    # The data model is intentionally a single doc keyed by tenant so we
+    # can ship one editor at a time without schema migrations. Any field
+    # not present in the doc means "use defaults" — frontend handles the
+    # fallback.
+    # =========================================================
+    class CustomizationsIn(BaseModel):
+        service_types: Optional[List[List[str]]] = None     # [[key, label], ...]
+        body_types: Optional[List[List[str]]] = None
+        charges: Optional[List[Dict[str, Any]]] = None
+        call_form_fields: Optional[Dict[str, bool]] = None
+        menu_items: Optional[List[Dict[str, Any]]] = None
+        # Free-form bucket for Phase 6+ additions so we don't churn the
+        # contract every time we ship a new editor module.
+        extras: Optional[Dict[str, Any]] = None
+
+    @router.get('/customizations')
+    async def get_customizations(user=Depends(require_wrecker)):
+        """Returns the company-level customizations doc. Empty fields mean
+        the frontend should fall back to its built-in defaults."""
+        tenant_id = user.get('tenant_id', 'default')
+        doc = await db.tenant_customizations.find_one({'tenant_id': tenant_id}, {'_id': 0})
+        if not doc:
+            # Return empty shell so the frontend can detect "no overrides yet"
+            return {
+                'tenant_id': tenant_id,
+                'service_types': None,
+                'body_types': None,
+                'charges': None,
+                'call_form_fields': None,
+                'menu_items': None,
+                'extras': None,
+                'updated_at': None,
+                'updated_by': None,
+            }
+        return serialize_doc(doc)
+
+    @router.put('/customizations')
+    async def update_customizations(body: CustomizationsIn, user=Depends(require_dispatcher)):
+        """Universal Tier 1 write. Only fields that are explicitly set are
+        applied — None fields are left alone so partial updates work."""
+        tenant_id = user.get('tenant_id', 'default')
+        # Build the patch — only include keys the caller actually sent
+        patch: Dict[str, Any] = {}
+        for k, v in body.model_dump(exclude_unset=True).items():
+            patch[k] = v
+        if not patch:
+            raise HTTPException(status_code=400, detail='No customization fields supplied.')
+        patch['updated_at'] = _now()
+        patch['updated_by'] = user.get('email') or user.get('id')
+
+        existing = await db.tenant_customizations.find_one({'tenant_id': tenant_id})
+        if existing:
+            await db.tenant_customizations.update_one({'tenant_id': tenant_id}, {'$set': patch})
+        else:
+            patch['tenant_id'] = tenant_id
+            patch['id'] = _new_id()
+            patch['created_at'] = _now()
+            await db.tenant_customizations.insert_one(patch)
+        # Return the full updated doc so the UI can refresh in one round-trip
+        doc = await db.tenant_customizations.find_one({'tenant_id': tenant_id}, {'_id': 0})
+        return serialize_doc(doc)
+
+    @router.post('/customizations/reset')
+    async def reset_customizations(user=Depends(require_dispatcher)):
+        """Mike's 'Reset to Default' button. Clears every override so the
+        app falls back to the built-in defaults. Doesn't delete the doc —
+        just nulls out the override fields so we keep the audit trail."""
+        tenant_id = user.get('tenant_id', 'default')
+        await db.tenant_customizations.update_one(
+            {'tenant_id': tenant_id},
+            {'$set': {
+                'service_types': None,
+                'body_types': None,
+                'charges': None,
+                'call_form_fields': None,
+                'menu_items': None,
+                'extras': None,
+                'updated_at': _now(),
+                'updated_by': user.get('email') or user.get('id'),
+            }},
+            upsert=True,
+        )
+        return {'ok': True, 'message': 'All customizations reset to defaults.'}
+
+
+    # =========================================================
     # Accounts CRM — customer / motor club / fleet directory
     # =========================================================
     class AccountIn(BaseModel):

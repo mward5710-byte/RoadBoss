@@ -1,30 +1,26 @@
 [
   {
-    "content": "Audit current routing + branding",
+    "content": "Backend: tenant_customizations collection + GET/PUT /api/wrecker/customizations endpoints",
     "status": "completed"
   },
   {
-    "content": "Build HOME splash page at `/` — Investors top, WreckerLogix + RoadBoss big buttons",
+    "content": "Frontend: new /wrecker/customize route + Editor page in WreckerShell menu",
     "status": "completed"
   },
   {
-    "content": "Fix auto-routing bug — PWA `start_url` changed from /login to /",
+    "content": "Editor module #1: Dropdown Editor for Service Types (add/remove/rename)",
     "status": "completed"
   },
   {
-    "content": "WreckerLogix icon at top of every WL page",
+    "content": "Wire WreckerJobNew form to read service_types from customizations API (fallback to defaults)",
     "status": "completed"
   },
   {
-    "content": "Code separation — zero cross-imports verified, modular for repo split",
+    "content": "Password gate + warning dialog before saving universal changes",
     "status": "completed"
   },
   {
-    "content": "Login screen swaps to WreckerLogix branding when ?app=wreckerlogix",
-    "status": "completed"
-  },
-  {
-    "content": "Screenshot full flow — verified all routing paths work",
+    "content": "Lint + screenshot + verified full edit → save → reflect-in-form loop",
     "status": "completed"
   }
 ]

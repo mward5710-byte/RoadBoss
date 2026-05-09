@@ -162,6 +162,10 @@ export default function WreckerJobNew() {
   const [clubs, setClubs] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [saving, setSaving] = useState(false);
+  // Live, customizable Service Types — falls back to defaults if no override.
+  // Mike's Editor (/wrecker/customize) writes here and the form picks it up
+  // on next mount with zero further wiring.
+  const [serviceTypesLive, setServiceTypesLive] = useState(SERVICE_TYPES);
 
   const [form, setForm] = useState({
     // Service / Account
@@ -268,6 +272,15 @@ export default function WreckerJobNew() {
   useEffect(() => {
     api.get('/wrecker/motor-clubs').then((r) => setClubs(r.data)).catch(() => {});
     api.get('/wrecker/drivers').then((r) => setDrivers(r.data)).catch(() => {});
+    // Pull universal customizations (Tier 1). If the company has overridden
+    // the service_types list, use it; otherwise stick with the built-in
+    // SERVICE_TYPES fallback.
+    api.get('/wrecker/customizations').then((r) => {
+      const override = r?.data?.service_types;
+      if (Array.isArray(override) && override.length > 0) {
+        setServiceTypesLive(override);
+      }
+    }).catch(() => {});
   }, []);
 
   // VOICE: One Co-Pilot in charge. The inline Voice Fill bar that lived
@@ -620,7 +633,7 @@ export default function WreckerJobNew() {
             <Label className="block mb-1">Service Type</Label>
             <Select value={form.service_type} onValueChange={(v) => setField('service_type', v)}>
               <SelectTrigger data-testid="service-type" className="bg-[#07090d] border-white/10 text-white"><SelectValue /></SelectTrigger>
-              <SelectContent>{SERVICE_TYPES.map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
+              <SelectContent>{serviceTypesLive.map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
             </Select>
           </div>
 
