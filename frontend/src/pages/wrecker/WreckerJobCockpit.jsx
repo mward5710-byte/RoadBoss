@@ -592,7 +592,22 @@ export default function WreckerJobCockpit() {
         <div className="flex items-start gap-3 min-w-0">
           <Link to={isDriver ? '/wrecker/me' : '/wrecker'}><Button variant="ghost" size="sm" data-testid="back-to-board"><ArrowLeft className="w-4 h-4" /></Button></Link>
           <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-widest text-amber-400/80">Job #{(job.id || '').slice(0, 8).toUpperCase()} · {(job.service_type || '').replace(/_/g, ' ')}</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {job.call_number && (
+                <span
+                  className="text-[12px] font-mono font-bold text-amber-200 px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/40"
+                  data-testid="cockpit-call-number"
+                  title="Sequential call number"
+                >
+                  #{job.call_number}
+                </span>
+              )}
+              <div className="text-[10px] uppercase tracking-widest text-amber-400/80">
+                {(job.service_type || '').replace(/_/g, ' ')}
+                <span className="text-slate-600 mx-1.5">·</span>
+                <span className="text-slate-500 normal-case font-mono">id {(job.id || '').slice(0, 8).toUpperCase()}</span>
+              </div>
+            </div>
             <h1 className="text-2xl font-bold text-white mt-1 truncate" data-testid="job-customer-name">{job.customer?.name}</h1>
             <div className="text-sm text-slate-400 mt-0.5 truncate">
               {veh_str || 'Vehicle'}

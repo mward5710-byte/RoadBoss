@@ -107,7 +107,18 @@ function JobCard({ job, onAdvance, onPickDriver, isSelected }) {
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="text-xs text-slate-500 uppercase tracking-wider truncate">{prettyService(job.service_type)}</div>
+          <div className="flex items-center gap-2">
+            {job.call_number && (
+              <span
+                className="text-[11px] font-mono font-bold text-amber-300 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 shrink-0"
+                title="Call number"
+                data-testid={`job-call-number-${job.id}`}
+              >
+                #{job.call_number}
+              </span>
+            )}
+            <div className="text-xs text-slate-500 uppercase tracking-wider truncate">{prettyService(job.service_type)}</div>
+          </div>
           <div className="text-sm font-semibold text-white truncate mt-0.5">{job.customer?.name}</div>
         </div>
         <div className="flex flex-col items-end gap-1.5 shrink-0">

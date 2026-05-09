@@ -1,26 +1,22 @@
 [
   {
-    "content": "View current WreckerSettings.jsx",
+    "content": "Backend: call_number field + atomic counter + auto-gen in create_job",
     "status": "completed"
   },
   {
-    "content": "Rewrite Settings page with Mike's exact heading structure (8 sections)",
+    "content": "Backend: GET /call-number/next + POST /call-number/start endpoints",
     "status": "completed"
   },
   {
-    "content": "Create Connections page — moved Business Profile + Square Card Processing here",
+    "content": "Frontend: New Call form Call # field at top",
     "status": "completed"
   },
   {
-    "content": "Add Connections route + sidebar entry",
+    "content": "Frontend: display call_number on Dispatch cards + Cockpit header",
     "status": "completed"
   },
   {
-    "content": "Wire toggle states to localStorage (Tier 2 per-device prefs)",
-    "status": "completed"
-  },
-  {
-    "content": "Lint + screenshot — verified all 8 sections + 3 sidebar entries",
+    "content": "Lint + smoke test full create → display loop",
     "status": "completed"
   }
 ]

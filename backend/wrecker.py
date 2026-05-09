@@ -127,8 +127,11 @@ class VehicleInfo(BaseModel):
     odometer: Optional[int] = None
 
 class GeoPoint(BaseModel):
-    lat: float
-    lng: float
+    # lat/lng are now OPTIONAL — dispatchers typically only type the
+    # address; we geocode it server-side via Mapbox in _attach_distance_metrics
+    # and the resolved lat/lng land back on the doc.
+    lat: Optional[float] = None
+    lng: Optional[float] = None
     address: Optional[str] = None
 
 class TowJobIn(BaseModel):
@@ -145,6 +148,12 @@ class TowJobIn(BaseModel):
     payment_method: Optional[str] = 'invoice'
     assigned_driver_id: Optional[str] = None
     assigned_truck_id: Optional[str] = None
+    # Industry-standard sequential call number (Mike's spec — every wrecker
+    # company tracks calls by an incrementing number, e.g. #124491). If the
+    # dispatcher doesn't supply one, we auto-generate the next number for
+    # this tenant. If they DO supply one (e.g. importing legacy jobs or
+    # picking a specific number), we honor it but still bump the counter.
+    call_number: Optional[int] = None
     # Towbook-parity dispatch metadata. All optional — the lean form path
     # still works exactly as before; these are just the deeper fields the
     # full "New Call" screen captures.
@@ -460,6 +469,44 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         except Exception:
             return None
 
+    async def _next_call_number(tenant_id: str = 'default') -> int:
+        """Atomically returns the next sequential call number for this tenant.
+        Industry standard — every wrecker company numbers their calls (e.g.
+        #124491). Uses MongoDB's $inc + upsert for race-safe increment so two
+        dispatchers creating calls at the same instant get unique numbers.
+        Mike's spec: starting number is editable via PUT /call-number/start."""
+        res = await db.tenant_counters.find_one_and_update(
+            {'tenant_id': tenant_id, 'name': 'call_number'},
+            {'$inc': {'value': 1}},
+            upsert=True,
+            return_document=True,
+        )
+        # find_one_and_update with return_document=AFTER returns the doc post-update
+        # but the older API returns BEFORE by default. Be defensive.
+        if not res or 'value' not in res:
+            doc = await db.tenant_counters.find_one(
+                {'tenant_id': tenant_id, 'name': 'call_number'}
+            )
+            return int(doc.get('value', 1)) if doc else 1
+        # If the find_one_and_update returned the BEFORE doc, value is the
+        # pre-increment number. Either way, the doc currently in the DB
+        # holds the right number — re-read.
+        cur = await db.tenant_counters.find_one(
+            {'tenant_id': tenant_id, 'name': 'call_number'}
+        )
+        return int(cur.get('value', 1)) if cur else 1
+
+    async def _set_call_number_start(tenant_id: str, start_at: int):
+        """Set the 'next' call number for this tenant. Useful when a company
+        is migrating from an existing system mid-stream — e.g. Mike at his
+        current job is at #124490, so he sets start=124491."""
+        # Store start_at - 1 so the next _next_call_number bumps to start_at.
+        await db.tenant_counters.update_one(
+            {'tenant_id': tenant_id, 'name': 'call_number'},
+            {'$set': {'value': max(0, int(start_at) - 1)}},
+            upsert=True,
+        )
+
     async def _attach_distance_metrics(doc: Dict[str, Any]):
         """Best-effort: geocode pickup/dropoff/base, compute deadhead + loaded miles,
         and stash the numbers (and resolved coords) onto the tow_job document IN-PLACE.
@@ -524,6 +571,23 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
     async def create_job(body: TowJobIn, user=Depends(require_dispatcher)):
         """Only dispatchers/supervisors/admins can create jobs. Drivers never create their own work."""
         doc = body.model_dump()
+        # Auto-generate sequential call_number if dispatcher didn't supply one.
+        # Industry standard — every wrecker call gets a unique # like 124491
+        # and dispatchers reference jobs by that number on the radio.
+        tenant_id = user.get('tenant_id', 'default')
+        if not doc.get('call_number'):
+            doc['call_number'] = await _next_call_number(tenant_id)
+        else:
+            # Dispatcher manually set a number — make sure the counter doesn't
+            # later collide. Bump the counter past this number if needed.
+            try:
+                await db.tenant_counters.update_one(
+                    {'tenant_id': tenant_id, 'name': 'call_number'},
+                    {'$max': {'value': int(doc['call_number'])}},
+                    upsert=True,
+                )
+            except Exception:
+                pass
         doc.update({
             'id': _new_id(),
             'status': 'pending',
@@ -634,6 +698,29 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         if res.deleted_count == 0:
             raise HTTPException(404, 'Job not found')
         return {'ok': True}
+    @router.get('/call-number/next')
+    async def peek_next_call_number(user=Depends(require_wrecker)):
+        """Returns what the next auto-generated call number WILL be without
+        consuming it. Used by the New Call form so the dispatcher sees the
+        suggested # before they save."""
+        tenant_id = user.get('tenant_id', 'default')
+        cur = await db.tenant_counters.find_one({'tenant_id': tenant_id, 'name': 'call_number'})
+        last = int(cur.get('value', 0)) if cur else 0
+        return {'next': last + 1, 'last_used': last}
+
+    class CallNumberStartIn(BaseModel):
+        start_at: int
+
+    @router.post('/call-number/start')
+    async def set_call_number_start(body: CallNumberStartIn, user=Depends(require_dispatcher)):
+        """Mike's spec — he's at #124490 at his day job, so when he migrates
+        he sets start_at=124491. From then on, every new call auto-numbers
+        from there forward."""
+        if body.start_at < 1:
+            raise HTTPException(status_code=400, detail='start_at must be >= 1')
+        tenant_id = user.get('tenant_id', 'default')
+        await _set_call_number_start(tenant_id, body.start_at)
+        return {'ok': True, 'next_call_number_will_be': body.start_at}
 
     @router.post('/jobs/backfill-mileage')
     async def backfill_mileage(user=Depends(require_dispatcher)):

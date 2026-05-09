@@ -168,6 +168,10 @@ export default function WreckerJobNew() {
   const [serviceTypesLive, setServiceTypesLive] = useState(SERVICE_TYPES);
 
   const [form, setForm] = useState({
+    // Sequential industry call number — auto-filled with the next available
+    // number on mount, but the dispatcher can override it (e.g. when
+    // importing legacy jobs or correcting a skipped number).
+    call_number: '',
     // Service / Account
     service_type: 'tow_light_duty',
     priority: 'normal',
@@ -281,6 +285,12 @@ export default function WreckerJobNew() {
         setServiceTypesLive(override);
       }
     }).catch(() => {});
+    // Pre-fetch the next sequential call number so the dispatcher sees it
+    // immediately at the top of the form. They can override before saving.
+    api.get('/wrecker/call-number/next').then((r) => {
+      const next = r?.data?.next;
+      if (next) setForm((f) => ({ ...f, call_number: String(next) }));
+    }).catch(() => {});
   }, []);
 
   // VOICE: One Co-Pilot in charge. The inline Voice Fill bar that lived
@@ -298,7 +308,14 @@ export default function WreckerJobNew() {
 
     try {
       const club = clubs.find((c) => c.id === form.motor_club_id);
+      // Parse the call number — strip non-digits so dispatchers can paste
+      // "#124491" or "Call 124491" and we still extract the integer.
+      const cnRaw = String(form.call_number || '').replace(/[^\d]/g, '');
+      const callNumber = cnRaw ? parseInt(cnRaw, 10) : null;
       const payload = {
+        // Sequential call number. If null, the backend auto-generates the
+        // next available for this tenant.
+        call_number: callNumber,
         service_type: form.service_type,
         priority: form.priority,
         customer: {
@@ -321,8 +338,10 @@ export default function WreckerJobNew() {
           has_keys: form.veh_has_keys,
           key_location: form.veh_key_location || null,
         },
-        pickup: { lat: 0, lng: 0, address: form.pickup_address },
-        dropoff: form.dropoff_address ? { lat: 0, lng: 0, address: form.dropoff_address } : null,
+        // Send addresses without dummy lat/lng — backend GeoPoint now accepts
+        // optional coords and Mapbox geocodes server-side for accurate mileage.
+        pickup: { address: form.pickup_address },
+        dropoff: form.dropoff_address ? { address: form.dropoff_address } : null,
         quoted_price: form.quoted_price ? parseFloat(form.quoted_price) : null,
         motor_club_id: form.motor_club_id || null,
         motor_club_name: club ? club.name : null,
@@ -398,6 +417,29 @@ export default function WreckerJobNew() {
       </div>
 
       <div className="p-4 lg:p-6 max-w-3xl mx-auto space-y-4">
+        {/* ──── CALL # ──── (industry-standard sequential ID — auto-filled,
+             editable. Mike's spec: every wrecker call has a number like
+             #124491 that's referenced on the radio + paperwork.) */}
+        <Card className="bg-amber-500/[0.04] border-amber-500/20 p-4" data-testid="section-call-number">
+          <div className="flex items-center gap-3">
+            <div className="text-[10px] uppercase tracking-widest text-amber-400/90 font-bold whitespace-nowrap">Call #</div>
+            <div className="text-xl font-mono text-amber-200">#</div>
+            <Input
+              data-testid="call-number"
+              type="text"
+              inputMode="numeric"
+              value={form.call_number}
+              onChange={set('call_number')}
+              placeholder="Auto"
+              className="flex-1 bg-[#07090d] border-white/10 text-amber-100 text-lg font-mono tracking-wider h-10 max-w-[200px]"
+              title="Sequential call number for this job. Auto-filled with the next available number; you can override it."
+            />
+            <div className="text-[11px] text-slate-500 hidden sm:block">
+              Auto-filled · editable
+            </div>
+          </div>
+        </Card>
+
         {/* ──── 1. CUSTOMER ──── (always required up top) */}
         <Section title="Customer" testid="section-customer">
           <div className="grid md:grid-cols-2 gap-4">
