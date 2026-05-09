@@ -3,6 +3,7 @@ import '@/App.css';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import Marketing from '@/pages/Marketing';
+import Home from '@/pages/Home';
 import Login from '@/pages/Login';
 import PitchDeck from '@/pages/PitchDeck';
 import Pitch from '@/pages/Pitch';
@@ -101,7 +102,11 @@ function App() {
         <ImpersonationBanner />
         <GlobalCopilotFAB />
         <Routes>
-          <Route path="/" element={<Marketing />} />
+          {/* HOME — the very first page when the app icon is tapped.
+              Three buttons: WreckerLogix · Towing | RoadBoss · Fleet | Investors.
+              Strict product wall — picking one routes into THAT product only. */}
+          <Route path="/" element={<Home />} />
+          <Route path="/marketing" element={<Marketing />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/deck" element={<PitchDeck />} />

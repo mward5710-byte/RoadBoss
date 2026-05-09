@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Logo } from '@/components/Logo';
+import { WreckerLogixLogo } from '@/components/WreckerLogixLogo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { auth, setSession, getUser } from '@/lib/api';
@@ -23,6 +24,13 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
  */
 export default function Login() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Which product is the user trying to sign into? (Set when they pick a
+  // card on the HOME splash, e.g. /login?app=wreckerlogix.) The logo + the
+  // copy below adapts so the Login feels like it belongs to the product
+  // they just chose — strict brand-wall per Mike's V2 spec.
+  const app = (searchParams.get('app') || '').toLowerCase();
+  const isWrecker = app === 'wreckerlogix' || app === 'wrecker';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -82,7 +90,16 @@ export default function Login() {
   return (
     <div className="min-h-screen hp-grid-bg flex items-center justify-center p-5">
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="w-full max-w-md">
-        <div className="flex justify-center mb-8"><Link to="/"><Logo size={36} /></Link></div>
+        {/* Brand lockup — swaps to WreckerLogix when they came in via the
+            wrecker product card on the splash. Bigger size so it reads as
+            "you're entering THIS app", not "generic sign in screen". */}
+        <div className="flex justify-center mb-8">
+          <Link to="/" data-testid="login-brand-link">
+            {isWrecker
+              ? <WreckerLogixLogo size={56} withWordmark />
+              : <Logo size={44} />}
+          </Link>
+        </div>
 
         <div className="hp-panel-bordered rounded-2xl p-6 sm:p-8 hp-glow">
           <div className="text-xs uppercase tracking-widest text-sky-400/80 mb-2">Sign in</div>

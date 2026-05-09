@@ -1,22 +1,30 @@
 [
   {
-    "content": "STRIP the inline Voice Fill bar from New Call form",
+    "content": "Audit current routing + branding",
     "status": "completed"
   },
   {
-    "content": "Remove the auto-start-voice ?voice=1 logic + Hands-Free button on dispatch",
+    "content": "Build HOME splash page at `/` — Investors top, WreckerLogix + RoadBoss big buttons",
     "status": "completed"
   },
   {
-    "content": "Re-enable wake-word 'Hey Co-Pilot' as DEFAULT in GlobalCopilotFAB",
+    "content": "Fix auto-routing bug — PWA `start_url` changed from /login to /",
     "status": "completed"
   },
   {
-    "content": "Audit page for any other mic/listening UI — hide them all except the GlobalCopilotFAB",
+    "content": "WreckerLogix icon at top of every WL page",
     "status": "completed"
   },
   {
-    "content": "Lint check + screenshot New Call to confirm only ONE mic on screen",
+    "content": "Code separation — zero cross-imports verified, modular for repo split",
+    "status": "completed"
+  },
+  {
+    "content": "Login screen swaps to WreckerLogix branding when ?app=wreckerlogix",
+    "status": "completed"
+  },
+  {
+    "content": "Screenshot full flow — verified all routing paths work",
     "status": "completed"
   }
 ]
