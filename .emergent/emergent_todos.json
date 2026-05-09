@@ -1,26 +1,26 @@
 [
   {
-    "content": "Backend: tenant_customizations collection + GET/PUT /api/wrecker/customizations endpoints",
+    "content": "View current WreckerSettings.jsx",
     "status": "completed"
   },
   {
-    "content": "Frontend: new /wrecker/customize route + Editor page in WreckerShell menu",
+    "content": "Rewrite Settings page with Mike's exact heading structure (8 sections)",
     "status": "completed"
   },
   {
-    "content": "Editor module #1: Dropdown Editor for Service Types (add/remove/rename)",
+    "content": "Create Connections page — moved Business Profile + Square Card Processing here",
     "status": "completed"
   },
   {
-    "content": "Wire WreckerJobNew form to read service_types from customizations API (fallback to defaults)",
+    "content": "Add Connections route + sidebar entry",
     "status": "completed"
   },
   {
-    "content": "Password gate + warning dialog before saving universal changes",
+    "content": "Wire toggle states to localStorage (Tier 2 per-device prefs)",
     "status": "completed"
   },
   {
-    "content": "Lint + screenshot + verified full edit → save → reflect-in-form loop",
+    "content": "Lint + screenshot — verified all 8 sections + 3 sidebar entries",
     "status": "completed"
   }
 ]
