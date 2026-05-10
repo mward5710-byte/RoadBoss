@@ -43,7 +43,7 @@ export default function Trips() {
   const vehicleName = (id) => vehicles.find((v) => v.id === id)?.name || '';
 
   return (
-    <div className="p-6 lg:p-8 space-y-5">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-5">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div><div className="text-xs uppercase tracking-widest text-sky-400/80">Operations</div><h1 className="text-3xl font-bold text-white mt-1">Trips</h1></div>
         <div className="flex gap-2">
@@ -75,21 +75,50 @@ export default function Trips() {
       </div>
 
       <div className="hp-panel rounded-xl overflow-hidden">
-        <div className="grid grid-cols-12 px-4 py-3 text-xs uppercase tracking-wider text-slate-500 border-b border-white/5">
-          <div className="col-span-3">Route</div><div className="col-span-3">Driver</div><div className="col-span-2">Vehicle</div><div className="col-span-2">Miles</div><div className="col-span-2">Status</div>
+        {/* Desktop table — hidden on mobile */}
+        <div className="hidden md:block">
+          <div className="grid grid-cols-12 px-4 py-3 text-xs uppercase tracking-wider text-slate-500 border-b border-white/5">
+            <div className="col-span-3">Route</div><div className="col-span-3">Driver</div><div className="col-span-2">Vehicle</div><div className="col-span-2">Miles</div><div className="col-span-2">Status</div>
+          </div>
+          <div className="divide-y divide-white/5">
+            {rows.map((t) => (
+              <div key={t.id} className="grid grid-cols-12 items-center px-4 py-3 hover:bg-white/[0.02]">
+                <div className="col-span-3 flex items-center gap-2 min-w-0"><RouteIcon className="w-4 h-4 text-sky-400 shrink-0" /><div className="text-sm text-white truncate">{t.origin} → {t.destination}</div></div>
+                <div className="col-span-3 text-sm text-slate-300 truncate">{driverName(t.driver_id)}</div>
+                <div className="col-span-2 text-sm text-slate-400 truncate">{vehicleName(t.vehicle_id) || '—'}</div>
+                <div className="col-span-2 text-sm text-slate-300 tabular-nums">{(t.miles || 0).toLocaleString()} mi</div>
+                <div className="col-span-2"><span className={`text-[10px] px-1.5 py-0.5 rounded border uppercase tracking-wider ${statusStyle[t.status]}`}>{t.status}</span><div className="text-[10px] text-slate-500 mt-1">{timeAgo(t.created_at)}</div></div>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="divide-y divide-white/5">
+
+        {/* Mobile card layout — stacked, readable, no overlap */}
+        <div className="md:hidden divide-y divide-white/5">
           {rows.map((t) => (
-            <div key={t.id} className="grid grid-cols-12 items-center px-4 py-3 hover:bg-white/[0.02]">
-              <div className="col-span-3 flex items-center gap-2"><RouteIcon className="w-4 h-4 text-sky-400" /><div className="text-sm text-white truncate">{t.origin} → {t.destination}</div></div>
-              <div className="col-span-3 text-sm text-slate-300">{driverName(t.driver_id)}</div>
-              <div className="col-span-2 text-sm text-slate-400">{vehicleName(t.vehicle_id) || '—'}</div>
-              <div className="col-span-2 text-sm text-slate-300">{(t.miles || 0).toLocaleString()} mi</div>
-              <div className="col-span-2"><span className={`text-[10px] px-1.5 py-0.5 rounded border uppercase tracking-wider ${statusStyle[t.status]}`}>{t.status}</span><div className="text-[10px] text-slate-500 mt-1">{timeAgo(t.created_at)}</div></div>
+            <div key={t.id} className="px-4 py-3 hover:bg-white/[0.02]" data-testid={`trip-card-${t.id}`}>
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="flex items-start gap-2 min-w-0 flex-1">
+                  <RouteIcon className="w-4 h-4 text-sky-400 mt-0.5 shrink-0" />
+                  <div className="text-sm text-white font-medium leading-snug break-words min-w-0">
+                    {t.origin} → {t.destination}
+                  </div>
+                </div>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded border uppercase tracking-wider whitespace-nowrap shrink-0 ${statusStyle[t.status]}`}>{t.status}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400 pl-6">
+                <span><span className="text-slate-600 uppercase tracking-wider text-[10px] mr-1">Driver:</span> {driverName(t.driver_id)}</span>
+                {vehicleName(t.vehicle_id) && (
+                  <span><span className="text-slate-600 uppercase tracking-wider text-[10px] mr-1">Truck:</span> {vehicleName(t.vehicle_id)}</span>
+                )}
+                <span className="tabular-nums"><span className="text-slate-600 uppercase tracking-wider text-[10px] mr-1">Miles:</span> {(t.miles || 0).toLocaleString()}</span>
+                <span className="text-slate-600">{timeAgo(t.created_at)}</span>
+              </div>
             </div>
           ))}
-          {rows.length === 0 && <div className="p-6 text-sm text-slate-500">No trips yet.</div>}
         </div>
+
+        {rows.length === 0 && <div className="p-6 text-sm text-slate-500">No trips yet.</div>}
       </div>
     </div>
   );

@@ -134,6 +134,25 @@ export default function Home() {
         />
       </div>
 
+      {/* Public CTA — start a 14-day free trial of WreckerLogix.
+          Anyone (even unauth'd visitors) can self-serve sign up. */}
+      {!user && (
+        <div className="relative z-10 max-w-2xl mx-auto px-5 mt-8 text-center">
+          <button
+            type="button"
+            onClick={() => navigate('/wrecker/signup')}
+            data-testid="home-start-trial"
+            className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-amber-500 text-slate-950 hover:bg-amber-400 font-bold text-sm transition shadow-lg shadow-amber-500/20"
+          >
+            Start a 14-day free trial
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <div className="text-[11px] text-slate-500 mt-3">
+            No card required · Cancel anytime · Half the price of the closest competitor
+          </div>
+        </div>
+      )}
+
       {/* Footer — small print so the page still feels finished */}
       <div className="relative z-10 max-w-3xl mx-auto px-5 mt-12 sm:mt-20 pb-10 text-center">
         <div className="text-[11px] uppercase tracking-[0.32em] text-slate-600">

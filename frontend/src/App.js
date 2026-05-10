@@ -76,6 +76,8 @@ import WreckerBilling from '@/pages/wrecker/WreckerBilling';
 import WreckerSettings from '@/pages/wrecker/WreckerSettings';
 import WreckerConnections from '@/pages/wrecker/WreckerConnections';
 import WreckerCustomize from '@/pages/wrecker/WreckerCustomize';
+import WreckerSignup from '@/pages/wrecker/WreckerSignup';
+import WreckerSetupWizard from '@/pages/wrecker/WreckerSetupWizard';
 import WreckerAccounting from '@/pages/wrecker/WreckerAccounting';
 import WreckerPhotoVault from '@/pages/wrecker/WreckerPhotoVault';
 import WreckerNavigation from '@/pages/wrecker/WreckerNavigation';
@@ -175,9 +177,14 @@ function App() {
             <Route path="profile" element={<DriverProfile />} />
           </Route>
 
+          {/* Public self-serve signup for new tow companies (no auth) */}
+          <Route path="/signup" element={<Navigate to="/wrecker/signup" replace />} />
+          <Route path="/wrecker/signup" element={<WreckerSignup />} />
+
           <Route path="/wrecker" element={<RequireAuth roles={WRECKER_ROLES}><WreckerShell /></RequireAuth>}>
             <Route index element={<WreckerDashboard />} />
             <Route path="me" element={<WreckerDriverHome />} />
+            <Route path="setup" element={<WreckerSetupWizard />} />
             <Route path="jobs/new" element={<WreckerJobNew />} />
             <Route path="jobs/:id" element={<WreckerJobCockpit />} />
             <Route path="quotes/:id" element={<WreckerQuoteDetail />} />

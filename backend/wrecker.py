@@ -399,6 +399,183 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
     require_supervisor = require_role('wrecker_supervisor', 'fleet_admin')
 
     # =========================================================
+    # Self-Service Signup & Tenant Lifecycle
+    # ---------------------------------------------------------
+    # When a tow company owner signs up via /wrecker/signup we:
+    #   1. Create a `tenants` doc with a 14-day free trial countdown.
+    #   2. Create a `users` doc as the OWNER (role=wrecker_supervisor) with
+    #      that tenant_id baked in.
+    #   3. Issue a JWT and bounce them to the Setup Wizard.
+    #
+    # PRICING TIERS (locked — half of Towbook):
+    #   Starter   $25 / 250 calls       — solo operator
+    #   Pro       $49 / 500 calls       — small shop (3-5 trucks)
+    #   Business  $99 / 1000 calls      — mid-size
+    #   Fleet     $145 / 1500 calls     — large fleet
+    #   Enterprise $199 / 2000+ calls   — multi-location
+    #
+    # All plans start with a 14-day free trial. No card on signup.
+    # =========================================================
+
+    PLAN_TIERS = {
+        'trial':       {'name': 'Free Trial',   'price_monthly': 0,   'call_limit': 250,  'trial_days': 14},
+        'starter':     {'name': 'Starter',      'price_monthly': 25,  'call_limit': 250},
+        'pro':         {'name': 'Pro',          'price_monthly': 49,  'call_limit': 500},
+        'business':    {'name': 'Business',     'price_monthly': 99,  'call_limit': 1000},
+        'fleet':       {'name': 'Fleet',        'price_monthly': 145, 'call_limit': 1500},
+        'enterprise':  {'name': 'Enterprise',   'price_monthly': 199, 'call_limit': 2500},
+    }
+
+    class WreckerSignupIn(BaseModel):
+        company_name: str
+        owner_name: str
+        email: str
+        password: str
+        phone: Optional[str] = None
+        # Optional pricing pre-selection — defaults to free trial
+        plan: Optional[str] = 'trial'
+
+    @router.post('/signup')
+    async def wrecker_signup(body: WreckerSignupIn):
+        """Public — anyone can sign up a tow company. No auth required."""
+        # Validate
+        company = (body.company_name or '').strip()
+        owner = (body.owner_name or '').strip()
+        email = (body.email or '').strip().lower()
+        if not company or not owner or not email or not body.password:
+            raise HTTPException(400, 'Company name, owner name, email, and password are required.')
+        if '@' not in email or '.' not in email:
+            raise HTTPException(400, 'Valid email address required.')
+        if len(body.password) < 8:
+            raise HTTPException(400, 'Password must be at least 8 characters.')
+
+        # Email already taken?
+        existing = await db.users.find_one({'email': email})
+        if existing:
+            raise HTTPException(400, 'That email is already registered. Try logging in instead.')
+
+        # Hash password (reuse main bcrypt helper)
+        try:
+            from server import hash_password as _hash_password, create_token as _create_token
+        except Exception:
+            raise HTTPException(500, 'Auth subsystem not available.')
+
+        # Issue tenant + owner user
+        tenant_id = _new_id()
+        plan_key = body.plan if body.plan in PLAN_TIERS else 'trial'
+        plan = PLAN_TIERS[plan_key]
+        trial_ends = _now() + timedelta(days=plan.get('trial_days', 14)) if plan_key == 'trial' else None
+
+        tenant_doc = {
+            'id': tenant_id,
+            'name': company,
+            'owner_email': email,
+            'owner_name': owner,
+            'phone': (body.phone or '').strip() or None,
+            'plan': plan_key,
+            'plan_name': plan['name'],
+            'price_monthly': plan['price_monthly'],
+            'call_limit': plan['call_limit'],
+            'trial_ends_at': trial_ends,
+            'subscription_status': 'trialing' if plan_key == 'trial' else 'pending_payment',
+            'setup_completed': False,
+            'created_at': _now(),
+            'updated_at': _now(),
+        }
+        await db.tenants.insert_one(tenant_doc)
+
+        owner_doc = {
+            'id': _new_id(),
+            'email': email,
+            'name': owner,
+            'phone': (body.phone or '').strip() or None,
+            'role': 'wrecker_supervisor',  # owner = supervisor (full powers within their tenant)
+            'tenant_id': tenant_id,
+            'is_owner': True,
+            'password_hash': _hash_password(body.password),
+            'created_at': _now(),
+        }
+        await db.users.insert_one(owner_doc)
+
+        # Issue JWT (10-year per Mike's "set and forget" policy)
+        token = _create_token(owner_doc['id'], owner_doc['email'], owner_doc['role'])
+        safe_user = serialize_doc({k: v for k, v in owner_doc.items() if k != 'password_hash'})
+
+        return {
+            'access_token': token,
+            'token_type': 'bearer',
+            'user': safe_user,
+            'tenant': serialize_doc(tenant_doc),
+            'next_step': '/wrecker/setup',
+        }
+
+    @router.get('/tenant')
+    async def get_my_tenant(user=Depends(require_wrecker)):
+        """Returns the tenant the signed-in user belongs to. Includes
+        plan, trial state, and setup_completed so the wizard knows
+        whether to redirect away from itself."""
+        tenant_id = user.get('tenant_id')
+        if not tenant_id or tenant_id == 'default':
+            # Legacy / demo accounts — synthesize a minimal record
+            return {
+                'id': 'default',
+                'name': 'Default Workspace',
+                'plan': 'enterprise',
+                'plan_name': 'Enterprise',
+                'subscription_status': 'active',
+                'setup_completed': True,
+                'is_legacy': True,
+            }
+        doc = await db.tenants.find_one({'id': tenant_id}, {'_id': 0})
+        if not doc:
+            raise HTTPException(404, 'Tenant not found.')
+        # Compute trial days remaining for the UI
+        if doc.get('trial_ends_at'):
+            try:
+                te = doc['trial_ends_at']
+                if isinstance(te, str):
+                    te = datetime.fromisoformat(te.replace('Z', '+00:00'))
+                # Mongo can return tz-naive datetimes; force UTC so the math works.
+                if te.tzinfo is None:
+                    te = te.replace(tzinfo=timezone.utc)
+                remaining = (te - _now()).total_seconds() / 86400
+                doc['trial_days_remaining'] = max(0, int(remaining))
+            except Exception:
+                doc['trial_days_remaining'] = None
+        return serialize_doc(doc)
+
+    class TenantUpdateIn(BaseModel):
+        name: Optional[str] = None
+        phone: Optional[str] = None
+        address: Optional[str] = None
+        city: Optional[str] = None
+        state: Optional[str] = None
+        zip_code: Optional[str] = None
+        timezone: Optional[str] = None
+        setup_completed: Optional[bool] = None
+
+    @router.put('/tenant')
+    async def update_my_tenant(body: TenantUpdateIn, user=Depends(require_supervisor)):
+        """Owner/supervisor can update their tenant record — used by the
+        Setup Wizard to save company info on Step 1."""
+        tenant_id = user.get('tenant_id')
+        if not tenant_id or tenant_id == 'default':
+            raise HTTPException(400, 'No tenant on this account.')
+        updates = {k: v for k, v in body.model_dump().items() if v is not None}
+        if not updates:
+            return {'ok': True, 'message': 'Nothing to update.'}
+        updates['updated_at'] = _now()
+        await db.tenants.update_one({'id': tenant_id}, {'$set': updates})
+        doc = await db.tenants.find_one({'id': tenant_id}, {'_id': 0})
+        return serialize_doc(doc)
+
+    @router.get('/plans')
+    async def list_plans():
+        """Public list of pricing tiers — used on signup + upgrade pages."""
+        return {'plans': PLAN_TIERS}
+
+
+    # =========================================================
     # Mapbox geocoding + driving-distance helpers
     # ---------------------------------------------------------
     # Two real numbers Mike asked for on every tow card:
