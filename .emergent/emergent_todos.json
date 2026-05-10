@@ -1,18 +1,30 @@
 [
   {
-    "content": "Remove auto-redirect bypass in Login.jsx that skips the Home splash",
+    "content": "Rewrite WreckerCustomize.jsx with all 9 modules (mini-app builder)",
     "status": "completed"
   },
   {
-    "content": "Add explicit id field to manifest.json so iPhone PWA refreshes scope",
+    "content": "Wire WreckerJobNew.jsx to read body_types, drive_types, charge_catalog, call_form_fields from customizations",
     "status": "completed"
   },
   {
-    "content": "Bump service-worker version so iPhone clears stale shell",
+    "content": "Wire WreckerShell.jsx to apply menu_items overrides (hide/rename nav items)",
     "status": "completed"
   },
   {
-    "content": "Verify no regressions: super_admin, wrecker_operator, driver login flows still route correctly",
+    "content": "Add FuelCloud slot to WreckerConnections.jsx",
+    "status": "completed"
+  },
+  {
+    "content": "Write developer guide /app/memory/WRECKER_DEV_GUIDE.md",
+    "status": "completed"
+  },
+  {
+    "content": "Update plan.md with completed work + queued Quote Detail + QuickBooks",
+    "status": "completed"
+  },
+  {
+    "content": "Verify build + screenshot the new Customize page",
     "status": "completed"
   }
 ]

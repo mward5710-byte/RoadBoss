@@ -166,6 +166,19 @@ export default function WreckerJobNew() {
   // Mike's Editor (/wrecker/customize) writes here and the form picks it up
   // on next mount with zero further wiring.
   const [serviceTypesLive, setServiceTypesLive] = useState(SERVICE_TYPES);
+  // Same pattern for the rest of the customizable lookups. Each falls back
+  // to the in-file defaults when the tenant hasn't overridden anything.
+  const [bodyTypesLive, setBodyTypesLive] = useState(BODY_TYPES);
+  const [driveTypesLive, setDriveTypesLive] = useState(
+    DRIVE_TYPES.map((d) => [d.toLowerCase(), d])
+  );
+  const [chargeCatalogLive, setChargeCatalogLive] = useState(CHARGE_CATALOG);
+  // Form-field section toggles — { customer: true, vehicle: true, ... }
+  // Defaults to ALL ON; tenant can hide entire sections via the Customize page.
+  const [formSections, setFormSections] = useState({
+    customer: true, vehicle: true, drivers: true, account: true,
+    location: true, charges: true, billing: true,
+  });
 
   const [form, setForm] = useState({
     // Sequential industry call number — auto-filled with the next available
@@ -225,8 +238,8 @@ export default function WreckerJobNew() {
   const [chargePickerOpen, setChargePickerOpen] = useState(false);
   const [chargeSearch, setChargeSearch] = useState('');
   const filteredCatalog = chargeSearch.trim()
-    ? CHARGE_CATALOG.filter((c) => c.label.toLowerCase().includes(chargeSearch.toLowerCase()))
-    : CHARGE_CATALOG;
+    ? chargeCatalogLive.filter((c) => c.label.toLowerCase().includes(chargeSearch.toLowerCase()))
+    : chargeCatalogLive;
 
   const addPendingCharge = (preset) => {
     let label = preset.label;
@@ -276,13 +289,28 @@ export default function WreckerJobNew() {
   useEffect(() => {
     api.get('/wrecker/motor-clubs').then((r) => setClubs(r.data)).catch(() => {});
     api.get('/wrecker/drivers').then((r) => setDrivers(r.data)).catch(() => {});
-    // Pull universal customizations (Tier 1). If the company has overridden
-    // the service_types list, use it; otherwise stick with the built-in
-    // SERVICE_TYPES fallback.
+    // Pull universal customizations (Tier 1). For each list, if the tenant
+    // has saved an override we use it; otherwise we fall back to the
+    // in-file defaults. This lets Mike's Editor (/wrecker/customize) reshape
+    // the New Call form without any code changes here.
     api.get('/wrecker/customizations').then((r) => {
-      const override = r?.data?.service_types;
-      if (Array.isArray(override) && override.length > 0) {
-        setServiceTypesLive(override);
+      const c = r?.data || {};
+      const ext = c.extras || {};
+      if (Array.isArray(c.service_types) && c.service_types.length > 0) {
+        setServiceTypesLive(c.service_types);
+      }
+      if (Array.isArray(c.body_types) && c.body_types.length > 0) {
+        setBodyTypesLive(c.body_types);
+      }
+      if (Array.isArray(ext.drive_types) && ext.drive_types.length > 0) {
+        setDriveTypesLive(ext.drive_types);
+      }
+      if (Array.isArray(c.charges) && c.charges.length > 0) {
+        // Editor stores {key, label, rate, unit}; existing form expects same shape.
+        setChargeCatalogLive(c.charges);
+      }
+      if (c.call_form_fields && typeof c.call_form_fields === 'object') {
+        setFormSections((s) => ({ ...s, ...c.call_form_fields }));
       }
     }).catch(() => {});
     // Pre-fetch the next sequential call number so the dispatcher sees it
@@ -441,6 +469,7 @@ export default function WreckerJobNew() {
         </Card>
 
         {/* ──── 1. CUSTOMER ──── (always required up top) */}
+        {formSections.customer !== false && (
         <Section title="Customer" testid="section-customer">
           <div className="grid md:grid-cols-2 gap-4">
             <div>
@@ -457,14 +486,16 @@ export default function WreckerJobNew() {
             </div>
           </div>
         </Section>
+        )}
 
         {/* ──── 2. VEHICLE DETAILS ──── */}
+        {formSections.vehicle !== false && (
         <Section title="Vehicle Details" testid="section-vehicle">
           <div>
             <Label>Body Type</Label>
             <Select value={form.body_type} onValueChange={(v) => setField('body_type', v)}>
               <SelectTrigger data-testid="body-type" className="bg-[#07090d] border-white/10 text-white"><SelectValue /></SelectTrigger>
-              <SelectContent>{BODY_TYPES.map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
+              <SelectContent>{bodyTypesLive.map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
             </Select>
           </div>
 
@@ -529,7 +560,7 @@ export default function WreckerJobNew() {
               <Label>Drive Type</Label>
               <Select value={form.veh_drive_type} onValueChange={(v) => setField('veh_drive_type', v)}>
                 <SelectTrigger data-testid="veh-drive-type" className="bg-[#07090d] border-white/10 text-white"><SelectValue placeholder="—" /></SelectTrigger>
-                <SelectContent>{DRIVE_TYPES.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+                <SelectContent>{driveTypesLive.map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div>
@@ -560,8 +591,10 @@ export default function WreckerJobNew() {
             </div>
           </div>
         </Section>
+        )}
 
         {/* ──── 3. DRIVERS & TRUCKS ──── */}
+        {formSections.drivers !== false && (
         <Section title="Drivers & Trucks" badge={assignedDriverIds.length ? `${assignedDriverIds.length} assigned` : null} testid="section-drivers">
           {assignedDriverIds.length === 0 ? (
             <button
@@ -614,8 +647,10 @@ export default function WreckerJobNew() {
             </div>
           )}
         </Section>
+        )}
 
         {/* ──── 4. ACCOUNT & CALL DETAILS ──── */}
+        {formSections.account !== false && (
         <Section title="Account & Call Details" testid="section-account">
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
@@ -706,8 +741,10 @@ export default function WreckerJobNew() {
             <Textarea data-testid="notes" value={form.notes} onChange={set('notes')} rows={3} placeholder="Hazards, gate codes, special instructions..." />
           </div>
         </Section>
+        )}
 
         {/* ──── 5. LOCATION ──── */}
+        {formSections.location !== false && (
         <Section title="Location" testid="section-location">
           <div>
             <Label className="block mb-1">Type</Label>
@@ -765,8 +802,10 @@ export default function WreckerJobNew() {
             </div>
           </div>
         </Section>
+        )}
 
         {/* ──── 6. CHARGES ──── */}
+        {formSections.charges !== false && (
         <Section title="Charges" badge={pendingCharges.length ? `${pendingCharges.length} item${pendingCharges.length === 1 ? '' : 's'}` : null} testid="section-charges">
           <div>
             <Label>Quoted Price (main)</Label>
@@ -829,8 +868,10 @@ export default function WreckerJobNew() {
             </div>
           </div>
         </Section>
+        )}
 
         {/* Footer billing methods */}
+        {formSections.billing !== false && (
         <Section title="Billing" testid="section-billing" defaultOpen={false}>
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
@@ -859,6 +900,7 @@ export default function WreckerJobNew() {
             </div>
           </div>
         </Section>
+        )}
       </div>
 
       {/* Charge picker modal — same 28-item searchable list as cockpit */}

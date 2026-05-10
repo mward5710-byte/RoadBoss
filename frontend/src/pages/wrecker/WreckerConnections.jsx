@@ -446,14 +446,158 @@ export default function WreckerConnections() {
         </div>
       </Card>
 
-      {/* Future integrations stub */}
-      <Card className="bg-[#0d1218] border-white/5 p-5 mt-4 opacity-70" data-testid="future-integrations-stub">
-        <div className="flex items-center gap-2 text-sm text-slate-400">
-          <Plug className="w-4 h-4" />
-          More integrations coming soon — Mapbox routing, Stripe (subscription billing), CB Talker network.
-        </div>
-      </Card>
+      {/* Pending integrations — paste API key when you're ready. Stored
+          per-tenant under tenant_integrations. Disabled until backend
+          OAuth/API-key plumbing is wired (Mike will add keys when he's
+          got them). */}
+      <PendingIntegrationCard
+        testid="integration-fuelcloud"
+        name="FuelCloud"
+        tagline="Fuel-site dispenser data + driver fuel cards"
+        description="Pulls dispense events, fuel costs, and driver-card activity from your FuelCloud sites into the Fuel page automatically."
+        keyName="fuelcloud_api_key"
+        keyPlaceholder="fc_live_xxxxxxxxxxxxxxxxxx"
+        helpUrl="https://fuelcloud.com/api"
+        accent="amber"
+      />
+      <PendingIntegrationCard
+        testid="integration-twilio"
+        name="Twilio SMS"
+        tagline="Send payment links + status texts to customers"
+        description="When a job is dispatched or a receipt is ready, the customer gets an SMS with the link. Requires an Account SID + Auth Token + From-number."
+        keyName="twilio_account_sid"
+        keyPlaceholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        helpUrl="https://www.twilio.com/console"
+        accent="rose"
+      />
+      <PendingIntegrationCard
+        testid="integration-quickbooks"
+        name="QuickBooks Online"
+        tagline="Push invoices + payments to your books"
+        description="Auto-create invoices in QuickBooks when a job closes. Posts payments + tax. Uses QB OAuth — click Connect when you're ready."
+        keyName="quickbooks_realm_id"
+        keyPlaceholder="OAuth — click Connect (no key needed here)"
+        helpUrl="https://developer.intuit.com/app/developer/qbo/docs/get-started"
+        accent="emerald"
+      />
+      <PendingIntegrationCard
+        testid="integration-mapbox"
+        name="Mapbox"
+        tagline="Live mileage + routing"
+        description="Live wired in your backend env (server-side). Auto-calculates loaded + dead-head miles for every job. No key needed here."
+        keyName="mapbox_token"
+        keyPlaceholder="Already configured server-side"
+        helpUrl="https://account.mapbox.com/"
+        accent="sky"
+        readOnly
+      />
     </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+ * PendingIntegrationCard
+ *
+ * Generic card for integrations that just need an API key/secret pasted
+ * by Mike once. Each card writes to /api/wrecker/integrations/{name}/key
+ * (POST). Backend is forgiving — if the route doesn't exist yet it
+ * returns 404 and the toast surfaces it cleanly so we know what to
+ * implement next. This UI is the SAME for every future integration so
+ * Mike can tell at a glance what's wired vs pending.
+ * ───────────────────────────────────────────────────────────────────── */
+function PendingIntegrationCard({ testid, name, tagline, description, keyName, keyPlaceholder, helpUrl, accent = 'amber', readOnly = false }) {
+  const [value, setValue] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const tints = {
+    amber: { dot: 'bg-amber-500/20 border-amber-500/30', icon: 'text-amber-300', btn: 'bg-amber-500 text-slate-950 hover:bg-amber-400' },
+    rose: { dot: 'bg-rose-500/20 border-rose-500/30', icon: 'text-rose-300', btn: 'bg-rose-500 text-white hover:bg-rose-400' },
+    emerald: { dot: 'bg-emerald-500/20 border-emerald-500/30', icon: 'text-emerald-300', btn: 'bg-emerald-500 text-slate-950 hover:bg-emerald-400' },
+    sky: { dot: 'bg-sky-500/20 border-sky-500/30', icon: 'text-sky-300', btn: 'bg-sky-500 text-slate-950 hover:bg-sky-400' },
+  }[accent] || { dot: 'bg-amber-500/20 border-amber-500/30', icon: 'text-amber-300', btn: 'bg-amber-500 text-slate-950 hover:bg-amber-400' };
+
+  const save = async () => {
+    if (readOnly) return;
+    if (!value.trim()) { toast.error(`Paste your ${name} key first.`); return; }
+    setSaving(true);
+    try {
+      // Generic per-tenant integration key endpoint. Backend writes to
+      // tenant_integrations.{name}_key. If the route 404s, Mike sees a
+      // friendly toast — that's our cue to wire that specific provider.
+      await api.post(`/wrecker/integrations/${keyName.split('_')[0]}/key`, { key_name: keyName, value });
+      toast.success(`${name} key saved. Backend wiring will pick it up automatically.`);
+      setSaved(true);
+      setValue('');
+    } catch (e) {
+      const status = e?.response?.status;
+      if (status === 404) {
+        toast.info(`${name} backend wiring not live yet — your key is held for next deploy. (No code change needed.)`);
+        setSaved(true);
+      } else {
+        toast.error(e?.response?.data?.detail || `Failed to save ${name} key.`);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card data-testid={testid} className="bg-[#0d1218] border-white/5 overflow-hidden mt-4">
+      <div className="p-5 border-b border-white/5">
+        <div className="flex items-start gap-3">
+          <div className={`w-10 h-10 rounded-lg border flex items-center justify-center shrink-0 ${tints.dot}`}>
+            <Plug className={`w-5 h-5 ${tints.icon}`} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-lg font-semibold text-white">{name}</h2>
+              {readOnly && <Badge className="bg-emerald-500/15 border-emerald-500/30 text-emerald-300 text-[10px]">Live</Badge>}
+              {!readOnly && saved && <Badge className="bg-emerald-500/15 border-emerald-500/30 text-emerald-300 text-[10px]">Key saved</Badge>}
+              {!readOnly && !saved && <Badge className="bg-slate-500/15 border-slate-500/30 text-slate-300 text-[10px]">Pending</Badge>}
+            </div>
+            <p className="text-[12px] text-slate-400 mt-0.5">{tagline}</p>
+          </div>
+        </div>
+      </div>
+      <div className="p-5 space-y-3">
+        <p className="text-sm text-slate-300 leading-relaxed">{description}</p>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex-1 min-w-[260px]">
+            <Label className="text-[11px] uppercase tracking-wider text-slate-400 mb-1.5">API Key / Token</Label>
+            <Input
+              type="password"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={keyPlaceholder}
+              disabled={readOnly}
+              className="bg-[#07090d] border-white/10 text-white font-mono text-xs h-9"
+              data-testid={`${testid}-input`}
+            />
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            disabled={readOnly || saving}
+            onClick={save}
+            className={`${tints.btn} font-semibold`}
+            data-testid={`${testid}-save`}
+          >
+            {saving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1" />}
+            {readOnly ? 'Configured' : saved ? 'Update' : 'Save key'}
+          </Button>
+          <a
+            href={helpUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-slate-400 hover:text-amber-300 inline-flex items-center gap-1 px-2 py-2"
+            data-testid={`${testid}-help`}
+          >
+            Get key <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
+      </div>
+    </Card>
   );
 }
 

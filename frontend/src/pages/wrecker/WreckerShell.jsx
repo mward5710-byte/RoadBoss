@@ -3,46 +3,48 @@ import { Outlet, NavLink, useNavigate, Link, Navigate, useLocation } from 'react
 import {
   LayoutDashboard, Truck, Lock, Building2, Fuel, CreditCard, LogOut,
   User, BookOpen, Mic, Wrench, Briefcase, Clock, Settings, Sliders, Plug,
-  BarChart3, Camera, Navigation as NavIcon, Menu, X,
+  BarChart3, Camera, Navigation as NavIcon, Menu, X, ExternalLink,
 } from 'lucide-react';
-import { auth, getUser } from '@/lib/api';
+import { auth, getUser, api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { WreckerLogixLogo } from '@/components/WreckerLogixLogo';
 
 // Sidebar nav grouped into sections:
 //   OPERATIONS — day-to-day dispatch + driving stuff
 //   OFFICE     — back-office stuff your wife / bookkeeper lives in (accounting, photos, settings)
+// Each item has a stable `key` that matches the DEFAULT_NAV_ITEMS list in
+// WreckerCustomize.jsx so the editor can hide/rename items by key.
 const NAV_GROUPS = [
   {
     section: 'Operations',
     items: [
-      { to: '/wrecker',            icon: LayoutDashboard, label: 'Dispatch Board', end: true,  roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-      { to: '/wrecker/me',         icon: Truck,           label: 'My Calls',       end: true,  roles: ['wrecker_operator'] },
-      { to: '/wrecker/jobs/new',   icon: Truck,           label: 'New Tow Job',                  roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-      { to: '/wrecker/navigation', icon: NavIcon,         label: 'Navigation',                    roles: ['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-      { to: '/wrecker/clock',      icon: Clock,           label: 'Time Clock',                    roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_operator'] },
-      { to: '/wrecker/trucks',     icon: Wrench,          label: 'Trucks',                        roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_operator'] },
-      { to: '/wrecker/impound',    icon: Lock,            label: 'Impound',                       roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-      { to: '/wrecker/accounts',   icon: Briefcase,       label: 'Accounts',                      roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-      { to: '/wrecker/clubs',      icon: Building2,       label: 'Motor Clubs',                   roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-      { to: '/wrecker/fuel',       icon: Fuel,            label: 'Fuel',                          roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_operator'] },
+      { key: 'dispatch',    to: '/wrecker',            icon: LayoutDashboard, label: 'Dispatch Board', end: true,  roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { key: 'my_calls',    to: '/wrecker/me',         icon: Truck,           label: 'My Calls',       end: true,  roles: ['wrecker_operator'] },
+      { key: 'new_job',     to: '/wrecker/jobs/new',   icon: Truck,           label: 'New Tow Job',                  roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { key: 'navigation',  to: '/wrecker/navigation', icon: NavIcon,         label: 'Navigation',                    roles: ['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { key: 'clock',       to: '/wrecker/clock',      icon: Clock,           label: 'Time Clock',                    roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_operator'] },
+      { key: 'trucks',      to: '/wrecker/trucks',     icon: Wrench,          label: 'Trucks',                        roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_operator'] },
+      { key: 'impound',     to: '/wrecker/impound',    icon: Lock,            label: 'Impound',                       roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { key: 'accounts',    to: '/wrecker/accounts',   icon: Briefcase,       label: 'Accounts',                      roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { key: 'clubs',       to: '/wrecker/clubs',      icon: Building2,       label: 'Motor Clubs',                   roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { key: 'fuel',        to: '/wrecker/fuel',       icon: Fuel,            label: 'Fuel',                          roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_operator'] },
     ],
   },
   {
     section: 'Office',
     items: [
-      { to: '/wrecker/billing',    icon: CreditCard,      label: 'Billing',                       roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-      { to: '/wrecker/accounting', icon: BarChart3,       label: 'Accounting',                    roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-      { to: '/wrecker/photos',     icon: Camera,          label: 'Photo Vault',                   roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_dispatcher'] },
-      { to: '/wrecker/customize',  icon: Sliders,         label: 'Customize',                     roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-      { to: '/wrecker/connections', icon: Plug,           label: 'Connections',                   roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
-      { to: '/wrecker/settings',   icon: Settings,        label: 'Settings',                      roles: ['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { key: 'billing',     to: '/wrecker/billing',    icon: CreditCard,      label: 'Billing',                       roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { key: 'accounting',  to: '/wrecker/accounting', icon: BarChart3,       label: 'Accounting',                    roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { key: 'photos',      to: '/wrecker/photos',     icon: Camera,          label: 'Photo Vault',                   roles: ['wrecker_supervisor', 'fleet_admin', 'super_admin', 'wrecker_dispatcher'] },
+      { key: 'customize',   to: '/wrecker/customize',  icon: Sliders,         label: 'Customize',                     roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { key: 'connections', to: '/wrecker/connections', icon: Plug,           label: 'Connections',                   roles: ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
+      { key: 'settings',    to: '/wrecker/settings',   icon: Settings,        label: 'Settings',                      roles: ['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin', 'super_admin'] },
     ],
   },
   {
     section: 'My Stuff',
     items: [
-      { to: '/wrecker/photos',     icon: Camera,          label: 'My Photos',                     roles: ['wrecker_operator'] },
+      { key: 'my_photos',   to: '/wrecker/photos',     icon: Camera,          label: 'My Photos',                     roles: ['wrecker_operator'] },
     ],
   },
 ];
@@ -82,15 +84,68 @@ export default function WreckerShell() {
     return () => { document.body.style.overflow = original; };
   }, [mobileOpen]);
 
+  // ── Tier 1 customizations: hide / rename nav items + render custom links.
+  //    Saved by Mike on /wrecker/customize. Falls back to defaults silently.
+  const [navOverrides, setNavOverrides] = useState(null); // { byKey: {...}, customs: [...] }
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/wrecker/customizations').then((r) => {
+      if (cancelled) return;
+      const items = Array.isArray(r?.data?.menu_items) ? r.data.menu_items : [];
+      if (items.length === 0) { setNavOverrides({ byKey: {}, customs: [] }); return; }
+      const byKey = {};
+      const customs = [];
+      const coreKeys = new Set();
+      NAV_GROUPS.forEach((g) => g.items.forEach((it) => coreKeys.add(it.key)));
+      items.forEach((m) => {
+        if (coreKeys.has(m.key)) byKey[m.key] = m;
+        else if (m.label && m.to) customs.push(m);
+      });
+      setNavOverrides({ byKey, customs });
+    }).catch(() => setNavOverrides({ byKey: {}, customs: [] }));
+    return () => { cancelled = true; };
+  }, []);
+
   // If a driver lands on the dispatch board (/wrecker), bounce them to /wrecker/me
   if (role === 'wrecker_operator' && (location.pathname === '/wrecker' || location.pathname === '/wrecker/')) {
     return <Navigate to="/wrecker/me" replace />;
   }
 
-  const visibleGroups = NAV_GROUPS.map((g) => ({
-    ...g,
-    items: g.items.filter((n) => n.roles.includes(role) || role === 'super_admin'),
-  })).filter((g) => g.items.length > 0);
+  const visibleGroups = (() => {
+    const overrides = navOverrides?.byKey || {};
+    const groups = NAV_GROUPS.map((g) => ({
+      ...g,
+      items: g.items
+        // Role gate first
+        .filter((n) => n.roles.includes(role) || role === 'super_admin')
+        // Then apply tenant overrides (hide if visible === false)
+        .filter((n) => {
+          const o = overrides[n.key];
+          return !(o && o.visible === false);
+        })
+        // Then rename if override label is present
+        .map((n) => {
+          const o = overrides[n.key];
+          return o && o.label ? { ...n, label: o.label } : n;
+        }),
+    })).filter((g) => g.items.length > 0);
+
+    // Append any user-added custom links as their own "Custom" group.
+    const customs = (navOverrides?.customs || []).filter((m) => m.visible !== false && m.label && m.to);
+    if (customs.length > 0) {
+      groups.push({
+        section: 'Custom',
+        items: customs.map((m) => ({
+          key: m.key,
+          to: m.to,
+          icon: ExternalLink,
+          label: m.label,
+          end: false,
+        })),
+      });
+    }
+    return groups;
+  })();
 
   /* ---------------- Sidebar contents (shared between desktop aside + mobile drawer) ---------------- */
   const sidebarContents = (
@@ -135,7 +190,7 @@ export default function WreckerShell() {
             {group.items.map((n) => (
               <NavLink
                 data-testid={`wrecker-nav-${n.label.toLowerCase().replace(/\s+/g, '-')}`}
-                key={n.to}
+                key={n.key || n.to}
                 to={n.to}
                 end={n.end}
                 onClick={() => setMobileOpen(false)}
