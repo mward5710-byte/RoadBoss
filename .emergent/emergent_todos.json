@@ -1,22 +1,18 @@
 [
   {
-    "content": "Backend: call_number field + atomic counter + auto-gen in create_job",
+    "content": "Remove auto-redirect bypass in Login.jsx that skips the Home splash",
     "status": "completed"
   },
   {
-    "content": "Backend: GET /call-number/next + POST /call-number/start endpoints",
+    "content": "Add explicit id field to manifest.json so iPhone PWA refreshes scope",
     "status": "completed"
   },
   {
-    "content": "Frontend: New Call form Call # field at top",
+    "content": "Bump service-worker version so iPhone clears stale shell",
     "status": "completed"
   },
   {
-    "content": "Frontend: display call_number on Dispatch cards + Cockpit header",
-    "status": "completed"
-  },
-  {
-    "content": "Lint + smoke test full create → display loop",
+    "content": "Verify no regressions: super_admin, wrecker_operator, driver login flows still route correctly",
     "status": "completed"
   }
 ]

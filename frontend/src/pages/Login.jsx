@@ -42,25 +42,24 @@ export default function Login() {
   const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const showDemo = params.get('demo') === '1';
 
-  // Surface Google OAuth errors from query string
+  // Surface Google OAuth errors from query string. We INTENTIONALLY do NOT
+  // auto-redirect already-signed-in users from /login anymore. Mike's V2
+  // architecture (see /app/memory/v2_architecture_spec.md §2) makes the Home
+  // splash the single entry point — every cold-start must show the
+  // WreckerLogix · RoadBoss · Investors picker first. The previous auto-
+  // redirect was bypassing that splash for anyone whose iPhone PWA icon was
+  // installed back when start_url=/login (because the home-screen icon kept
+  // launching /login and skipping straight into the cab).
   React.useEffect(() => {
     const ge = params.get('google_error');
     if (ge) toast.error(`Google sign-in: ${ge}`);
-    // Auto-redirect already-authenticated users to their landing page so the
-    // PWA home-screen icon (start_url=/login) drops them right into work
-    // instead of forcing them through the login form again every cold start.
+    // If somebody hits /login while already signed in WITHOUT a product hint,
+    // bounce them to the Home splash so they pick their workspace cleanly.
+    // (?app=wreckerlogix or ?app=roadboss skips the bounce — those are the
+    // intentional "switch product" flows from the splash itself.)
     const me = getUser();
-    if (me && !ge) {
-      const skip = params.get('force') === '1';
-      if (!skip) {
-        const role = me.role;
-        const dest = role === 'driver' ? '/driver'
-          : role === 'wrecker_operator' ? '/wrecker/me'
-          : ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin'].includes(role) ? '/wrecker'
-          : role === 'super_admin' ? '/super'
-          : '/app';
-        navigate(dest, { replace: true });
-      }
+    if (me && !ge && !app && params.get('force') !== '1') {
+      navigate('/', { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -1,12 +1,13 @@
 {
-  "name": "RoadBoss — Wreckerlogix",
-  "short_name": "RoadBoss",
-  "description": "Voice-first command center for professional truck drivers.",
+  "name": "WreckerLogix · RoadBoss",
+  "short_name": "WreckerLogix",
+  "id": "/",
+  "description": "Voice-first command center for towing & fleet operators. Pick WreckerLogix or RoadBoss on launch.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#07090d",
+  "background_color": "#04060a",
   "theme_color": "#0a0e16",
   "icons": [
     {

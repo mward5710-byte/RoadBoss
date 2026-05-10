@@ -1,7 +1,7 @@
-// RoadBoss Service Worker — handles Web Push + basic offline shell.
-// This file is served from the web root so that `/sw.js` is its scope.
-
-const SW_VERSION = 'roadboss-sw-v1';
+// RoadBoss / WreckerLogix Service Worker — Web Push + light shell.
+// Bump SW_VERSION whenever the activation behavior should refresh on
+// already-installed PWAs (forces a `clients.claim()` reload).
+const SW_VERSION = 'roadboss-sw-v2-splash';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
