@@ -1,7 +1,7 @@
 import React from 'react';
 import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
 import { Logo } from '@/components/Logo';
-import { Home, Route, Truck, Settings, LogOut, User } from 'lucide-react';
+import { Home, Route, Truck, Settings, LogOut, User, ArrowLeft } from 'lucide-react';
 import { auth, getUser } from '@/lib/api';
 // Wake-word listening was lifted to the GlobalCopilotFAB so the mic now lives
 // on every page — not just driver. WakeWordBar import retired.
@@ -19,8 +19,25 @@ export default function DriverShell() {
   const navigate = useNavigate();
   const user = getUser();
   const logout = () => { auth.logout(); navigate('/login'); };
+  // Super-admin & fleet-admin land here when they tap "Driver / Cab" on the
+  // /super console. They need a one-tap escape back to admin — without it,
+  // there's no way out of the driver shell except logging out (which is
+  // exactly what tripped Mike up). For real drivers the escape never shows.
+  const canEscape = user?.role && ['super_admin', 'fleet_admin'].includes(user.role);
+
   return (
     <div className="min-h-screen bg-[#07090d] flex flex-col max-w-md mx-auto relative">
+      {canEscape && (
+        <button
+          type="button"
+          onClick={() => navigate('/app')}
+          data-testid="driver-exit-to-admin"
+          className="bg-amber-500/10 border-b border-amber-500/30 text-amber-200 text-xs font-semibold px-4 py-2 flex items-center gap-2 hover:bg-amber-500/20 transition"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          You're previewing the Driver app — tap to return to Admin
+        </button>
+      )}
       <header className="flex items-center justify-between px-5 py-4 border-b border-white/5 sticky top-0 bg-[#07090d]/95 backdrop-blur z-30">
         <Link to="/driver"><Logo size={24} withWordmark={false} /></Link>
         <Link to="/driver/profile" className="flex-1 px-3 cursor-pointer">

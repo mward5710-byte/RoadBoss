@@ -46,7 +46,7 @@ export default function ProfileForm({ titleSize = 'text-2xl' }) {
       <div className="hp-panel rounded-xl p-5 space-y-3">
         <div className="text-sm font-semibold text-white flex items-center gap-2"><User className="w-4 h-4 text-sky-400" /> Account</div>
         <Input data-testid="profile-name" placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} className="bg-[#0a0e14] border-white/10" />
-        <div className="text-xs text-slate-500">Email cannot be changed in Stage 2.</div>
+        <div className="text-xs text-slate-500">Email is your sign-in credential and can&apos;t be edited here.</div>
       </div>
 
       <div className="hp-panel rounded-xl p-5 space-y-3">

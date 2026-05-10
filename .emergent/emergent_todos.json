@@ -1,18 +1,26 @@
 [
   {
-    "content": "Wire routes /wrecker/signup + /wrecker/setup + add 'Start Free Trial' CTA on Home splash",
+    "content": "Add 'Exit driver mode' button in DriverShell for super_admin/fleet_admin (escape hatch)",
     "status": "completed"
   },
   {
-    "content": "Mobile fix: AdminShell sidebar collapses to drawer on phones (matches WreckerShell pattern)",
+    "content": "Remove 'Stage 2' / 'Stage 1' leftover text from ProfileForm + Overview",
     "status": "completed"
   },
   {
-    "content": "Mobile fix: Trips page table — responsive (cards on mobile or proper scroll)",
+    "content": "Make Overview Kpi cards clickable (drill down to drivers/alerts/maintenance)",
     "status": "completed"
   },
   {
-    "content": "Curl test signup → wizard end-to-end + final plan.md update",
+    "content": "Rewrite AdminSettings.jsx with multi-section layout matching WreckerSettings standards",
+    "status": "completed"
+  },
+  {
+    "content": "Lint + verify all changes compile",
+    "status": "completed"
+  },
+  {
+    "content": "Save email provider decision doc + AWS/SendGrid trade-off for next session",
     "status": "completed"
   }
 ]

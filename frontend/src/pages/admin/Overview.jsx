@@ -6,24 +6,32 @@ import { dutyColor, formatMinutes, severityColor, timeAgo } from '@/lib/utils';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 
-function Kpi({ icon: Icon, label, value, sub, accent = 'sky' }) {
+function Kpi({ icon: Icon, label, value, sub, accent = 'sky', to }) {
   const accents = {
     sky: 'text-sky-300 bg-sky-500/10 border-sky-500/30',
     amber: 'text-amber-300 bg-amber-500/10 border-amber-500/30',
     red: 'text-red-300 bg-red-500/10 border-red-500/30',
     green: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30',
   };
-  return (
-    <div className="hp-panel rounded-xl p-4">
+  const inner = (
+    <>
       <div className="flex items-start justify-between">
         <div className={`w-9 h-9 rounded-lg border flex items-center justify-center ${accents[accent]}`}><Icon className="w-4 h-4" /></div>
-        <ArrowUpRight className="w-4 h-4 text-slate-600" />
+        <ArrowUpRight className="w-4 h-4 text-slate-600 group-hover:text-sky-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 transition-all" />
       </div>
       <div className="mt-4 text-3xl font-semibold text-white">{value}</div>
       <div className="text-xs uppercase tracking-wider text-slate-500 mt-1">{label}</div>
       {sub && <div className="text-xs text-slate-400 mt-1">{sub}</div>}
-    </div>
+    </>
   );
+  if (to) {
+    return (
+      <Link to={to} className="hp-panel rounded-xl p-4 group block hover:bg-white/[0.04] hover:border-sky-500/30 transition-colors" data-testid={`kpi-${label.toLowerCase().replace(/\s+/g, '-')}`}>
+        {inner}
+      </Link>
+    );
+  }
+  return <div className="hp-panel rounded-xl p-4 group">{inner}</div>;
 }
 
 export default function Overview() {
@@ -40,20 +48,20 @@ export default function Overview() {
   const { kpis, drivers, recent_alerts, maintenance_due_list } = data;
 
   return (
-    <div className="p-6 lg:p-8 space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6">
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <div className="text-xs uppercase tracking-widest text-sky-400/80">Fleet Command Center</div>
           <h1 className="text-3xl font-bold text-white mt-1">Overview</h1>
         </div>
-        <div className="text-xs px-2.5 py-1 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-300">Demo data · Stage 1</div>
+        <div className="text-xs px-2.5 py-1 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-300">Live · seeded with demo data</div>
       </header>
 
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi icon={Users} label="Active drivers" value={`${kpis.drivers_active}/${kpis.drivers_total}`} sub="on shift now" accent="sky" />
-        <Kpi icon={Activity} label="HOS at risk" value={kpis.hos_at_risk} sub="<90 min remaining" accent="amber" />
-        <Kpi icon={AlertTriangle} label="Critical alerts" value={kpis.critical_alerts} sub="last 24 hours" accent="red" />
-        <Kpi icon={Wrench} label="Maintenance due" value={kpis.maintenance_due} sub="open work orders" accent="green" />
+        <Kpi icon={Users} label="Active drivers" value={`${kpis.drivers_active}/${kpis.drivers_total}`} sub="on shift now" accent="sky" to="/app/drivers" />
+        <Kpi icon={Activity} label="HOS at risk" value={kpis.hos_at_risk} sub="<90 min remaining" accent="amber" to="/app/drivers" />
+        <Kpi icon={AlertTriangle} label="Critical alerts" value={kpis.critical_alerts} sub="last 24 hours" accent="red" to="/app/alerts" />
+        <Kpi icon={Wrench} label="Maintenance due" value={kpis.maintenance_due} sub="open work orders" accent="green" to="/app/maintenance" />
       </motion.div>
 
       <div className="grid lg:grid-cols-3 gap-4">
