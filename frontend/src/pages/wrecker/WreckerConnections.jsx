@@ -452,6 +452,7 @@ export default function WreckerConnections() {
           got them). */}
       <PendingIntegrationCard
         testid="integration-fuelcloud"
+        provider="fuelcloud"
         name="FuelCloud"
         tagline="Fuel-site dispenser data + driver fuel cards"
         description="Pulls dispense events, fuel costs, and driver-card activity from your FuelCloud sites into the Fuel page automatically."
@@ -462,6 +463,7 @@ export default function WreckerConnections() {
       />
       <PendingIntegrationCard
         testid="integration-twilio"
+        provider="twilio"
         name="Twilio SMS"
         tagline="Send payment links + status texts to customers"
         description="When a job is dispatched or a receipt is ready, the customer gets an SMS with the link. Requires an Account SID + Auth Token + From-number."
@@ -472,11 +474,12 @@ export default function WreckerConnections() {
       />
       <PendingIntegrationCard
         testid="integration-quickbooks"
+        provider="quickbooks"
         name="QuickBooks Online"
         tagline="Push invoices + payments to your books"
-        description="Auto-create invoices in QuickBooks when a job closes. Posts payments + tax. Uses QB OAuth — click Connect when you're ready."
+        description="Auto-create invoices in QuickBooks when a job closes. Posts payments + tax. Paste your QuickBooks Realm ID here for now — full OAuth connect flow ships next session."
         keyName="quickbooks_realm_id"
-        keyPlaceholder="OAuth — click Connect (no key needed here)"
+        keyPlaceholder="Realm ID (Company ID) — long numeric string"
         helpUrl="https://developer.intuit.com/app/developer/qbo/docs/get-started"
         accent="emerald"
       />
@@ -505,10 +508,16 @@ export default function WreckerConnections() {
  * implement next. This UI is the SAME for every future integration so
  * Mike can tell at a glance what's wired vs pending.
  * ───────────────────────────────────────────────────────────────────── */
-function PendingIntegrationCard({ testid, name, tagline, description, keyName, keyPlaceholder, helpUrl, accent = 'amber', readOnly = false }) {
+function PendingIntegrationCard({ testid, name, tagline, description, keyName, keyPlaceholder, helpUrl, accent = 'amber', readOnly = false, provider }) {
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState({ connected: false, preview: null, saved_at: null });
+
+  // Resolve which backend provider key this card hits. Caller can pass
+  // `provider` explicitly; otherwise we derive it from keyName so the
+  // card stays declarative.
+  const providerKey = (provider || (keyName ? keyName.split('_')[0] : '')).toLowerCase();
 
   const tints = {
     amber: { dot: 'bg-amber-500/20 border-amber-500/30', icon: 'text-amber-300', btn: 'bg-amber-500 text-slate-950 hover:bg-amber-400' },
@@ -517,28 +526,53 @@ function PendingIntegrationCard({ testid, name, tagline, description, keyName, k
     sky: { dot: 'bg-sky-500/20 border-sky-500/30', icon: 'text-sky-300', btn: 'bg-sky-500 text-slate-950 hover:bg-sky-400' },
   }[accent] || { dot: 'bg-amber-500/20 border-amber-500/30', icon: 'text-amber-300', btn: 'bg-amber-500 text-slate-950 hover:bg-amber-400' };
 
+  // Load existing status on mount so the badge reflects reality after a refresh.
+  useEffect(() => {
+    if (readOnly || !providerKey) { setLoading(false); return; }
+    let cancelled = false;
+    api.get(`/wrecker/integrations/${providerKey}/key`)
+      .then((r) => { if (!cancelled && r?.data) setStatus(r.data); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [providerKey, readOnly]);
+
   const save = async () => {
     if (readOnly) return;
     if (!value.trim()) { toast.error(`Paste your ${name} key first.`); return; }
     setSaving(true);
     try {
-      // Generic per-tenant integration key endpoint. Backend writes to
-      // tenant_integrations.{name}_key. If the route 404s, Mike sees a
-      // friendly toast — that's our cue to wire that specific provider.
-      await api.post(`/wrecker/integrations/${keyName.split('_')[0]}/key`, { key_name: keyName, value });
-      toast.success(`${name} key saved. Backend wiring will pick it up automatically.`);
-      setSaved(true);
+      const r = await api.post(`/wrecker/integrations/${providerKey}/key`, {
+        key_name: keyName, value,
+      });
+      toast.success(`${name} key saved.`);
+      setStatus({
+        connected: true,
+        preview: r?.data?.preview || null,
+        saved_at: r?.data?.saved_at || new Date().toISOString(),
+      });
       setValue('');
     } catch (e) {
-      const status = e?.response?.status;
-      if (status === 404) {
-        toast.info(`${name} backend wiring not live yet — your key is held for next deploy. (No code change needed.)`);
-        setSaved(true);
+      const status_code = e?.response?.status;
+      if (status_code === 404) {
+        toast.info(`${name} provider not yet supported by this backend.`);
       } else {
         toast.error(e?.response?.data?.detail || `Failed to save ${name} key.`);
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const disconnect = async () => {
+    if (readOnly || !status.connected) return;
+    if (!window.confirm(`Disconnect ${name}? You'll need to paste the key again to reconnect.`)) return;
+    try {
+      await api.delete(`/wrecker/integrations/${providerKey}/key`);
+      toast.success(`${name} disconnected.`);
+      setStatus({ connected: false, preview: null, saved_at: null });
+    } catch (e) {
+      toast.error(`Failed to disconnect ${name}.`);
     }
   };
 
@@ -553,10 +587,16 @@ function PendingIntegrationCard({ testid, name, tagline, description, keyName, k
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-lg font-semibold text-white">{name}</h2>
               {readOnly && <Badge className="bg-emerald-500/15 border-emerald-500/30 text-emerald-300 text-[10px]">Live</Badge>}
-              {!readOnly && saved && <Badge className="bg-emerald-500/15 border-emerald-500/30 text-emerald-300 text-[10px]">Key saved</Badge>}
-              {!readOnly && !saved && <Badge className="bg-slate-500/15 border-slate-500/30 text-slate-300 text-[10px]">Pending</Badge>}
+              {!readOnly && status.connected && <Badge className="bg-emerald-500/15 border-emerald-500/30 text-emerald-300 text-[10px]" data-testid={`${testid}-connected`}>Connected</Badge>}
+              {!readOnly && !status.connected && !loading && <Badge className="bg-slate-500/15 border-slate-500/30 text-slate-300 text-[10px]">Pending</Badge>}
+              {loading && <Badge className="bg-slate-500/15 border-slate-500/30 text-slate-400 text-[10px]">Loading…</Badge>}
             </div>
             <p className="text-[12px] text-slate-400 mt-0.5">{tagline}</p>
+            {status.connected && status.preview && (
+              <p className="text-[11px] text-emerald-300/80 mt-1 font-mono" data-testid={`${testid}-preview`}>
+                Saved key: {status.preview}
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -564,7 +604,9 @@ function PendingIntegrationCard({ testid, name, tagline, description, keyName, k
         <p className="text-sm text-slate-300 leading-relaxed">{description}</p>
         <div className="flex flex-wrap items-end gap-2">
           <div className="flex-1 min-w-[260px]">
-            <Label className="text-[11px] uppercase tracking-wider text-slate-400 mb-1.5">API Key / Token</Label>
+            <Label className="text-[11px] uppercase tracking-wider text-slate-400 mb-1.5">
+              {status.connected ? 'Replace API Key / Token' : 'API Key / Token'}
+            </Label>
             <Input
               type="password"
               value={value}
@@ -584,8 +626,20 @@ function PendingIntegrationCard({ testid, name, tagline, description, keyName, k
             data-testid={`${testid}-save`}
           >
             {saving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1" />}
-            {readOnly ? 'Configured' : saved ? 'Update' : 'Save key'}
+            {readOnly ? 'Configured' : status.connected ? 'Update' : 'Save key'}
           </Button>
+          {status.connected && !readOnly && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={disconnect}
+              className="border-rose-500/30 text-rose-300 hover:bg-rose-500/10"
+              data-testid={`${testid}-disconnect`}
+            >
+              <Power className="w-3.5 h-3.5 mr-1" /> Disconnect
+            </Button>
+          )}
           <a
             href={helpUrl}
             target="_blank"

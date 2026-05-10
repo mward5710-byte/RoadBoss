@@ -60,6 +60,7 @@ import WreckerDashboard from '@/pages/wrecker/WreckerDashboard';
 import WreckerDriverHome from '@/pages/wrecker/WreckerDriverHome';
 import WreckerJobNew from '@/pages/wrecker/WreckerJobNew';
 import WreckerJobCockpit from '@/pages/wrecker/WreckerJobCockpit';
+import WreckerQuoteDetail from '@/pages/wrecker/WreckerQuoteDetail';
 import WreckerDamageForm from '@/pages/wrecker/WreckerDamageForm';
 import WreckerWaiver from '@/pages/wrecker/WreckerWaiver';
 import WreckerReceipt from '@/pages/wrecker/WreckerReceipt';
@@ -179,6 +180,7 @@ function App() {
             <Route path="me" element={<WreckerDriverHome />} />
             <Route path="jobs/new" element={<WreckerJobNew />} />
             <Route path="jobs/:id" element={<WreckerJobCockpit />} />
+            <Route path="quotes/:id" element={<WreckerQuoteDetail />} />
             <Route path="impound" element={<WreckerImpound />} />
             <Route path="accounts" element={<WreckerAccounts />} />
             <Route path="clock" element={<WreckerClock />} />

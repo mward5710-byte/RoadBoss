@@ -38,7 +38,7 @@
 - Twilio toll-free verification submitted (1–3 weeks typical).
 - Twilio inbound SMS webhook works when Twilio Console webhook points at current preview/prod URL.
 - FuelCloud API: access is request-only. Manual logging exists; API wiring begins after approval.
-- QuickBooks Online: OAuth wiring is a P1 build item (UI slot is now present).
+- QuickBooks Online: OAuth wiring is a P1 build item (**backend key storage is now live; OAuth next**).
 
 ---
 
@@ -116,7 +116,7 @@ Deliverable: `/app/memory/wreckerlogix_master_spec.md`
 ## Stage 3 — Phase 3B v2 (NOW) — Tow-Industry Parity Sprint (Phases 1–3)
 
 > Objective: Ship a **working tow workflow** that supports running a call end-to-end:
-> Dispatch → New Call → Cockpit → Photos → Charges → Payments → Receipt → Accounting export.
+> Dispatch → New Call → Quote → Convert → Cockpit → Photos → Charges → Payments → Receipt → Accounting export.
 
 ### NEW: Login / PWA Entry Reliability Fixes (P0 Stability) — ✅ SHIPPED
 **Why:** Mike was blocked by laptop login + iPhone PWA launching wrong product.
@@ -141,8 +141,8 @@ Deliverable: `/app/memory/wreckerlogix_master_spec.md`
   4) Charge Catalog
   5) New Call section toggles
   6) Sidebar Menu overrides (hide/rename + custom links)
-  7) Custom Quick Buttons (stored; dispatch render hook is a later step)
-  8) Universal Label Overrides (stored; render hook is a later step)
+  7) Custom Quick Buttons (stored)
+  8) Universal Label Overrides (stored)
   9) Drivers shortcut
 
 **Shipped (wiring):**
@@ -153,17 +153,28 @@ Deliverable: `/app/memory/wreckerlogix_master_spec.md`
 
 ---
 
-### NEW: Connections Portal Expansion (P0 Setup Surfaces) — ✅ SHIPPED (UI slots)
+### NEW: Connections Portal Expansion (P0 Setup Surfaces) — ✅ SHIPPED (UI + backend key store)
 **Why:** Mike wants a single place to drop keys and see what’s wired.
 
 **Shipped (frontend):**
-- `/wrecker/connections` extended with reusable `PendingIntegrationCard` slots:
-  - FuelCloud
-  - Twilio
-  - QuickBooks Online
-  - Mapbox (status/info)
+- `/wrecker/connections` reusable `PendingIntegrationCard` now:
+  - Loads status on mount (Connected/Pending)
+  - Shows redacted preview (`••••1234`)
+  - Supports Disconnect
+  - Supports FuelCloud / Twilio / QuickBooks slots
 
-**Note:** Backend key storage/OAuth wiring for FuelCloud/Twilio/QBO is tracked below.
+**Shipped (backend):**
+- Integration key storage (per tenant):
+  - `POST /api/wrecker/integrations/{provider}/key`
+  - `GET /api/wrecker/integrations/{provider}/key`
+  - `DELETE /api/wrecker/integrations/{provider}/key`
+  - `GET /api/wrecker/integrations/status`
+- Providers supported: `fuelcloud`, `twilio`, `quickbooks`
+- Storage: `tenant_integrations` collection
+- Security: keys never returned plaintext; only redacted previews.
+- Twilio extras supported: `auth_token`, `from_number`.
+
+**Outcome:** ✅ Mike can paste keys once, verify connected status, and disconnect safely.
 
 ---
 
@@ -174,41 +185,46 @@ Deliverable: `/app/memory/wreckerlogix_master_spec.md`
 1. Dispatch Board overhaul
    - Align columns, tabs, filters, and card density to towing-industry workflow.
    - Ensure strict product wall (no RoadBoss bleed).
+   - Add surfaced entry point into Quote Detail ("View Quote" when status=quote).
 2. New Call Form
-   - Continue Tow-industry section layout standardization.
+   - Add **Create as Quote** toggle (status=quote on create).
    - Ensure customizations drive all dropdowns/toggles (already wired).
+   - Keep call_number behavior intact (auto-increment + editable).
 3. Charges
-   - Ensure Charge Catalog edits (Customize) flow through to:
+   - Ensure Charge Catalog edits flow through to:
      - New Call picker
      - Cockpit charges list
      - Receipt totals
 
 **Implementation steps (backend):**
 - Ensure `charges` line items and totals are consistent across create/update/receipt.
+- Add optional server-side total recompute endpoint if we see divergence.
 
 **Definition of done:**
-- Dispatchers can create/dispatch/manage calls with a familiar towing workflow.
+- Dispatchers can create/quote/dispatch/manage calls with a familiar towing workflow.
 
 ---
 
-### Phase 3B v2(c) — Phase 2: Quote Detail Page Overhaul (P0) (🚧 NEXT)
+### Phase 3B v2(c) — Phase 2: Quote Detail Page Overhaul (P0) — ✅ SHIPPED
 **Why:** Quotes are the sales funnel; must look/feel like towing industry standard.
 
-**Implementation steps (frontend):**
-- New page: `/wrecker/quotes/:id`
-  - Header: Back, Quote #, status pill
-  - Map area (Mapbox)
-  - Photos panel
-  - Collapsible pickup/destination blocks
-  - Charges list (search + add)
-  - Email quote
-  - **CONVERT** button (quote → pending job)
+**Shipped (frontend):**
+- New page: `/wrecker/quotes/:id` (`WreckerQuoteDetail.jsx`)
+  - Header: Back, Quote # (call_number), status pill
+  - Action bar: Email Quote, Print, Open Cockpit, **CONVERT TO JOB**
+  - Mapbox static-map preview (pickup → dropoff)
+  - Collapsible Pickup/Destination blocks
+  - Customer + Vehicle summary cards
+  - Charges panel: line items + subtotal/discount/fuel/tax/total
+  - Photos: gallery + upload
+  - Audit trail timeline (status_history)
 
-**Backend:**
-- Endpoint for converting quote to job (if not already present).
+**Shipped (backend):**
+- `quote` added to `JOB_STATUSES`.
+- `POST /api/wrecker/jobs/{id}/convert` (quote → pending or assigned; audit-stamped).
+- `POST /api/wrecker/jobs/{id}/email-quote` (stub: stores email + timestamp; no outbound email yet).
 
-**Definition of done:**
-- Quote can be reviewed, priced, and converted to a job in one flow.
+**Definition of done:** ✅ Quote can be reviewed, priced, and converted to a job in one flow.
 
 ---
 
@@ -219,7 +235,7 @@ Deliverable: `/app/memory/wreckerlogix_master_spec.md`
 1. QBO OAuth connect flow
    - `/api/wrecker/integrations/quickbooks/connect`
    - `/api/wrecker/integrations/quickbooks/callback`
-   - Store tokens per tenant.
+   - Store tokens per tenant in `tenant_integrations.quickbooks` (refresh_token, access_token, realm_id, expires_at).
 2. Invoice push
    - On job close or “Send to QuickBooks” action
    - Create invoice + line items + tax
@@ -227,7 +243,10 @@ Deliverable: `/app/memory/wreckerlogix_master_spec.md`
    - Sync Square payments into QBO payment records
 
 **Frontend:**
-- Connections page already has a QuickBooks slot; update it to show connected status once backend is live.
+- Connections page already:
+  - Saves/loads QuickBooks Realm ID
+  - Shows connected badge (key store)
+- Update the card to show OAuth-connected status once tokens are live.
 
 **Definition of done:**
 - Closed job produces matching QBO invoice (with charges and payment if paid).
@@ -235,13 +254,18 @@ Deliverable: `/app/memory/wreckerlogix_master_spec.md`
 ---
 
 ## Next Session Priorities (RoadBoss / WreckerLogix)
+
 **P0 (must):**
-1. Quote Detail Page Overhaul (`/wrecker/quotes/:id`).
-2. Dispatch Board + New Call + Charges workflow parity cleanup.
+1. Dispatch Board + New Call + Charges workflow parity cleanup.
+2. Add "Create as Quote" toggle on New Call + ensure dispatch board links into Quote Detail.
+3. Render hooks for Customize-stored items:
+   - Custom Quick Buttons show on Dispatch Board
+   - Universal Label Overrides apply across Wrecker UI
 
 **P1 (should):**
 1. QuickBooks Online OAuth wiring + invoice push.
-2. Setup Wizard / Tenant Onboarding Flow.
+2. Real outbound email for `email-quote` (SendGrid/SES) + optional SMS follow-up (Twilio).
+3. Setup Wizard / Tenant Onboarding Flow.
 
 **P2 (later):**
 - Stripe SaaS subscription billing.
@@ -253,12 +277,14 @@ Deliverable: `/app/memory/wreckerlogix_master_spec.md`
 - **Login/PWA reliability:** splash no longer bypassed; installed PWAs refresh cleanly.
 - **Mini-app builder:** `/wrecker/customize` now controls dropdowns, charges, form section toggles, sidebar.
 - **New Call dynamic config:** body types, drive types, charges, toggles now driven from customizations.
-- **Connections expanded:** FuelCloud/Twilio/QBO/Mapbox slots present.
+- **Connections hardened:** integration key storage live + Connected badge + Disconnect.
+- **Quote Detail page shipped:** `/wrecker/quotes/:id` with convert/email/map/photos/charges.
 - **Dev guide shipped:** `/app/memory/WRECKER_DEV_GUIDE.md`.
 
 ---
 
 ## Deferred / Future (explicitly NOT tonight)
+
 ### Phase 3B v3 — Impounds + Accounts + Dispatcher Ops + Payroll + Square POS
 - Impounds module expansion
 - Accounts CRM

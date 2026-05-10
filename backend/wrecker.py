@@ -39,6 +39,7 @@ def _new_id() -> str:
 
 # Job status lifecycle (mirrors Towbook 7-stage flow)
 JOB_STATUSES = [
+    'quote',            # Pre-dispatch — sent to customer for approval
     'pending',          # Just created (Waiting in Towbook)
     'assigned',         # Driver picked (Dispatched)
     'en_route',         # Driver heading to scene
@@ -769,8 +770,74 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
         j = await db.tow_jobs.find_one({'id': job_id}, {'_id': 0})
         return serialize_doc(j)
 
-    @router.post('/jobs/{job_id}/assign')
-    async def assign_driver(job_id: str, body: Dict[str, str], user=Depends(require_dispatcher)):
+    @router.post('/jobs/{job_id}/convert')
+    async def convert_quote_to_job(job_id: str, user=Depends(require_dispatcher)):
+        """Convert a quote into a real dispatch-ready job.
+
+        Flow: customer reviews quote on /wrecker/quotes/:id → dispatcher
+        clicks **CONVERT** → status flips from 'quote' to 'pending' (or
+        'assigned' if a driver is already on the job). The conversion
+        timestamp + actor are recorded so we can prove provenance later
+        (audit trail for accounting).
+        """
+        existing = await db.tow_jobs.find_one({'id': job_id})
+        if not existing:
+            raise HTTPException(404, 'Job not found')
+        if existing.get('status') not in ('quote', 'pending'):
+            raise HTTPException(400, f"Can't convert from status '{existing.get('status')}'.")
+
+        # If a driver is already pinned to the quote, jump straight to assigned.
+        new_status = 'assigned' if existing.get('assigned_driver_id') else 'pending'
+        history = existing.get('status_history', [])
+        history.append({
+            'status': new_status,
+            'at': _now(),
+            'by': user['id'],
+            'note': 'Converted from quote',
+        })
+        await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$set': {
+                'status': new_status,
+                'status_history': history,
+                'converted_at': _now(),
+                'converted_by': user.get('email') or user.get('id'),
+                'updated_at': _now(),
+            }},
+        )
+        j = await db.tow_jobs.find_one({'id': job_id}, {'_id': 0})
+        return serialize_doc(j)
+
+    @router.post('/jobs/{job_id}/email-quote')
+    async def email_quote_to_customer(job_id: str, body: Dict[str, str], user=Depends(require_wrecker)):
+        """Stub: capture the customer email + log that the dispatcher
+        sent the quote. Real outbound email goes through SendGrid/SES once
+        Mike wires those — for now we just store the timestamp and email
+        so the Quote Detail page can show 'Sent to alice@example.com 2 hrs ago'."""
+        to_email = (body.get('to') or '').strip().lower()
+        if not to_email or '@' not in to_email:
+            raise HTTPException(400, 'Valid email address required.')
+        existing = await db.tow_jobs.find_one({'id': job_id})
+        if not existing:
+            raise HTTPException(404, 'Job not found')
+        history = existing.get('status_history', [])
+        history.append({
+            'note': f'Quote emailed to {to_email}',
+            'at': _now(),
+            'by': user['id'],
+        })
+        await db.tow_jobs.update_one(
+            {'id': job_id},
+            {'$set': {
+                'quote_emailed_to': to_email,
+                'quote_emailed_at': _now(),
+                'status_history': history,
+                'updated_at': _now(),
+            }},
+        )
+        return {'ok': True, 'to': to_email, 'sent_at': _now().isoformat()}
+
+
         """Dispatcher assigns or reassigns a driver. Reassignment requires supervisor."""
         driver_id = body.get('driver_id')
         if not driver_id:
@@ -1077,6 +1144,144 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
             upsert=True,
         )
         return {'ok': True, 'message': 'All customizations reset to defaults.'}
+
+
+    # =========================================================
+    # Integration Keys — Mike's pending API key bucket.
+    #
+    # Each integration (FuelCloud, Twilio, QuickBooks, etc.) needs a
+    # tenant-scoped credential. Mike pastes the key on /wrecker/connections
+    # and we stash it under tenant_integrations.{provider} so the runtime
+    # wiring can pick it up later. Keys are never returned in plaintext —
+    # the GET endpoint returns only a redacted preview + `connected: bool`.
+    #
+    # Schema (Mongo doc per tenant):
+    #   {
+    #     tenant_id: str,
+    #     fuelcloud:    { key, saved_at, saved_by, status },
+    #     twilio:       { key (Account SID), auth_token, from_number, ... },
+    #     quickbooks:   { realm_id, refresh_token, ... }
+    #     mapbox:       (sourced from server env, not here),
+    #   }
+    # =========================================================
+
+    SUPPORTED_INTEGRATIONS = {'fuelcloud', 'twilio', 'quickbooks'}
+
+    def _redact_key(k: Optional[str]) -> Optional[str]:
+        """Show only last 4 chars so Mike can confirm a key is present
+        without leaking the secret. Returns None if no key."""
+        if not k:
+            return None
+        s = str(k)
+        return f"••••{s[-4:]}" if len(s) >= 4 else "••••"
+
+    class IntegrationKeyIn(BaseModel):
+        # Frontend posts {key_name: 'fuelcloud_api_key', value: '...'} but
+        # the URL itself disambiguates the provider — we accept either.
+        key_name: Optional[str] = None
+        value: str
+        # Optional extras some providers need (Twilio auth token + from #).
+        auth_token: Optional[str] = None
+        from_number: Optional[str] = None
+
+    @router.get('/integrations/{provider}/key')
+    async def get_integration_key(provider: str, user=Depends(require_wrecker)):
+        """Returns redacted status for a given provider — never the raw key."""
+        provider = (provider or '').lower()
+        if provider not in SUPPORTED_INTEGRATIONS:
+            raise HTTPException(status_code=404, detail=f"Unknown integration: {provider}")
+        tenant_id = user.get('tenant_id', 'default')
+        doc = await db.tenant_integrations.find_one({'tenant_id': tenant_id}, {'_id': 0}) or {}
+        rec = doc.get(provider) or {}
+        return {
+            'provider': provider,
+            'connected': bool(rec.get('key')),
+            'preview': _redact_key(rec.get('key')),
+            'saved_at': rec.get('saved_at'),
+            'saved_by': rec.get('saved_by'),
+            'status': rec.get('status') or ('saved' if rec.get('key') else 'pending'),
+            # Extras for Twilio
+            'from_number': rec.get('from_number'),
+            'auth_token_preview': _redact_key(rec.get('auth_token')) if rec.get('auth_token') else None,
+        }
+
+    @router.post('/integrations/{provider}/key')
+    async def save_integration_key(provider: str, body: IntegrationKeyIn, user=Depends(require_dispatcher)):
+        """Persist a provider key. Backend wiring (e.g. Twilio SDK) will
+        read tenant_integrations.{provider}.key when it needs to dispatch."""
+        provider = (provider or '').lower()
+        if provider not in SUPPORTED_INTEGRATIONS:
+            raise HTTPException(status_code=404, detail=f"Unknown integration: {provider}")
+        if not body.value or not body.value.strip():
+            raise HTTPException(status_code=400, detail="Key cannot be empty.")
+        tenant_id = user.get('tenant_id', 'default')
+        rec = {
+            'key': body.value.strip(),
+            'saved_at': _now(),
+            'saved_by': user.get('email') or user.get('id'),
+            'status': 'saved',
+        }
+        # Twilio needs auth token + from-number alongside the SID
+        if provider == 'twilio':
+            if body.auth_token:
+                rec['auth_token'] = body.auth_token.strip()
+            if body.from_number:
+                rec['from_number'] = body.from_number.strip()
+
+        existing = await db.tenant_integrations.find_one({'tenant_id': tenant_id})
+        if existing:
+            await db.tenant_integrations.update_one(
+                {'tenant_id': tenant_id},
+                {'$set': {provider: rec, 'updated_at': _now()}},
+            )
+        else:
+            await db.tenant_integrations.insert_one({
+                'tenant_id': tenant_id,
+                'id': _new_id(),
+                provider: rec,
+                'created_at': _now(),
+                'updated_at': _now(),
+            })
+
+        return {
+            'ok': True,
+            'provider': provider,
+            'connected': True,
+            'preview': _redact_key(rec['key']),
+            'saved_at': rec['saved_at'],
+        }
+
+    @router.delete('/integrations/{provider}/key')
+    async def delete_integration_key(provider: str, user=Depends(require_dispatcher)):
+        """Disconnect / clear a provider key. The provider record is
+        removed from the doc — runtime wiring should treat this as
+        'not connected' and skip its dispatch."""
+        provider = (provider or '').lower()
+        if provider not in SUPPORTED_INTEGRATIONS:
+            raise HTTPException(status_code=404, detail=f"Unknown integration: {provider}")
+        tenant_id = user.get('tenant_id', 'default')
+        await db.tenant_integrations.update_one(
+            {'tenant_id': tenant_id},
+            {'$unset': {provider: ""}, '$set': {'updated_at': _now()}},
+        )
+        return {'ok': True, 'provider': provider, 'connected': False}
+
+    @router.get('/integrations/status')
+    async def integrations_status_summary(user=Depends(require_wrecker)):
+        """One-shot summary so the Connections page can render every
+        integration's connected/pending state in a single round trip."""
+        tenant_id = user.get('tenant_id', 'default')
+        doc = await db.tenant_integrations.find_one({'tenant_id': tenant_id}, {'_id': 0}) or {}
+        out = {}
+        for p in SUPPORTED_INTEGRATIONS:
+            rec = doc.get(p) or {}
+            out[p] = {
+                'connected': bool(rec.get('key')),
+                'preview': _redact_key(rec.get('key')),
+                'saved_at': rec.get('saved_at'),
+                'status': rec.get('status') or ('saved' if rec.get('key') else 'pending'),
+            }
+        return {'tenant_id': tenant_id, 'integrations': out}
 
 
     # =========================================================
