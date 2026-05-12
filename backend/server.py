@@ -2698,6 +2698,7 @@ def _build_driver_context(user: Dict[str, Any], driver: Optional[Dict[str, Any]]
 class CopilotChatIn(BaseModel):
     message: str
     session_id: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
 
 
 # Pattern matches <<<ACTION:{...}>>> at the end of an LLM reply (DOTALL allows JSON across lines)
@@ -3603,6 +3604,7 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         'user_id': user['id'],
         'role': 'user',
         'content': msg_text,
+        'meta': body.meta or {},
         'created_at': now_utc().isoformat(),
     }
     await db.copilot_chats.insert_one(user_doc)
@@ -3678,9 +3680,29 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         'role': 'assistant',
         'content': spoken_text,
         'action': action_result,
+        'meta': body.meta or {},
         'model': f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
         'created_at': now_utc().isoformat(),
     })
+
+    # Voice safety/audit log for hands-free actions and confirmations.
+    try:
+        meta = body.meta or {}
+        if meta.get('channel') == 'voice':
+            await db.voice_action_log.insert_one({
+                'id': str(uuid.uuid4()),
+                'user_id': user['id'],
+                'session_id': session_id,
+                'message': msg_text,
+                'risk_level': meta.get('risk_level'),
+                'speed_mph': meta.get('speed_mph'),
+                'source': meta.get('source'),
+                'profile': meta.get('profile'),
+                'action': action_result,
+                'created_at': now_utc().isoformat(),
+            })
+    except Exception as e:
+        logger.warning(f"voice_action_log insert failed: {e}")
 
     return {
         'reply': spoken_text,
