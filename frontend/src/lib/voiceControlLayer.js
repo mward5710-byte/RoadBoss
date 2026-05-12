@@ -3,7 +3,7 @@ import { api } from '@/lib/api';
 const OFFLINE_QUEUE_KEY = 'roadboss.voice.offline.queue.v1';
 
 const AFFIRMATIVE = ['yes', 'yep', 'yeah', 'confirm', 'do it', 'go ahead', 'send it', 'correct'];
-const NEGATIVE = ['no', 'cancel', 'stop', 'never mind', 'nevermind', 'don\'t', 'do not'];
+const NEGATIVE = ['no', 'cancel', 'never mind', 'nevermind', 'don\'t', 'do not'];
 const INTERRUPT = ['stop', 'cancel', 'be quiet', 'hold up', 'pause', 'no wait'];
 const UNDO = ['undo', 'revert', 'roll back', 'go back'];
 const CORRECTION_PREFIX = ['no i said', 'no, i said', 'actually', 'correction'];

@@ -311,7 +311,7 @@ export default function GlobalCopilotFAB() {
     }
 
     const risk = assessRiskLevel(spokenText);
-    if (risk !== 'low' && !directive.type.includes('affirmative')) {
+    if (risk !== 'low' && directive.type !== 'affirmative') {
       setPendingConfirm({ command: spokenText, risk });
       setMode('idle');
       const ask = risk === 'critical'
