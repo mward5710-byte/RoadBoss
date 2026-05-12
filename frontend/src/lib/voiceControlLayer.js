@@ -1,6 +1,7 @@
 import { api } from '@/lib/api';
 
 const OFFLINE_QUEUE_KEY = 'roadboss.voice.offline.queue.v1';
+const MIN_SPEED_FOR_SAFETY_BLOCK_MPH = 8;
 
 const AFFIRMATIVE = ['yes', 'yep', 'yeah', 'confirm', 'do it', 'go ahead', 'send it', 'correct'];
 const NEGATIVE = ['no', 'cancel', 'never mind', 'nevermind', 'don\'t', 'do not'];
@@ -48,7 +49,7 @@ export const assessRiskLevel = (text = '') => {
 
 export const shouldBlockForDrivingSafety = (text = '', speedMph = null) => {
   if (typeof speedMph !== 'number' || Number.isNaN(speedMph)) return false;
-  if (speedMph < 8) return false;
+  if (speedMph < MIN_SPEED_FOR_SAFETY_BLOCK_MPH) return false;
   return PHYSICAL_TASK_PATTERNS.some((re) => re.test(text));
 };
 

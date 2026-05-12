@@ -55,6 +55,10 @@ function pathHidden(pathname) {
 const STORAGE_UNLOCK = 'roadboss.globalfab.unlocked.v1';
 const REPLY_DISMISS_DELAY_MS = 4000;
 const VOICE_PROFILE_KEY = 'roadboss.voice.profile.v1';
+const MPS_TO_MPH = 2.23694;
+const SPEED_PRECISION_DECIMALS = 1;
+const DEFAULT_SILENCE_MS = 1500;
+const TRUCK_NOISE_SILENCE_MS = 1800;
 
 // Small audible cue so user KNOWS the mic just opened
 function chime() {
@@ -138,7 +142,7 @@ export default function GlobalCopilotFAB() {
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
           const mps = pos?.coords?.speed;
-          if (typeof mps === 'number' && !Number.isNaN(mps)) setSpeedMph(Math.max(0, mps * 2.23694));
+          if (typeof mps === 'number' && !Number.isNaN(mps)) setSpeedMph(Math.max(0, mps * MPS_TO_MPH));
         },
         () => {},
         { enableHighAccuracy: false, maximumAge: 10000, timeout: 15000 }
@@ -207,7 +211,7 @@ export default function GlobalCopilotFAB() {
         channel: 'voice',
         source,
         profile: voiceProfile,
-        speed_mph: typeof speedMph === 'number' ? Number(speedMph.toFixed(1)) : null,
+        speed_mph: typeof speedMph === 'number' ? Number(speedMph.toFixed(SPEED_PRECISION_DECIMALS)) : null,
         risk_level: assessRiskLevel(t),
       });
       const text = data?.reply || '';
@@ -329,7 +333,7 @@ export default function GlobalCopilotFAB() {
   const onTranscript = useCallback((text) => {
     if (text?.trim()) processVoiceCommand(text, 'ptt');
   }, [processVoiceCommand]);
-  const ptt = usePushToTalk({ onTranscript, silenceMs: voiceProfile === 'truck_noise' ? 1800 : 1500 });
+  const ptt = usePushToTalk({ onTranscript, silenceMs: voiceProfile === 'truck_noise' ? TRUCK_NOISE_SILENCE_MS : DEFAULT_SILENCE_MS });
 
   // ---- Wake Word (always-on once unlocked) ----
   // Auto-submit command — no confirmation gate.
