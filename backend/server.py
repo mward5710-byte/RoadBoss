@@ -3823,6 +3823,9 @@ async def _record_copilot_metric(user: Dict[str, Any], session_id: str, ui_conte
                                  error: Optional[str] = None):
     try:
         screen_key = _resolve_screen_key(ui_context or {})
+        # Retry metric should represent real failed action attempts, not plain
+        # chat replies. We only mark llm_action/confirm_execute as attempts and
+        # only count attempts that produced a non-empty error.
         action_attempted = event_type in {'llm_action', 'confirm_execute'}
         retries = await db.copilot_metrics.count_documents({
             'user_id': user['id'],
@@ -4005,7 +4008,7 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
                     'created_at': now_utc().isoformat(),
                 })
         except Exception as e:
-            logger.warning(f"voice_action_log insert failed: {e}")
+            logger.warning(f"voice_action_log insert failed for user={user['id']} session={session_id}: {e}")
         await _record_copilot_metric(
             user=user,
             session_id=session_id,
