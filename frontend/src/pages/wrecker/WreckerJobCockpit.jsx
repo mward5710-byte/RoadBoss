@@ -17,6 +17,7 @@ import {
 import { toast } from 'sonner';
 import { openCameraAsDataUrl, pickFromLibraryAsDataUrl } from '@/lib/photoCapture';
 import { NAV_APPS, getNavApp, setNavApp, navUrl } from '@/lib/navPref';
+import { setCopilotScreenContext, clearCopilotScreenContext } from '@/lib/copilotContext';
 import SquareCardCharge from '@/components/SquareCardCharge';
 import QuickAddDriverForm from './QuickAddDriverForm';
 
@@ -505,26 +506,57 @@ export default function WreckerJobCockpit() {
     } catch (e) { toast.error('Add payment failed'); }
   };
 
-  if (loading) return <div className="p-8 text-slate-400">Loading job...</div>;
-  if (!job) return null;
-
-  const idx = STATUS_FLOW.indexOf(job.status);
+  const safeJob = job || {};
+  const idx = STATUS_FLOW.indexOf(safeJob.status);
   const next = idx >= 0 && idx < STATUS_FLOW.length - 1 ? STATUS_FLOW[idx + 1] : null;
-  const assignedDriver = drivers.find((d) => d.id === job.assigned_driver_id);
-  const photos = job.photos || [];
+  const assignedDriver = drivers.find((d) => d.id === safeJob.assigned_driver_id);
+  const photos = safeJob.photos || [];
   const filteredPhotos = photoStage === 'all' ? photos : photos.filter((p) => p.stage === photoStage);
-  const charges = job.charges || [];
-  const payments = job.payments || [];
+  const charges = safeJob.charges || [];
+  const payments = safeJob.payments || [];
   const totals = {
-    subtotal: job.subtotal || 0,
-    tax: job.tax || 0,
-    invoice_total: job.invoice_total || 0,
-    amount_paid: job.amount_paid || 0,
-    balance_due: job.balance_due || 0,
+    subtotal: safeJob.subtotal || 0,
+    tax: safeJob.tax || 0,
+    invoice_total: safeJob.invoice_total || 0,
+    amount_paid: safeJob.amount_paid || 0,
+    balance_due: safeJob.balance_due || 0,
   };
   const isPaid = totals.invoice_total > 0 && totals.balance_due <= 0.01;
-  const veh = job.vehicle || {};
+  const veh = safeJob.vehicle || {};
   const veh_str = [veh.year, veh.color, veh.make, veh.model].filter(Boolean).join(' ');
+
+  useEffect(() => {
+    if (!job) return;
+    setCopilotScreenContext({
+      screen_key: 'wrecker_job_cockpit',
+      screen_state: {
+        job_id: job.id,
+        status: job.status,
+        active_tab: tab,
+        invoice_total: totals.invoice_total,
+        balance_due: totals.balance_due,
+        is_paid: isPaid,
+      },
+      draft_values: {
+        customer_name: job.customer?.name || job.customer_name || '',
+        service_type: job.service_type || '',
+      },
+    });
+    return () => clearCopilotScreenContext('wrecker_job_cockpit');
+  }, [
+    job?.id,
+    job?.status,
+    job?.customer?.name,
+    job?.customer_name,
+    job?.service_type,
+    tab,
+    totals.invoice_total,
+    totals.balance_due,
+    isPaid,
+  ]);
+
+  if (loading) return <div className="p-8 text-slate-400">Loading job...</div>;
+  if (!job) return null;
 
   return (
     <div className="p-6 lg:p-8 max-w-5xl space-y-6">

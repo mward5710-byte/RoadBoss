@@ -2695,13 +2695,193 @@ def _build_driver_context(user: Dict[str, Any], driver: Optional[Dict[str, Any]]
     return "\n".join(lines)
 
 
+class CopilotUIContextIn(BaseModel):
+    route: Optional[str] = None
+    screen_key: Optional[str] = None
+    screen_state: Dict[str, Any] = Field(default_factory=dict)
+    draft_values: Dict[str, Any] = Field(default_factory=dict)
+    touch_fallback: bool = False
+    updated_at: Optional[str] = None
+
+
 class CopilotChatIn(BaseModel):
     message: str
     session_id: Optional[str] = None
+    ui_context: Optional[CopilotUIContextIn] = None
 
 
 # Pattern matches <<<ACTION:{...}>>> at the end of an LLM reply (DOTALL allows JSON across lines)
 _ACTION_MARKER_RE = re.compile(r'<<<\s*ACTION\s*:\s*(\{.*?\})\s*>>>', re.DOTALL)
+_COPILOT_WHATS_LEFT_RE = re.compile(r"(what('?s| is)\s+left|what\s+do\s+i\s+have\s+left|missing\s+on\s+this\s+screen)", re.I)
+_COPILOT_UNDO_RE = re.compile(r"(undo\s+last\s+action|undo\s+that|go\s+back\s+that\s+action)", re.I)
+
+
+SCREEN_TASK_MATRIX: Dict[str, Dict[str, Any]] = {
+    'wrecker_new_job': {
+        'label': 'New Tow Job',
+        'routes': ['/wrecker/jobs/new'],
+        'tasks': [
+            {'id': 'fill_call', 'type': 'update', 'voice_safe': True, 'required_fields': ['customer_name', 'pickup_address'], 'optional_fields': ['customer_phone', 'dropoff_address', 'service_type', 'quoted_price']},
+            {'id': 'submit_call', 'type': 'submit', 'voice_safe': True, 'required_fields': ['customer_name', 'pickup_address'], 'optional_fields': []},
+            {'id': 'vehicle_photos', 'type': 'create', 'voice_safe': False, 'touch_required': 'photo_capture'},
+        ],
+    },
+    'wrecker_job_cockpit': {
+        'label': 'Tow Job Cockpit',
+        'routes': ['/wrecker/jobs/'],
+        'tasks': [
+            {'id': 'status_update', 'type': 'update', 'voice_safe': True, 'required_fields': ['status'], 'optional_fields': []},
+            {'id': 'add_charge', 'type': 'create', 'voice_safe': True, 'required_fields': ['amount'], 'optional_fields': ['description']},
+            {'id': 'record_payment', 'type': 'submit', 'voice_safe': True, 'required_fields': ['amount'], 'optional_fields': ['method']},
+        ],
+    },
+    'driver_inspection': {
+        'label': 'Driver Inspection',
+        'routes': ['/driver/inspection/'],
+        'tasks': [
+            {'id': 'mark_items', 'type': 'update', 'voice_safe': True, 'required_fields': ['completed_items'], 'optional_fields': []},
+            {'id': 'sign_report', 'type': 'submit', 'voice_safe': False, 'touch_required': 'signature'},
+            {'id': 'attach_damage_photo', 'type': 'create', 'voice_safe': False, 'touch_required': 'photo_capture'},
+        ],
+    },
+    'wrecker_billing': {
+        'label': 'Wrecker Billing',
+        'routes': ['/wrecker/billing'],
+        'tasks': [
+            {'id': 'read_revenue', 'type': 'read_status', 'voice_safe': True, 'required_fields': [], 'optional_fields': []},
+            {'id': 'open_job', 'type': 'navigate', 'voice_safe': True, 'required_fields': [], 'optional_fields': ['job_id']},
+        ],
+    },
+    'driver_trip': {
+        'label': 'Driver Trip',
+        'routes': ['/driver/trips/'],
+        'tasks': [
+            {'id': 'start_or_end_trip', 'type': 'submit', 'voice_safe': True, 'required_fields': ['trip_status'], 'optional_fields': []},
+            {'id': 'log_mileage', 'type': 'create', 'voice_safe': True, 'required_fields': ['state', 'miles'], 'optional_fields': []},
+        ],
+    },
+    'driver_roadside': {
+        'label': 'Roadside Dispatch',
+        'routes': ['/driver/roadside/'],
+        'tasks': [
+            {'id': 'read_dispatch_status', 'type': 'read_status', 'voice_safe': True, 'required_fields': ['status'], 'optional_fields': []},
+            {'id': 'cancel_dispatch', 'type': 'submit', 'voice_safe': True, 'required_fields': ['status'], 'optional_fields': []},
+            {'id': 'call_provider', 'type': 'touch_required', 'voice_safe': False, 'touch_required': 'phone_call'},
+        ],
+    },
+}
+
+
+def _is_blank(v: Any) -> bool:
+    if v is None:
+        return True
+    if isinstance(v, str) and not v.strip():
+        return True
+    if isinstance(v, (list, dict)) and len(v) == 0:
+        return True
+    return False
+
+
+def _screen_key_from_route(route: Optional[str]) -> Optional[str]:
+    r = (route or '').strip().lower()
+    if not r:
+        return None
+    for key, cfg in SCREEN_TASK_MATRIX.items():
+        for rp in cfg.get('routes', []):
+            if rp.endswith('/') and r.startswith(rp):
+                return key
+            if r == rp:
+                return key
+    return None
+
+
+def _resolve_screen_key(ui_context: Dict[str, Any]) -> Optional[str]:
+    key = (ui_context.get('screen_key') or '').strip().lower()
+    if key in SCREEN_TASK_MATRIX:
+        return key
+    return _screen_key_from_route(ui_context.get('route'))
+
+
+def _build_screen_adapter_context(ui_context: Dict[str, Any]) -> Dict[str, Any]:
+    screen_key = _resolve_screen_key(ui_context)
+    if not screen_key:
+        return {'screen_key': None, 'summary': 'No active screen metadata provided.', 'missing_required': []}
+    cfg = SCREEN_TASK_MATRIX.get(screen_key, {})
+    draft = ui_context.get('draft_values') or {}
+    state = ui_context.get('screen_state') or {}
+    missing = []
+    for task in cfg.get('tasks', []):
+        for field_name in task.get('required_fields', []):
+            val = draft.get(field_name, state.get(field_name))
+            if _is_blank(val):
+                missing.append(field_name)
+    missing = sorted(set(missing))
+
+    if screen_key == 'wrecker_new_job':
+        summary = f"New call draft: customer={draft.get('customer_name') or 'missing'}, pickup={draft.get('pickup_address') or 'missing'}, service={draft.get('service_type') or 'unset'}."
+    elif screen_key == 'wrecker_job_cockpit':
+        summary = f"Job cockpit: status={state.get('status') or 'unknown'}, balance_due={state.get('balance_due') if state.get('balance_due') is not None else 'unknown'}."
+    elif screen_key == 'driver_inspection':
+        summary = f"Inspection progress: {state.get('completed_items', 0)} of {state.get('total_items', 0)} complete."
+    elif screen_key == 'wrecker_billing':
+        summary = f"Billing overview: revenue={state.get('total_revenue', 0)}, outstanding={state.get('outstanding', 0)}."
+    elif screen_key == 'driver_trip':
+        summary = f"Trip: {draft.get('origin') or '?'} to {draft.get('destination') or '?'}, status={state.get('trip_status') or 'unknown'}."
+    elif screen_key == 'driver_roadside':
+        summary = f"Roadside dispatch: status={state.get('status') or 'unknown'}, provider={state.get('provider_name') or 'pending'}."
+    else:
+        summary = f"Screen {screen_key} active."
+
+    return {
+        'screen_key': screen_key,
+        'label': cfg.get('label') or screen_key,
+        'summary': summary,
+        'missing_required': missing,
+        'tasks': cfg.get('tasks', []),
+    }
+
+
+def _build_screen_prompt_context(ui_context: Dict[str, Any]) -> str:
+    adapter = _build_screen_adapter_context(ui_context)
+    key = adapter.get('screen_key')
+    if not key:
+        return "\n\n=== LIVE SCREEN CONTEXT ===\nNo active UI context provided.\n=== END LIVE SCREEN CONTEXT ===\n"
+    lines = [
+        "",
+        "=== LIVE SCREEN CONTEXT ===",
+        f"Route: {ui_context.get('route') or 'unknown'}",
+        f"Screen key: {key}",
+        f"Summary: {adapter.get('summary')}",
+    ]
+    missing = adapter.get('missing_required') or []
+    lines.append(f"Missing required fields: {', '.join(missing) if missing else 'none'}")
+    lines.append("Screen tasks:")
+    for t in adapter.get('tasks', []):
+        touch = t.get('touch_required')
+        lines.append(
+            f"- {t.get('id')} ({t.get('type')}): voice_safe={bool(t.get('voice_safe'))}"
+            + (f", touch_required={touch}" if touch else "")
+        )
+    lines.append("=== END LIVE SCREEN CONTEXT ===")
+    return "\n".join(lines) + "\n"
+
+
+def _message_is_whats_left(msg_text: str) -> bool:
+    return bool(_COPILOT_WHATS_LEFT_RE.search(msg_text or ''))
+
+
+def _message_is_undo(msg_text: str) -> bool:
+    return bool(_COPILOT_UNDO_RE.search(msg_text or ''))
+
+
+def _message_is_confirm(msg_text: str) -> bool:
+    cleaned = ' '.join(str(msg_text or '').strip().lower().replace('.', ' ').replace('!', ' ').split())
+    return cleaned in {'confirm', 'yes', 'do it', 'go ahead', 'proceed', 'send it', 'run it'}
+
+
+def _message_is_cancel(msg_text: str) -> bool:
+    cleaned = ' '.join(str(msg_text or '').strip().lower().replace('.', ' ').replace('!', ' ').split())
+    return cleaned in {'cancel', 'never mind', 'stop', 'no', "don't"}
 
 
 async def _build_wrecker_context(user: Dict[str, Any]) -> Dict[str, Any]:
@@ -2760,6 +2940,8 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
             if not driver:
                 result['error'] = 'Only drivers can change duty status.'
                 return result
+            prev_driver = await db.drivers.find_one({'id': driver['id']}, {'_id': 0, 'status': 1})
+            previous_status = (prev_driver or {}).get('status')
             await db.drivers.update_one(
                 {'id': driver['id']},
                 {'$set': {'status': new_status, 'updated_at': now_utc().isoformat()}}
@@ -2770,7 +2952,7 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
                 'started_at': now_utc().isoformat(),
                 'notes': 'Co-Pilot voice command',
             }))
-            result.update({'executed': True, 'new_status': new_status})
+            result.update({'executed': True, 'new_status': new_status, 'previous_status': previous_status})
             return result
 
         # ----- start_trip -----
@@ -2954,6 +3136,7 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
             if not job:
                 result['error'] = 'No active tow job to update.'
                 return result
+            previous_status = job.get('status')
             history = job.get('status_history', []) + [{'status': new_status, 'at': now_utc(), 'by': user['id']}]
             await db.tow_jobs.update_one(
                 {'id': job['id']},
@@ -2971,6 +3154,7 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
                 'executed': True,
                 'job_id': job['id'],
                 'new_status': new_status,
+                'previous_status': previous_status,
                 'customer': (job.get('customer') or {}).get('name'),
             })
             return result
@@ -3028,6 +3212,19 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
             result.update({'executed': True, 'tanks': tanks, 'spoken_addendum': spoken})
             return result
 
+        if action_type == 'navigate_direct':
+            redirect = str(args.get('redirect') or '').strip()
+            if not redirect.startswith('/'):
+                result['error'] = 'Invalid redirect target.'
+                return result
+            result.update({
+                'executed': True,
+                'target': 'direct',
+                'label': str(args.get('label') or 'screen'),
+                'redirect': redirect,
+            })
+            return result
+
         if action_type == 'navigate':
             # Hands-free in-app navigation. We never refuse — Co-Pilot IS the dashboard.
             target_raw = str(args.get('target') or '').strip().lower().replace('-', '_').replace(' ', '_')
@@ -3062,10 +3259,10 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
                 'cab': ('/driver', 'cab dashboard'),
                 'driver_home': ('/driver', 'cab dashboard'),
                 'home': ('/wrecker' if is_wrecker else '/driver', 'home'),
-                'trip': ('/driver/trip', 'active trip'),
+                'trip': ('/driver/trips', 'trip'),
                 'alerts': ('/app/alerts', 'fleet alerts'),
-                'inspections': ('/driver/inspections', 'inspections'),
-                'dvir': ('/driver/inspections', 'inspections'),
+                'inspections': ('/driver/inspection/new', 'inspections'),
+                'dvir': ('/driver/inspection/new', 'inspections'),
             }
             route_label = nav_map.get(target_raw)
             if not route_label:
@@ -3078,6 +3275,27 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
                 result['error'] = f"I don't have a screen called '{target_raw}'. Try dispatch board, impound, billing, or settings."
                 return result
             redirect, label = route_label
+            if target_raw in {'active_call', 'my_call', 'next_call'}:
+                job = await _resolve_active_tow_job(user)
+                if job:
+                    redirect = f"/wrecker/jobs/{job['id']}"
+                    label = 'active call'
+            if target_raw == 'trip' and driver:
+                tr = await db.trips.find_one(
+                    {'driver_id': driver['id'], 'status': {'$in': ['active', 'planned']}},
+                    {'_id': 0, 'id': 1},
+                    sort=[('status', 1), ('created_at', -1)]
+                )
+                if tr and tr.get('id'):
+                    redirect = f"/driver/trips/{tr['id']}"
+            if target_raw in {'inspections', 'dvir'} and driver:
+                insp = await db.inspections.find_one(
+                    {'driver_id': driver['id'], 'status': {'$ne': 'certified'}},
+                    {'_id': 0, 'id': 1},
+                    sort=[('updated_at', -1)]
+                )
+                if insp and insp.get('id'):
+                    redirect = f"/driver/inspection/{insp['id']}"
             result.update({
                 'executed': True,
                 'target': target_raw,
@@ -3532,24 +3750,137 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
         return result
 
 
-async def _parse_and_execute_action(reply_text: str, user: Dict[str, Any],
-                                      driver: Optional[Dict[str, Any]]):
-    """Strip <<<ACTION:{...}>>> from the reply, execute it, return (clean_text, action_result_or_None)."""
+def _parse_action_marker(reply_text: str):
+    """Strip <<<ACTION:{...}>>> and return (clean_text, action_dict|None, parse_error|None)."""
     import json as _json
     if not reply_text:
-        return reply_text, None
+        return reply_text, None, None
     m = _ACTION_MARKER_RE.search(reply_text)
     if not m:
-        return reply_text.strip(), None
+        return reply_text.strip(), None, None
     raw_json = m.group(1)
     cleaned = (reply_text[:m.start()] + reply_text[m.end():]).strip()
     try:
         action = _json.loads(raw_json)
     except Exception as e:
         logger.warning(f"Co-Pilot emitted malformed ACTION marker: {raw_json!r} ({e})")
-        return cleaned, {'executed': False, 'error': 'malformed_action_json'}
-    result = await _execute_copilot_action(action, user, driver)
-    return cleaned, result
+        return cleaned, None, 'malformed_action_json'
+    return cleaned, action, None
+
+
+def _action_requires_confirmation(action: Optional[Dict[str, Any]]) -> bool:
+    if not action:
+        return False
+    action_type = str((action or {}).get('type') or '')
+    args = (action or {}).get('args') or {}
+    if action_type in {'mark_paid', 'set_job_price', 'impound_quick'}:
+        return True
+    if action_type == 'tow_job_status':
+        status_val = str(args.get('status') or '').lower().replace('-', '_').replace(' ', '_')
+        if status_val in {'completed', 'cancelled'}:
+            return True
+    return False
+
+
+def _build_undo_action(action_result: Optional[Dict[str, Any]], ui_context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not action_result or not action_result.get('executed'):
+        return None
+    action_type = action_result.get('type')
+    if action_type == 'navigate':
+        prev_route = (ui_context or {}).get('route')
+        if prev_route:
+            return {'type': 'navigate_direct', 'args': {'redirect': prev_route, 'label': 'previous screen'}}
+        return None
+    if action_type == 'tow_job_status' and action_result.get('previous_status'):
+        return {'type': 'tow_job_status', 'args': {'status': action_result.get('previous_status')}}
+    if action_type == 'duty_change' and action_result.get('previous_status'):
+        return {'type': 'duty_change', 'args': {'status': action_result.get('previous_status')}}
+    return None
+
+
+async def _record_copilot_metric(user: Dict[str, Any], session_id: str, ui_context: Dict[str, Any],
+                                 event_type: str, action_result: Optional[Dict[str, Any]] = None,
+                                 error: Optional[str] = None):
+    try:
+        screen_key = _resolve_screen_key(ui_context or {})
+        retries = await db.copilot_metrics.count_documents({
+            'user_id': user['id'],
+            'screen_key': screen_key,
+            'action_executed': False,
+            'created_at': {'$gte': now_utc() - timedelta(minutes=15)},
+        })
+        await db.copilot_metrics.insert_one({
+            'id': str(uuid.uuid4()),
+            'user_id': user['id'],
+            'session_id': session_id,
+            'screen_key': screen_key,
+            'route': (ui_context or {}).get('route'),
+            'event_type': event_type,
+            'action_type': (action_result or {}).get('type'),
+            'action_executed': bool((action_result or {}).get('executed')),
+            'error': error or (action_result or {}).get('error'),
+            'fallback_to_touch': bool((ui_context or {}).get('touch_fallback')),
+            'retry_count_15m': retries,
+            'created_at': now_utc(),
+        })
+    except Exception as e:
+        logger.warning(f"Failed to record copilot metric: {e}")
+
+
+async def _load_pending_copilot_action(user_id: str) -> Optional[Dict[str, Any]]:
+    return await db.copilot_pending_actions.find_one(
+        {'user_id': user_id, 'expires_at': {'$gt': now_utc()}},
+        {'_id': 0},
+        sort=[('created_at', -1)],
+    )
+
+
+async def _clear_pending_copilot_action(user_id: str):
+    await db.copilot_pending_actions.delete_many({'user_id': user_id})
+
+
+async def _save_pending_copilot_action(user: Dict[str, Any], session_id: str, action: Dict[str, Any], spoken_text: str):
+    await _clear_pending_copilot_action(user['id'])
+    await db.copilot_pending_actions.insert_one({
+        'id': str(uuid.uuid4()),
+        'user_id': user['id'],
+        'session_id': session_id,
+        'action': action,
+        'spoken_text': spoken_text,
+        'created_at': now_utc(),
+        'expires_at': now_utc() + timedelta(minutes=20),
+    })
+
+
+async def _save_copilot_action_journal(user: Dict[str, Any], session_id: str, action_result: Dict[str, Any], ui_context: Dict[str, Any]):
+    undo_action = _build_undo_action(action_result, ui_context)
+    await db.copilot_action_journal.insert_one({
+        'id': str(uuid.uuid4()),
+        'user_id': user['id'],
+        'session_id': session_id,
+        'action_result': action_result,
+        'undo_action': undo_action,
+        'undone': False,
+        'created_at': now_utc(),
+    })
+
+
+async def _undo_last_copilot_action(user: Dict[str, Any], driver: Optional[Dict[str, Any]], session_id: str):
+    last = await db.copilot_action_journal.find_one(
+        {'user_id': user['id'], 'undone': {'$ne': True}},
+        {'_id': 0},
+        sort=[('created_at', -1)],
+    )
+    if not last:
+        return "Nothing to undo yet, boss.", {'executed': False, 'type': 'undo', 'error': 'no_previous_action'}
+    undo_action = last.get('undo_action')
+    if not undo_action:
+        return "I can't undo that one automatically yet.", {'executed': False, 'type': 'undo', 'error': 'undo_not_available'}
+    result = await _execute_copilot_action(undo_action, user, driver)
+    await db.copilot_action_journal.update_one({'id': last['id']}, {'$set': {'undone': True, 'undone_at': now_utc()}})
+    if result.get('executed'):
+        return "Done. I rolled back the last action.", result
+    return "I tried to undo it, but it did not go through.", result
 
 
 @api_router.post("/copilot/chat")
@@ -3564,6 +3895,8 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
 
     # Stable session id keyed to user (one running convo per user is fine for v1)
     session_id = body.session_id or f"copilot-{user['id']}"
+    ui_context = serialize_doc(body.ui_context.model_dump()) if body.ui_context else {}
+    ui_context['screen_key'] = _resolve_screen_key(ui_context) or ui_context.get('screen_key')
 
     # Build live context
     # GOD-MODE: super_admin gets a phantom driver record auto-created so all
@@ -3603,9 +3936,83 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         'user_id': user['id'],
         'role': 'user',
         'content': msg_text,
+        'ui_context': ui_context,
         'created_at': now_utc().isoformat(),
     }
     await db.copilot_chats.insert_one(user_doc)
+
+    async def _finalize_response(spoken_text: str, action_result: Optional[Dict[str, Any]],
+                                 event_type: str, model_name: Optional[str] = None):
+        if action_result and action_result.get('spoken_addendum'):
+            addendum = action_result.pop('spoken_addendum')
+            if spoken_text and not spoken_text.endswith(('.', '!', '?')):
+                spoken_text = spoken_text + '.'
+            spoken_text = (spoken_text + ' ' + addendum).strip() if spoken_text else addendum
+
+        await db.copilot_chats.insert_one({
+            'id': str(uuid.uuid4()),
+            'session_id': session_id,
+            'user_id': user['id'],
+            'role': 'assistant',
+            'content': spoken_text,
+            'action': action_result,
+            'ui_context': ui_context,
+            'model': model_name or f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
+            'created_at': now_utc().isoformat(),
+        })
+        await _record_copilot_metric(
+            user=user,
+            session_id=session_id,
+            ui_context=ui_context,
+            event_type=event_type,
+            action_result=action_result,
+        )
+        if action_result and action_result.get('executed'):
+            await _save_copilot_action_journal(user, session_id, action_result, ui_context)
+        return {
+            'reply': spoken_text,
+            'action': action_result,
+            'session_id': session_id,
+            'model': model_name or f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
+            'ui_context': ui_context,
+        }
+
+    pending = await _load_pending_copilot_action(user['id'])
+    if pending and _message_is_confirm(msg_text):
+        action_result = await _execute_copilot_action(pending.get('action') or {}, user, driver)
+        await _clear_pending_copilot_action(user['id'])
+        spoken_text = str(pending.get('spoken_text') or 'Confirmed. Done.')
+        return await _finalize_response(spoken_text, action_result, event_type='confirm_execute')
+    if pending and _message_is_cancel(msg_text):
+        await _clear_pending_copilot_action(user['id'])
+        return await _finalize_response(
+            "Copy that, canceled.",
+            {'executed': False, 'type': 'confirmation', 'cancelled': True},
+            event_type='confirm_cancel'
+        )
+
+    if _message_is_undo(msg_text):
+        spoken_text, action_result = await _undo_last_copilot_action(user, driver, session_id)
+        return await _finalize_response(spoken_text, action_result, event_type='undo')
+
+    if _message_is_whats_left(msg_text):
+        adapter = _build_screen_adapter_context(ui_context)
+        missing = adapter.get('missing_required') or []
+        if adapter.get('screen_key'):
+            if missing:
+                spoken = f"On {adapter.get('label')}, you're still missing: {', '.join(missing)}."
+            else:
+                spoken = f"On {adapter.get('label')}, you're clear on required fields."
+            action_result = {
+                'executed': True,
+                'type': 'screen_progress',
+                'screen_key': adapter.get('screen_key'),
+                'missing_required': missing,
+            }
+        else:
+            spoken = "I don't have enough screen context yet. Keep the screen open and try again."
+            action_result = {'executed': False, 'type': 'screen_progress', 'error': 'no_screen_context'}
+        return await _finalize_response(spoken, action_result, event_type='whats_left')
 
     # Lazy import so server still boots if package missing
     try:
@@ -3615,6 +4022,7 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         raise HTTPException(500, "Co-Pilot AI library not available.")
 
     system_prompt = COPILOT_SYSTEM_BASE + _build_driver_context(user, driver, active_trip, vehicle, recent_alerts, wrecker_ctx=wrecker_ctx)
+    system_prompt += _build_screen_prompt_context(ui_context)
 
     try:
         chat = LlmChat(
@@ -3638,7 +4046,8 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
                 transcript_lines.append(f"{speaker}: {h.get('content', '')}")
             prior_text = "\n\nRecent conversation so far (oldest first):\n" + "\n".join(transcript_lines) + "\n\n"
 
-        composed = prior_text + f"Driver just said: {msg_text}"
+        screen_summary = _build_screen_adapter_context(ui_context).get('summary') or 'No screen context'
+        composed = prior_text + f"Live screen summary: {screen_summary}\nDriver just said: {msg_text}"
         reply = await chat.send_message(UserMessage(text=composed))
         reply_text = (reply or '').strip()
     except HTTPException:
@@ -3649,7 +4058,7 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         low = err_str.lower()
         # CREDIT GUARD: Detect specific budget / quota errors so the user knows
         # exactly what's wrong instead of a generic "brain" message.
-        if 'budget has been exceeded' in low or 'budget exceeded' in low or 'insufficient_quota' in low or 'quota' in low and 'exceeded' in low:
+        if 'budget has been exceeded' in low or 'budget exceeded' in low or 'insufficient_quota' in low or ('quota' in low and 'exceeded' in low):
             raise HTTPException(
                 402,
                 "AI credit balance is empty. Top up your Emergent Universal Key (Profile → Universal Key → Add Balance) to bring Co-Pilot back online."
@@ -3660,34 +4069,30 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
             raise HTTPException(401, "Co-Pilot AI key is invalid. Check EMERGENT_LLM_KEY.")
         raise HTTPException(502, "Co-Pilot is having trouble reaching the brain. Try again in a moment.")
 
-    # Parse and execute any ACTION marker emitted by the model
-    spoken_text, action_result = await _parse_and_execute_action(reply_text, user, driver)
+    spoken_text, action, parse_error = _parse_action_marker(reply_text)
+    if parse_error:
+        action_result: Optional[Dict[str, Any]] = {'executed': False, 'error': parse_error, 'type': 'action_parse'}
+        return await _finalize_response(spoken_text, action_result, event_type='llm_parse_error')
 
-    # Append spoken_addendum from the action result so the AI actually reads back data
-    if action_result and action_result.get('spoken_addendum'):
-        addendum = action_result.pop('spoken_addendum')
-        if spoken_text and not spoken_text.endswith(('.', '!', '?')):
-            spoken_text = spoken_text + '.'
-        spoken_text = (spoken_text + ' ' + addendum).strip() if spoken_text else addendum
+    action_result = None
+    if action:
+        if _action_requires_confirmation(action) and not _message_is_confirm(msg_text):
+            await _save_pending_copilot_action(user, session_id, action, spoken_text)
+            spoken_text = (spoken_text + " Say confirm to proceed, or cancel to stop.").strip()
+            action_result = {
+                'executed': False,
+                'type': action.get('type'),
+                'confirmation_required': True,
+            }
+        else:
+            action_result = await _execute_copilot_action(action, user, driver)
 
-    # Persist assistant turn (clean spoken text only)
-    await db.copilot_chats.insert_one({
-        'id': str(uuid.uuid4()),
-        'session_id': session_id,
-        'user_id': user['id'],
-        'role': 'assistant',
-        'content': spoken_text,
-        'action': action_result,
-        'model': f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
-        'created_at': now_utc().isoformat(),
-    })
-
-    return {
-        'reply': spoken_text,
-        'action': action_result,
-        'session_id': session_id,
-        'model': f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
-    }
+    return await _finalize_response(
+        spoken_text,
+        action_result,
+        event_type='llm_action' if action_result else 'llm_reply',
+        model_name=f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
+    )
 
 
 @api_router.get("/copilot/history")

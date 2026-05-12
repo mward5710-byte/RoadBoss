@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { api } from '@/lib/api';
+import { setCopilotScreenContext, clearCopilotScreenContext } from '@/lib/copilotContext';
 import { toast } from 'sonner';
 import { openCameraAsDataUrl } from '@/lib/photoCapture';
 
@@ -332,6 +333,22 @@ export default function Inspection() {
 
   const totalDone = useMemo(() => Object.values(sectionProgress).reduce((sum, p) => sum + p.done, 0), [sectionProgress]);
   const totalItems = useMemo(() => Object.values(sectionProgress).reduce((sum, p) => sum + p.total, 0), [sectionProgress]);
+
+  useEffect(() => {
+    setCopilotScreenContext({
+      screen_key: 'driver_inspection',
+      screen_state: {
+        inspection_id: doc?.id || id || null,
+        status: doc?.status || 'draft',
+        completed_items: totalDone,
+        total_items: totalItems,
+      },
+      draft_values: {
+        inspection_type: doc?.inspection_type || null,
+      },
+    });
+    return () => clearCopilotScreenContext('driver_inspection');
+  }, [doc?.id, doc?.status, doc?.inspection_type, id, totalDone, totalItems]);
 
   if (loading) return <div className="p-8 text-slate-400">Loading inspection…</div>;
   if (!doc) return null;

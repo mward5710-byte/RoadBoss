@@ -31,6 +31,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { setCopilotScreenContext, clearCopilotScreenContext } from '@/lib/copilotContext';
 
 // ─────────────────────────────────────────────────────────────────────
 // Towbook-spec lookups
@@ -285,6 +286,36 @@ export default function WreckerJobNew() {
     const invoiceTotal = +(taxable + tax).toFixed(2);
     return { sub: +sub.toFixed(2), fuel, tax, invoiceTotal, base, quoted, discount };
   }, [pendingCharges, form.quoted_price, form.discount, form.fuel_surcharge_pct, form.tax_rate_pct]);
+
+  useEffect(() => {
+    setCopilotScreenContext({
+      screen_key: 'wrecker_new_job',
+      screen_state: {
+        save_disabled: saving || !form.customer_name || !form.pickup_address,
+        pending_charges_count: pendingCharges.length,
+        assigned_driver_count: assignedDriverIds.length,
+      },
+      draft_values: {
+        customer_name: form.customer_name || '',
+        customer_phone: form.customer_phone || '',
+        pickup_address: form.pickup_address || '',
+        dropoff_address: form.dropoff_address || '',
+        service_type: form.service_type || '',
+        quoted_price: form.quoted_price || '',
+      },
+    });
+    return () => clearCopilotScreenContext('wrecker_new_job');
+  }, [
+    saving,
+    pendingCharges.length,
+    assignedDriverIds.length,
+    form.customer_name,
+    form.customer_phone,
+    form.pickup_address,
+    form.dropoff_address,
+    form.service_type,
+    form.quoted_price,
+  ]);
 
   useEffect(() => {
     api.get('/wrecker/motor-clubs').then((r) => setClubs(r.data)).catch(() => {});

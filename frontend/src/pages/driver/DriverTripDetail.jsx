@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { MapboxMap, fetchTruckRoute, geocodeAddress } from '@/components/MapboxMap';
+import { setCopilotScreenContext, clearCopilotScreenContext } from '@/lib/copilotContext';
 
 const statusStyle = {
   planned: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
@@ -75,6 +76,24 @@ export default function DriverTripDetail() {
     try { await api.post(`/trips/${id}/mileage`, { state, miles: Number(miles) }); setState(''); setMiles(''); toast.success('Mileage added'); await load(); } catch { toast.error('Failed'); }
   };
   const delMileage = async (mid) => { try { await api.delete(`/trips/${id}/mileage/${mid}`); await load(); } catch {} };
+
+  useEffect(() => {
+    if (!trip) return;
+    setCopilotScreenContext({
+      screen_key: 'driver_trip',
+      screen_state: {
+        trip_id: trip.id,
+        trip_status: trip.status,
+        route_loading: routeLoading,
+        route_error: !!routeError,
+      },
+      draft_values: {
+        origin: trip.origin || '',
+        destination: trip.destination || '',
+      },
+    });
+    return () => clearCopilotScreenContext('driver_trip');
+  }, [trip, routeLoading, routeError]);
 
   if (!trip) return <div className="p-5 text-slate-400">Loading...</div>;
   const totalState = mileage.reduce((a, m) => a + (m.miles || 0), 0);

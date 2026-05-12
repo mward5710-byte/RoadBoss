@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getCopilotContextPayload } from '@/lib/copilotContext';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
@@ -8,6 +9,16 @@ export const api = axios.create({ baseURL: API });
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('hp_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  try {
+    if (typeof config.url === 'string' && config.url.includes('/copilot/chat') && config.data && typeof config.data === 'object') {
+      config.data = {
+        ...config.data,
+        ui_context: getCopilotContextPayload(),
+      };
+    }
+  } catch {
+    // no-op
+  }
   return config;
 });
 

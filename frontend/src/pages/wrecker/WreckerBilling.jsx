@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui/card';
 import { CreditCard, DollarSign, TrendingUp, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { setCopilotScreenContext, clearCopilotScreenContext } from '@/lib/copilotContext';
 
 export default function WreckerBilling() {
   const [overview, setOverview] = useState(null);
@@ -22,17 +23,40 @@ export default function WreckerBilling() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="p-8 text-slate-400">Loading billing...</div>;
+  const completed = useMemo(() => jobs.filter((j) => j.status === 'completed'), [jobs]);
+  const totalRevenue = useMemo(
+    () => completed.reduce((sum, j) => sum + (j.final_price ?? j.quoted_price ?? 0), 0),
+    [completed]
+  );
+  const outstanding = useMemo(
+    () => jobs.filter((j) => j.status !== 'completed' && j.status !== 'cancelled')
+      .reduce((sum, j) => sum + (j.quoted_price ?? 0), 0),
+    [jobs]
+  );
+  const byClub = useMemo(() => {
+    const map = {};
+    completed.forEach((j) => {
+      const k = j.motor_club_name || 'Direct';
+      map[k] = (map[k] || 0) + (j.final_price ?? j.quoted_price ?? 0);
+    });
+    return map;
+  }, [completed]);
 
-  const completed = jobs.filter((j) => j.status === 'completed');
-  const totalRevenue = completed.reduce((sum, j) => sum + (j.final_price ?? j.quoted_price ?? 0), 0);
-  const outstanding = jobs.filter((j) => j.status !== 'completed' && j.status !== 'cancelled')
-    .reduce((sum, j) => sum + (j.quoted_price ?? 0), 0);
-  const byClub = {};
-  completed.forEach((j) => {
-    const k = j.motor_club_name || 'Direct';
-    byClub[k] = (byClub[k] || 0) + (j.final_price ?? j.quoted_price ?? 0);
-  });
+  useEffect(() => {
+    setCopilotScreenContext({
+      screen_key: 'wrecker_billing',
+      screen_state: {
+        completed_jobs: completed.length,
+        total_revenue: totalRevenue,
+        outstanding,
+        today_revenue: overview?.today_revenue || 0,
+      },
+      draft_values: {},
+    });
+    return () => clearCopilotScreenContext('wrecker_billing');
+  }, [completed.length, totalRevenue, outstanding, overview?.today_revenue]);
+
+  if (loading) return <div className="p-8 text-slate-400">Loading billing...</div>;
 
   return (
     <div className="p-6 lg:p-8 space-y-6">

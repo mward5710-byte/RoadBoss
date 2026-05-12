@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, Phone, MapPin, Clock, ShieldCheck, X, CheckCircle2, Truck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
+import { setCopilotScreenContext, clearCopilotScreenContext } from '@/lib/copilotContext';
 import { toast } from 'sonner';
 import { MapboxMap } from '@/components/MapboxMap';
 
@@ -26,6 +27,24 @@ export default function RoadsideDetail() {
     api.get(`/roadside/dispatch/${id}`).then((r) => setDoc(r.data)).finally(() => setLoading(false));
   };
   useEffect(() => { refresh(); /* poll for status updates */ const t = setInterval(refresh, 8000); return () => clearInterval(t); /* eslint-disable-next-line */ }, [id]);
+
+  useEffect(() => {
+    if (!doc) return;
+    setCopilotScreenContext({
+      screen_key: 'driver_roadside',
+      screen_state: {
+        dispatch_id: doc.id,
+        status: doc.status,
+        provider_name: doc.provider_name || null,
+        eta_minutes: doc.eta_minutes || null,
+      },
+      draft_values: {
+        service_type: doc.service_type || '',
+        description: doc.description || '',
+      },
+    });
+    return () => clearCopilotScreenContext('driver_roadside');
+  }, [doc]);
 
   if (loading) return <div className="p-6 text-center text-slate-500">Loading dispatch...</div>;
   if (!doc) return <div className="p-6 text-center text-slate-500">Dispatch not found.</div>;
