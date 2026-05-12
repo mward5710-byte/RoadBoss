@@ -12,8 +12,8 @@
 ## 1. Terms of Service
 
 **WreckerLogix Terms of Service**
-*Effective Date: [DATE]*
-*Last Updated: [DATE]*
+*Effective Date: 05/11/2026*
+*Last Updated: 05/11/2026*
 
 These Terms of Service ("Terms") govern your access to and use of WreckerLogix, a software-as-a-service ("Service") operated by RoadBoss Technologies / Apex Epoxy & Flooring LLC ("Company," "we," "us," or "our"). By creating an account or using the Service, you agree to these Terms.
 
@@ -73,16 +73,16 @@ These Terms are governed by the laws of the State of Indiana, USA. Any dispute w
 
 ### 1.14 Contact
 **RoadBoss Technologies / Apex Epoxy & Flooring LLC**
-[Mailing Address]
-[Phone] · legal@wrecker-logix.com
+715 S. McCann St., Kokomo, IN 46901, United States
+mward5710@gmail.com · https://www.apexepoxyflooringllc.com
 
 ---
 
 ## 2. Privacy Policy
 
 **WreckerLogix Privacy Policy**
-*Effective Date: [DATE]*
-*Last Updated: [DATE]*
+*Effective Date: 05/11/2026*
+*Last Updated: 05/11/2026*
 
 This Privacy Policy explains how WreckerLogix ("we," "us," "our") collects, uses, and protects your information.
 
@@ -112,7 +112,7 @@ This Privacy Policy explains how WreckerLogix ("we," "us," "our") collects, uses
 We do **not** sell your personal information. We share data only with:
 
 - **Subprocessors** who help operate the Service (e.g., MongoDB Atlas for hosting, Mapbox for routing, Twilio for SMS, Square/Stripe for payments). Each is contractually bound to protect your data.
-- **Authorized users in your company** (your employees and dispatchers).
+- **Authorized users in your company** (your employees and dispatchers). None until I Sell PWA 
 - **Legal authorities** when required by law (subpoena, court order, valid legal process).
 - **Successors** in the event of merger, acquisition, or sale of assets, with notice.
 
@@ -137,7 +137,7 @@ Depending on your location, you may have the right to:
 - Opt out of marketing emails (unsubscribe link)
 - Object to or restrict certain processing
 
-To exercise these rights, email **privacy@wrecker-logix.com**.
+To exercise these rights, email **mward5710@gmail.com**.
 
 ### 2.7 Children's Privacy
 
@@ -160,14 +160,15 @@ We may update this policy. Material changes will be communicated via email and a
 
 **Privacy Officer**
 RoadBoss Technologies
-privacy@wrecker-logix.com
+mward5710@gmail.com
+https://www.apexepoxyflooringllc.com
 
 ---
 
 ## 3. End-User License Agreement (EULA)
 
 **WreckerLogix End-User License Agreement**
-*Effective Date: [DATE]*
+*Effective Date: 05/11/2026*
 
 This End-User License Agreement ("EULA") is between you ("User," "you") and RoadBoss Technologies / Apex Epoxy & Flooring LLC ("Licensor," "we").
 
@@ -231,10 +232,10 @@ This EULA, together with the Terms of Service and Privacy Policy, constitutes th
 
 Before you push these to wrecker-logix.com:
 
-- [ ] Replace `[DATE]` with the actual effective date.
-- [ ] Replace `[Mailing Address]` with your real business mailing address.
-- [ ] Replace `[Phone]` with your business phone number.
-- [ ] Confirm the legal entity name. (Currently using "RoadBoss Technologies / Apex Epoxy & Flooring LLC" — change if you've formed a separate LLC for this venture.)
+- [x] Verify the published legal effective/updated dates are set to 05/11/2026.
+- [x] Replace `[715 S. McCann St. Kokomo In. 46901]` with your real business mailing address.
+- [ ] Set your business phone number in public legal contact sections where needed.
+- [x] Confirm the legal entity name. (Currently using "RoadBoss Technologies / Apex Epoxy & Flooring LLC" — change if you've formed a separate LLC for this venture.)
 - [ ] Set up the email aliases:
   - legal@wrecker-logix.com
   - privacy@wrecker-logix.com
