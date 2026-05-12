@@ -27,7 +27,11 @@ export default function Privacy() {
         <section className="mt-8 rounded-2xl border border-white/10 bg-white/[0.02] p-6">
           <h2 className="text-xl font-semibold">Your Rights</h2>
           <p className="text-slate-300 mt-3">
-            To exercise access, correction, deletion, or export rights, email <strong className="text-white">mward5710@gmail.com</strong>.
+            To exercise access, correction, deletion, or export rights, email{' '}
+            <a className="text-white underline hover:text-white" href="mailto:mward5710@gmail.com">
+              mward5710@gmail.com
+            </a>
+            .
           </p>
         </section>
 
@@ -38,9 +42,11 @@ export default function Privacy() {
             <br />
             RoadBoss Technologies
             <br />
-            mward5710@gmail.com
+            <a className="underline hover:text-white" href="mailto:mward5710@gmail.com">mward5710@gmail.com</a>
             <br />
-            https://www.apexepoxyflooringllc.com
+            <a className="underline hover:text-white" href="https://www.apexepoxyflooringllc.com" target="_blank" rel="noreferrer">
+              https://www.apexepoxyflooringllc.com
+            </a>
           </p>
         </section>
         <BrandedFooter className="py-10" />

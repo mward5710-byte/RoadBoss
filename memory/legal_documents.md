@@ -12,8 +12,8 @@
 ## 1. Terms of Service
 
 **WreckerLogix Terms of Service**
-*Effective Date: [05/11/2026]*
-*Last Updated: [05/11/2026]*
+*Effective Date: 05/11/2026*
+*Last Updated: 05/11/2026*
 
 These Terms of Service ("Terms") govern your access to and use of WreckerLogix, a software-as-a-service ("Service") operated by RoadBoss Technologies / Apex Epoxy & Flooring LLC ("Company," "we," "us," or "our"). By creating an account or using the Service, you agree to these Terms.
 
@@ -81,8 +81,8 @@ mward5710@gmail.com · https://www.apexepoxyflooringllc.com
 ## 2. Privacy Policy
 
 **WreckerLogix Privacy Policy**
-*Effective Date: [05/11/2026]*
-*Last Updated: [05/11/2026]*
+*Effective Date: 05/11/2026*
+*Last Updated: 05/11/2026*
 
 This Privacy Policy explains how WreckerLogix ("we," "us," "our") collects, uses, and protects your information.
 
@@ -168,7 +168,7 @@ https://www.apexepoxyflooringllc.com
 ## 3. End-User License Agreement (EULA)
 
 **WreckerLogix End-User License Agreement**
-*Effective Date: [05/11/2026]*
+*Effective Date: 05/11/2026*
 
 This End-User License Agreement ("EULA") is between you ("User," "you") and RoadBoss Technologies / Apex Epoxy & Flooring LLC ("Licensor," "we").
 
@@ -232,15 +232,15 @@ This EULA, together with the Terms of Service and Privacy Policy, constitutes th
 
 Before you push these to wrecker-logix.com:
 
-- [ok] Replace `[05/11/2026]` with the actual effective date.
+- [x] Verify the published legal effective/updated dates are set to 05/11/2026.
 - [x] Replace `[715 S. McCann St. Kokomo In. 46901]` with your real business mailing address.
-- [ok] Replace `[+1-765-480-8889]` with your business phone number.
-- [ok] Confirm the legal entity name. (Currently using "RoadBoss Technologies / Apex Epoxy & Flooring LLC" — change if you've formed a separate LLC for this venture.)
-- [ok] Set up the email aliases:
+- [ ] Set your business phone number in public legal contact sections where needed.
+- [x] Confirm the legal entity name. (Currently using "RoadBoss Technologies / Apex Epoxy & Flooring LLC" — change if you've formed a separate LLC for this venture.)
+- [ ] Set up the email aliases:
   - legal@wrecker-logix.com
   - privacy@wrecker-logix.com
-- [ok] Have a lawyer or Rocket Lawyer / LegalZoom review (~$50–$200).
-- [ok] Add Customer Data Processing Agreement (DPA) if you sign B2B contracts.
+- [ ] Have a lawyer or Rocket Lawyer / LegalZoom review (~$50–$200).
+- [ ] Add Customer Data Processing Agreement (DPA) if you sign B2B contracts.
 - [ ] Add a Cookie Banner if you operate in the EU (GDPR requirement).
-- [ok] Build the Settings → Data Backup feature so the Privacy claim about "export anytime" is true.
-- [ok] Build the Settings → Delete Account feature so the Privacy claim about deletion is true.
+- [ ] Build the Settings → Data Backup feature so the Privacy claim about "export anytime" is true.
+- [ ] Build the Settings → Delete Account feature so the Privacy claim about deletion is true.
