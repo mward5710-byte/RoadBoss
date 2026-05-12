@@ -39,10 +39,11 @@ import requests
 import sys
 import time
 import json
+import os
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-BASE_URL = "https://build-forge-49.preview.emergentagent.com/api"
+BASE_URL = os.getenv("ROADBOSS_API_BASE_URL", "http://localhost:8001/api")
 
 class WreckerModeTester:
     def __init__(self):

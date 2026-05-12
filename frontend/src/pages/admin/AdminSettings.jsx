@@ -592,7 +592,7 @@ function DangerSection({ navigate }) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-rose-400" /> Delete your entire account?</DialogTitle>
             <DialogDescription className="text-slate-400">
-              This isn&apos;t live in the UI yet — to delete your account today, email <span className="text-amber-300">support@emergent.sh</span> with your account email and we&apos;ll process it manually within 48 hours.
+              This isn&apos;t live in the UI yet — to delete your account today, email <span className="text-amber-300">support@roadboss.app</span> with your account email and we&apos;ll process it manually within 48 hours.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
