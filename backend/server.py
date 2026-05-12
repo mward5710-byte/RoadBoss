@@ -3647,13 +3647,6 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         err_str = str(e)
         logger.error(f"Copilot LLM error: {err_str}")
         low = err_str.lower()
-        # CREDIT GUARD: Detect specific budget / quota errors so the user knows
-        # exactly what's wrong instead of a generic "brain" message.
-        if 'budget has been exceeded' in low or 'budget exceeded' in low or 'insufficient_quota' in low or 'quota' in low and 'exceeded' in low:
-            raise HTTPException(
-                402,
-                "AI credit balance is empty. Top up your Emergent Universal Key (Profile → Universal Key → Add Balance) to bring Co-Pilot back online."
-            )
         if 'rate limit' in low or 'rate_limit' in low or '429' in low:
             raise HTTPException(429, "Co-Pilot is being rate-limited. Give it 10 seconds and try again.")
         if 'authentication' in low or 'invalid api key' in low or 'unauthorized' in low:

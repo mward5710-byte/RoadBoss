@@ -180,7 +180,7 @@ export default function GlobalCopilotFAB() {
       const errMsg = e?.response?.data?.detail || 'Co-Pilot is offline right now.';
       setReply(errMsg);
       setMode('idle');
-      if (status === 402 || status === 401) {
+      if (status === 401) {
         toast.error(errMsg, { duration: 12000 });
       } else if (status === 429) {
         toast.warning(errMsg, { duration: 6000 });
