@@ -73,8 +73,8 @@ These Terms are governed by the laws of the State of Indiana, USA. Any dispute w
 
 ### 1.14 Contact
 **RoadBoss Technologies / Apex Epoxy & Flooring LLC**
-[Mailing Address]
-[Phone] · legal@wrecker-logix.com
+715 S. McCann St., Kokomo, IN 46901, United States
+mward5710@gmail.com · https://www.apexepoxyflooringllc.com
 
 ---
 
@@ -137,7 +137,7 @@ Depending on your location, you may have the right to:
 - Opt out of marketing emails (unsubscribe link)
 - Object to or restrict certain processing
 
-To exercise these rights, email **privacy@wrecker-logix.com**.
+To exercise these rights, email **mward5710@gmail.com**.
 
 ### 2.7 Children's Privacy
 
@@ -160,7 +160,8 @@ We may update this policy. Material changes will be communicated via email and a
 
 **Privacy Officer**
 RoadBoss Technologies
-privacy@wrecker-logix.com
+mward5710@gmail.com
+https://www.apexepoxyflooringllc.com
 
 ---
 
@@ -232,7 +233,7 @@ This EULA, together with the Terms of Service and Privacy Policy, constitutes th
 Before you push these to wrecker-logix.com:
 
 - [ ] Replace `[DATE]` with the actual effective date.
-- [ ] Replace `[Mailing Address]` with your real business mailing address.
+- [x] Replace `[Mailing Address]` with your real business mailing address.
 - [ ] Replace `[Phone]` with your business phone number.
 - [ ] Confirm the legal entity name. (Currently using "RoadBoss Technologies / Apex Epoxy & Flooring LLC" — change if you've formed a separate LLC for this venture.)
 - [ ] Set up the email aliases:
