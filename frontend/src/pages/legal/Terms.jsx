@@ -31,9 +31,9 @@ export default function Terms() {
             <br />
             715 S. McCann St., Kokomo, IN 46901, United States
             <br />
-            <a className="underline hover:text-white" href="mailto:mward5710@gmail.com">mward5710@gmail.com</a>
+            <a className="underline hover:text-slate-200" href="mailto:mward5710@gmail.com">mward5710@gmail.com</a>
             {' · '}
-            <a className="underline hover:text-white" href="https://www.apexepoxyflooringllc.com" target="_blank" rel="noreferrer">
+            <a className="underline hover:text-slate-200" href="https://www.apexepoxyflooringllc.com" target="_blank" rel="noreferrer">
               https://www.apexepoxyflooringllc.com
             </a>
           </p>

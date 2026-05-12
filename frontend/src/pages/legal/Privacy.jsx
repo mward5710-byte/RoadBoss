@@ -28,7 +28,7 @@ export default function Privacy() {
           <h2 className="text-xl font-semibold">Your Rights</h2>
           <p className="text-slate-300 mt-3">
             To exercise access, correction, deletion, or export rights, email{' '}
-            <a className="text-white underline hover:text-white" href="mailto:mward5710@gmail.com">
+            <a className="text-white underline hover:text-slate-200" href="mailto:mward5710@gmail.com">
               mward5710@gmail.com
             </a>
             .
@@ -42,9 +42,9 @@ export default function Privacy() {
             <br />
             RoadBoss Technologies
             <br />
-            <a className="underline hover:text-white" href="mailto:mward5710@gmail.com">mward5710@gmail.com</a>
+            <a className="underline hover:text-slate-200" href="mailto:mward5710@gmail.com">mward5710@gmail.com</a>
             <br />
-            <a className="underline hover:text-white" href="https://www.apexepoxyflooringllc.com" target="_blank" rel="noreferrer">
+            <a className="underline hover:text-slate-200" href="https://www.apexepoxyflooringllc.com" target="_blank" rel="noreferrer">
               https://www.apexepoxyflooringllc.com
             </a>
           </p>
