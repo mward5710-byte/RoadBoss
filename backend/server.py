@@ -2451,15 +2451,14 @@ def _copilot_config_error() -> Optional[str]:
     "provider/model" string whose prefix disagrees with COPILOT_LLM_PROVIDER,
     which would cause silent API-key lookup failures.
     """
-    if '/' in COPILOT_LLM_MODEL:
-        model_provider = COPILOT_LLM_MODEL.split('/', 1)[0].strip().lower()
-        if model_provider != COPILOT_LLM_PROVIDER:
-            return (
-                f"Co-Pilot config conflict: COPILOT_LLM_MODEL starts with '{model_provider}' "
-                f"but COPILOT_LLM_PROVIDER is '{COPILOT_LLM_PROVIDER}'. "
-                "Either set COPILOT_LLM_PROVIDER to match the model prefix, "
-                "or remove the provider prefix from COPILOT_LLM_MODEL."
-            )
+    model_provider = _copilot_effective_provider()
+    if '/' in COPILOT_LLM_MODEL and model_provider != COPILOT_LLM_PROVIDER:
+        return (
+            f"Co-Pilot config conflict: COPILOT_LLM_MODEL starts with '{model_provider}' "
+            f"but COPILOT_LLM_PROVIDER is '{COPILOT_LLM_PROVIDER}'. "
+            "Either set COPILOT_LLM_PROVIDER to match the model prefix, "
+            "or remove the provider prefix from COPILOT_LLM_MODEL."
+        )
     return None
 
 
@@ -3733,7 +3732,7 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         low = err_str.lower()
         # CREDIT GUARD: Detect specific budget / quota errors so the user knows
         # exactly what's wrong instead of a generic "brain" message.
-        if 'budget has been exceeded' in low or 'budget exceeded' in low or 'insufficient_quota' in low or ('quota' in low and 'exceeded' in low):
+        if ('budget' in low and 'exceeded' in low) or 'insufficient_quota' in low:
             raise HTTPException(
                 402,
                 "AI credit balance is empty with your configured provider. Top up credits, then try Co-Pilot again."
