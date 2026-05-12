@@ -96,20 +96,8 @@ export default function DriverOnboardingTour() {
   const [open, setOpen] = useState(false);
   const [index, setIndex] = useState(0);
 
-  // Auto-open on first mount if never seen. Delay a beat so the shell lays out first.
-  useEffect(() => {
-    let seen = false;
-    try {
-      seen = !!localStorage.getItem(STORAGE_KEY);
-    } catch {}
-    if (!seen) {
-      const t = setTimeout(() => {
-        setIndex(0);
-        setOpen(true);
-      }, 650);
-      return () => clearTimeout(t);
-    }
-  }, []);
+  // Auto-open is intentionally disabled so driving dashboards stay touch-free.
+  // The tour can still be launched manually from Settings via REPLAY_EVENT.
 
   // Listen for replay requests (from Settings button).
   useEffect(() => {
