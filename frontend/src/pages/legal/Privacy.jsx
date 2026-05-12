@@ -44,8 +44,8 @@ export default function Privacy() {
             <br />
             <a className="underline hover:text-slate-200" href="mailto:mward5710@gmail.com">mward5710@gmail.com</a>
             <br />
-            <a className="underline hover:text-slate-200" href="https://www.apexepoxyflooringllc.com" target="_blank" rel="noreferrer">
-              https://www.apexepoxyflooringllc.com
+            <a className="underline hover:text-slate-200" href="https://wrecker-logix.com" target="_blank" rel="noreferrer">
+              https://wrecker-logix.com
             </a>
           </p>
         </section>
