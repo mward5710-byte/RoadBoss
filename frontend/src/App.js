@@ -22,6 +22,8 @@ import RoiCalculator from '@/pages/RoiCalculator';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
 import GoogleCallback from '@/pages/GoogleCallback';
+import Terms from '@/pages/legal/Terms';
+import Privacy from '@/pages/legal/Privacy';
 import AppShell from '@/pages/admin/AppShell';
 import Overview from '@/pages/admin/Overview';
 import Drivers from '@/pages/admin/Drivers';
@@ -130,6 +132,8 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/auth/google-callback" element={<GoogleCallback />} />
+          <Route path="/legal/terms" element={<Terms />} />
+          <Route path="/legal/privacy" element={<Privacy />} />
 
           {/* SUPER ADMIN CONSOLE — Mike's god-mode console */}
           <Route path="/super" element={<RequireAuth roles={['super_admin']}><SuperAdmin /></RequireAuth>} />
