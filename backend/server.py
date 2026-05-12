@@ -2409,6 +2409,17 @@ COPILOT_LLM_API_KEY = os.environ.get('COPILOT_LLM_API_KEY', '').strip()
 COPILOT_LLM_BASE_URL = os.environ.get('COPILOT_LLM_BASE_URL', '').strip()
 
 
+def _copilot_effective_provider() -> str:
+    """Return the provider to use for API-key lookup.
+
+    If COPILOT_LLM_MODEL is a fully-qualified "provider/model" string the
+    embedded prefix is authoritative.  Otherwise fall back to COPILOT_LLM_PROVIDER.
+    """
+    if '/' in COPILOT_LLM_MODEL:
+        return COPILOT_LLM_MODEL.split('/', 1)[0].strip().lower()
+    return COPILOT_LLM_PROVIDER
+
+
 def _copilot_provider_api_key() -> str:
     if COPILOT_LLM_API_KEY:
         return COPILOT_LLM_API_KEY
@@ -2420,7 +2431,7 @@ def _copilot_provider_api_key() -> str:
         'groq': ['GROQ_API_KEY'],
         'xai': ['XAI_API_KEY'],
     }
-    for key in provider_env_keys.get(COPILOT_LLM_PROVIDER, []):
+    for key in provider_env_keys.get(_copilot_effective_provider(), []):
         value = os.environ.get(key, '').strip()
         if value:
             return value
@@ -2431,6 +2442,25 @@ def _copilot_provider_model() -> str:
     if '/' in COPILOT_LLM_MODEL:
         return COPILOT_LLM_MODEL
     return f"{COPILOT_LLM_PROVIDER}/{COPILOT_LLM_MODEL}"
+
+
+def _copilot_config_error() -> Optional[str]:
+    """Return an error string if the Co-Pilot config is invalid, else None.
+
+    Catches the case where COPILOT_LLM_MODEL is a fully-qualified
+    "provider/model" string whose prefix disagrees with COPILOT_LLM_PROVIDER,
+    which would cause silent API-key lookup failures.
+    """
+    if '/' in COPILOT_LLM_MODEL:
+        model_provider = COPILOT_LLM_MODEL.split('/', 1)[0].strip().lower()
+        if model_provider != COPILOT_LLM_PROVIDER:
+            return (
+                f"Co-Pilot config conflict: COPILOT_LLM_MODEL starts with '{model_provider}' "
+                f"but COPILOT_LLM_PROVIDER is '{COPILOT_LLM_PROVIDER}'. "
+                "Either set COPILOT_LLM_PROVIDER to match the model prefix, "
+                "or remove the provider prefix from COPILOT_LLM_MODEL."
+            )
+    return None
 
 
 def _copilot_is_configured() -> bool:
@@ -3620,6 +3650,9 @@ async def _parse_and_execute_action(reply_text: str, user: Dict[str, Any],
 async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
     if not _copilot_is_configured():
         raise HTTPException(503, "Co-Pilot AI is not configured yet. Set COPILOT_LLM_PROVIDER, COPILOT_LLM_MODEL, and an API key.")
+    config_err = _copilot_config_error()
+    if config_err:
+        raise HTTPException(400, config_err)
     msg_text = (body.message or '').strip()
     if not msg_text:
         raise HTTPException(400, "Empty message")
@@ -3783,6 +3816,7 @@ async def copilot_reset(user=Depends(get_current_user)):
 async def copilot_status(user=Depends(get_current_user)):
     return {
         'configured': _copilot_is_configured(),
+        'config_error': _copilot_config_error(),
         'model': _copilot_provider_model(),
         'persona': 'Co-Pilot Buddy',
     }
