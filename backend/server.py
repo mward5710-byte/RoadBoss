@@ -2708,6 +2708,7 @@ class CopilotChatIn(BaseModel):
     message: str
     session_id: Optional[str] = None
     ui_context: Optional[CopilotUIContextIn] = None
+    meta: Optional[Dict[str, Any]] = None
 
 
 # Pattern matches <<<ACTION:{...}>>> at the end of an LLM reply (DOTALL allows JSON across lines)
@@ -2783,14 +2784,23 @@ def _is_blank(v: Any) -> bool:
 
 
 def _screen_key_from_route(route: Optional[str]) -> Optional[str]:
-    r = (route or '').strip().lower()
-    if not r:
+    route_raw = (route or '').strip().lower()
+    if not route_raw:
         return None
+    r = route_raw.split('#', 1)[0].split('?', 1)[0].rstrip('/')
+    if not r:
+        r = '/'
     for key, cfg in SCREEN_TASK_MATRIX.items():
         for rp in cfg.get('routes', []):
-            if rp.endswith('/') and r.startswith(rp):
-                return key
-            if r == rp:
+            route_pattern = str(rp or '').strip().lower()
+            if not route_pattern:
+                continue
+            if route_pattern.endswith('/'):
+                base = route_pattern.rstrip('/')
+                if r == base or r.startswith(base + '/'):
+                    return key
+                continue
+            if r == route_pattern or r.startswith(route_pattern + '/'):
                 return key
     return None
 
@@ -3132,7 +3142,11 @@ async def _execute_copilot_action(action: Dict[str, Any], user: Dict[str, Any],
             if new_status not in valid_status:
                 result['error'] = f"Invalid tow job status: {args.get('status')}"
                 return result
-            job = await _resolve_active_tow_job(user)
+            target_job_id = str(args.get('job_id') or '').strip()
+            if target_job_id:
+                job = await db.tow_jobs.find_one({'id': target_job_id}, {'_id': 0})
+            else:
+                job = await _resolve_active_tow_job(user)
             if not job:
                 result['error'] = 'No active tow job to update.'
                 return result
@@ -3771,7 +3785,7 @@ def _parse_action_marker(reply_text: str):
 def _action_requires_confirmation(action: Optional[Dict[str, Any]]) -> bool:
     if not action:
         return False
-    action_type = str((action or {}).get('type') or '')
+    action_type = str(action.get('type') or '')
     args = (action or {}).get('args') or {}
     if action_type in {'mark_paid', 'set_job_price', 'impound_quick'}:
         return True
@@ -3792,7 +3806,13 @@ def _build_undo_action(action_result: Optional[Dict[str, Any]], ui_context: Dict
             return {'type': 'navigate_direct', 'args': {'redirect': prev_route, 'label': 'previous screen'}}
         return None
     if action_type == 'tow_job_status' and action_result.get('previous_status'):
-        return {'type': 'tow_job_status', 'args': {'status': action_result.get('previous_status')}}
+        return {
+            'type': 'tow_job_status',
+            'args': {
+                'status': action_result.get('previous_status'),
+                'job_id': action_result.get('job_id'),
+            }
+        }
     if action_type == 'duty_change' and action_result.get('previous_status'):
         return {'type': 'duty_change', 'args': {'status': action_result.get('previous_status')}}
     return None
@@ -3803,10 +3823,12 @@ async def _record_copilot_metric(user: Dict[str, Any], session_id: str, ui_conte
                                  error: Optional[str] = None):
     try:
         screen_key = _resolve_screen_key(ui_context or {})
+        action_attempted = event_type in {'llm_action', 'confirm_execute'}
         retries = await db.copilot_metrics.count_documents({
             'user_id': user['id'],
             'screen_key': screen_key,
-            'action_executed': False,
+            'action_attempted': True,
+            'error': {'$nin': [None, '']},
             'created_at': {'$gte': now_utc() - timedelta(minutes=15)},
         })
         await db.copilot_metrics.insert_one({
@@ -3817,6 +3839,7 @@ async def _record_copilot_metric(user: Dict[str, Any], session_id: str, ui_conte
             'route': (ui_context or {}).get('route'),
             'event_type': event_type,
             'action_type': (action_result or {}).get('type'),
+            'action_attempted': action_attempted,
             'action_executed': bool((action_result or {}).get('executed')),
             'error': error or (action_result or {}).get('error'),
             'fallback_to_touch': bool((ui_context or {}).get('touch_fallback')),
@@ -3877,9 +3900,13 @@ async def _undo_last_copilot_action(user: Dict[str, Any], driver: Optional[Dict[
     if not undo_action:
         return "I can't undo that one automatically yet.", {'executed': False, 'type': 'undo', 'error': 'undo_not_available'}
     result = await _execute_copilot_action(undo_action, user, driver)
-    await db.copilot_action_journal.update_one({'id': last['id']}, {'$set': {'undone': True, 'undone_at': now_utc()}})
     if result.get('executed'):
+        await db.copilot_action_journal.update_one({'id': last['id']}, {'$set': {'undone': True, 'undone_at': now_utc()}})
         return "Done. I rolled back the last action.", result
+    await db.copilot_action_journal.update_one(
+        {'id': last['id']},
+        {'$set': {'last_undo_failed_at': now_utc(), 'last_undo_error': result.get('error')}}
+    )
     return "I tried to undo it, but it did not go through.", result
 
 
@@ -3896,6 +3923,7 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
     # Stable session id keyed to user (one running convo per user is fine for v1)
     session_id = body.session_id or f"copilot-{user['id']}"
     ui_context = serialize_doc(body.ui_context.model_dump()) if body.ui_context else {}
+    incoming_meta = body.meta or {}
     ui_context['screen_key'] = _resolve_screen_key(ui_context) or ui_context.get('screen_key')
 
     # Build live context
@@ -3937,6 +3965,7 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         'role': 'user',
         'content': msg_text,
         'ui_context': ui_context,
+        'meta': incoming_meta,
         'created_at': now_utc().isoformat(),
     }
     await db.copilot_chats.insert_one(user_doc)
@@ -3957,9 +3986,26 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
             'content': spoken_text,
             'action': action_result,
             'ui_context': ui_context,
+            'meta': incoming_meta,
             'model': model_name or f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
             'created_at': now_utc().isoformat(),
         })
+        try:
+            if incoming_meta.get('channel') == 'voice':
+                await db.voice_action_log.insert_one({
+                    'id': str(uuid.uuid4()),
+                    'user_id': user['id'],
+                    'session_id': session_id,
+                    'message': msg_text,
+                    'risk_level': incoming_meta.get('risk_level'),
+                    'speed_mph': incoming_meta.get('speed_mph'),
+                    'source': incoming_meta.get('source'),
+                    'profile': incoming_meta.get('profile'),
+                    'action': action_result,
+                    'created_at': now_utc().isoformat(),
+                })
+        except Exception as e:
+            logger.warning(f"voice_action_log insert failed: {e}")
         await _record_copilot_metric(
             user=user,
             session_id=session_id,

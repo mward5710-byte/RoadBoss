@@ -14,7 +14,7 @@
 //   - Wake word does NOT work in the Emergent preview iframe (cross-origin
 //     mic block). The component shows an "Open in tab" hint when iframed.
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Mic, X, Sparkles, Send, AlertTriangle, ExternalLink,
@@ -22,7 +22,16 @@ import {
 } from 'lucide-react';
 import { useWakeWord, isInIframe, supportsSTT } from '@/hooks/useWakeWord';
 import { usePushToTalk } from '@/hooks/usePushToTalk';
-import { api, getUser } from '@/lib/api';
+import { getUser } from '@/lib/api';
+import {
+  assessRiskLevel,
+  flushOfflineCommands,
+  getOfflineQueueSize,
+  parseVoiceDirective,
+  queueOfflineCommand,
+  sendCopilotMessage,
+  shouldBlockForDrivingSafety,
+} from '@/lib/voiceControlLayer';
 import { toast } from 'sonner';
 
 // Routes where the FAB should NOT appear (auth, public marketing, dedicated
@@ -45,6 +54,11 @@ function pathHidden(pathname) {
 
 const STORAGE_UNLOCK = 'roadboss.globalfab.unlocked.v1';
 const REPLY_DISMISS_DELAY_MS = 4000;
+const VOICE_PROFILE_KEY = 'roadboss.voice.profile.v1';
+const MPS_TO_MPH = 2.23694;
+const SPEED_PRECISION_DECIMALS = 1;
+const DEFAULT_SILENCE_MS = 1500;
+const TRUCK_NOISE_SILENCE_MS = 1800;
 
 // Small audible cue so user KNOWS the mic just opened
 function chime() {
@@ -94,6 +108,13 @@ export default function GlobalCopilotFAB() {
   const [reply, setReply] = useState('');
   const [typed, setTyped] = useState('');
   const [showInput, setShowInput] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState(null);
+  const [speedMph, setSpeedMph] = useState(null);
+  const [queueSize, setQueueSize] = useState(() => getOfflineQueueSize());
+  const [voiceProfile] = useState(() => {
+    try { return localStorage.getItem(VOICE_PROFILE_KEY) || 'truck_noise'; } catch { return 'truck_noise'; }
+  });
+  const lastActionRef = useRef(null);
   const inIframe = isInIframe();
   const sttSupported = supportsSTT();
 
@@ -114,7 +135,45 @@ export default function GlobalCopilotFAB() {
     }
   }, [mode, reply]);
 
-  const submitCommand = useCallback(async (command) => {
+  useEffect(() => {
+    if (!navigator?.geolocation) return;
+    let watchId = null;
+    try {
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const mps = pos?.coords?.speed;
+          if (typeof mps === 'number' && !Number.isNaN(mps)) setSpeedMph(Math.max(0, mps * MPS_TO_MPH));
+        },
+        () => {},
+        { enableHighAccuracy: false, maximumAge: 10000, timeout: 15000 }
+      );
+    } catch {}
+    return () => { if (watchId != null) navigator.geolocation.clearWatch(watchId); };
+  }, []);
+
+  useEffect(() => {
+    const flushQueued = async () => {
+      const flushed = await flushOfflineCommands({
+        buildMeta: () => ({
+          channel: 'voice',
+          source: 'global_fab',
+          profile: voiceProfile,
+          replayed_from_offline_queue: true,
+        }),
+        onItemSuccess: (_item, data) => {
+          if (data?.action?.executed) lastActionRef.current = data.action;
+        },
+      });
+      if (flushed > 0) toast.success(`Synced ${flushed} queued voice command${flushed > 1 ? 's' : ''}.`);
+      setQueueSize(getOfflineQueueSize());
+    };
+    const onOnline = () => { flushQueued(); };
+    window.addEventListener('online', onOnline);
+    if (navigator.onLine) flushQueued();
+    return () => window.removeEventListener('online', onOnline);
+  }, [voiceProfile]);
+
+  const submitCommand = useCallback(async (command, { source = 'voice' } = {}) => {
     const t = (command || '').trim();
     if (!t) return;
 
@@ -134,14 +193,31 @@ export default function GlobalCopilotFAB() {
         return;
       }
     }
+    const wantsDashboard = /\b(open|show|go to|take me to|pull up)\b.*\b(dashboard|board|home|cab)\b/.test(lower)
+      || /^(dashboard|home|board|cab)$/.test(lower);
+    if (wantsDashboard) {
+      const role = (me?.role || '').toLowerCase();
+      if (role === 'driver') navigate('/driver');
+      else if (['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor'].includes(role)) navigate('/wrecker');
+      else navigate('/app');
+      toast.success('Opening dashboard…', { duration: 1800 });
+      return;
+    }
 
     setMode('thinking');
     setReply('');
     try {
-      const r = await api.post('/copilot/chat', { message: t });
-      const text = r.data?.reply || '';
+      const data = await sendCopilotMessage(t, {
+        channel: 'voice',
+        source,
+        profile: voiceProfile,
+        speed_mph: typeof speedMph === 'number' ? Number(speedMph.toFixed(SPEED_PRECISION_DECIMALS)) : null,
+        risk_level: assessRiskLevel(t),
+      });
+      const text = data?.reply || '';
       setReply(text);
-      const action = r.data?.action;
+      const action = data?.action;
+      if (action?.executed) lastActionRef.current = action;
 
       // Action-specific toasts so the driver sees confirmation
       if (action?.executed) {
@@ -178,9 +254,18 @@ export default function GlobalCopilotFAB() {
     } catch (e) {
       const status = e?.response?.status;
       const errMsg = e?.response?.data?.detail || 'Co-Pilot is offline right now.';
+      const offline = !navigator.onLine || !e?.response;
+      if (offline) {
+        const total = queueOfflineCommand(t, { channel: 'voice', source, profile: voiceProfile });
+        setQueueSize(total);
+        setReply('No signal right now. I queued that command and will sync when connection returns.');
+        setMode('idle');
+        toast.info('Voice command queued for sync when online.');
+        return;
+      }
       setReply(errMsg);
       setMode('idle');
-      if (status === 402 || status === 401) {
+      if (status === 401) {
         toast.error(errMsg, { duration: 12000 });
       } else if (status === 429) {
         toast.warning(errMsg, { duration: 6000 });
@@ -188,28 +273,81 @@ export default function GlobalCopilotFAB() {
         toast.error(errMsg);
       }
     }
-  }, [navigate, me]);
+  }, [navigate, me, speedMph, voiceProfile]);
+
+  const processVoiceCommand = useCallback((rawText, source = 'voice') => {
+    const directive = parseVoiceDirective(rawText);
+    const spokenText = directive.type === 'correction' ? directive.text : (rawText || '').trim();
+
+    if (directive.type === 'interrupt') {
+      try { window.speechSynthesis.cancel(); } catch {}
+      setMode('idle');
+      setReply('Stopped. Ready when you are.');
+      setPendingConfirm(null);
+      return;
+    }
+    if (directive.type === 'undo') {
+      setReply('Undo requested. Say what you want me to fix and I’ll do it now.');
+      setMode('idle');
+      return;
+    }
+    if (directive.type === 'negative') {
+      if (pendingConfirm) {
+        setPendingConfirm(null);
+        setReply('Canceled.');
+      }
+      setMode('idle');
+      return;
+    }
+    if (directive.type === 'affirmative' && pendingConfirm) {
+      const pending = pendingConfirm;
+      setPendingConfirm(null);
+      submitCommand(pending.command, { source: `${source}_confirmed` });
+      return;
+    }
+
+    if (!spokenText) return;
+    if (shouldBlockForDrivingSafety(spokenText, speedMph)) {
+      setMode('idle');
+      setReply('That task needs eyes on screen or touch input. I can queue it for your next safe stop.');
+      speak('That task needs eyes on screen. Ask again when safely stopped.');
+      return;
+    }
+
+    const risk = assessRiskLevel(spokenText);
+    if (risk !== 'low' && directive.type !== 'affirmative') {
+      setPendingConfirm({ command: spokenText, risk });
+      setMode('idle');
+      const ask = risk === 'critical'
+        ? `Critical action: ${spokenText}. Say "confirm" to execute, or "cancel".`
+        : `Confirm this action: ${spokenText}. Say "confirm" or "cancel".`;
+      setReply(ask);
+      speak(ask);
+      return;
+    }
+
+    submitCommand(spokenText, { source });
+  }, [pendingConfirm, speedMph, submitCommand]);
 
   // ---- Push-to-Talk ----
-  // Auto-submit on transcript — no confirmation gate.
   const onTranscript = useCallback((text) => {
-    if (text?.trim()) submitCommand(text);
-  }, [submitCommand]);
-  const ptt = usePushToTalk({ onTranscript, silenceMs: 1500 });
+    if (text?.trim()) processVoiceCommand(text, 'ptt');
+  }, [processVoiceCommand]);
+  const ptt = usePushToTalk({ onTranscript, silenceMs: voiceProfile === 'truck_noise' ? TRUCK_NOISE_SILENCE_MS : DEFAULT_SILENCE_MS });
 
   // ---- Wake Word (always-on once unlocked) ----
   // Auto-submit command — no confirmation gate.
   const onWake = useCallback((command) => {
     chime();
-    if (command?.trim()) submitCommand(command);
-  }, [submitCommand]);
+    if (command?.trim()) processVoiceCommand(command, 'wake_word');
+  }, [processVoiceCommand]);
 
   // Wake word is always enabled once the user has tapped to unlock.
   // Phrases: single word "copilot" plus common variants.
   const wakeEnabled = unlocked && !inIframe && sttSupported;
   const wakeWord = useWakeWord({
     enabled: wakeEnabled && !hidden,
-    wakePhrases: ['copilot', 'hey co-pilot', 'hey copilot'],
+    wakePhrases: ['copilot', 'hey co-pilot', 'hey copilot', 'hey roadboss', 'roadboss'],
     onCommand: onWake,
   });
 
@@ -284,7 +422,7 @@ export default function GlobalCopilotFAB() {
   const onTypedSubmit = (e) => {
     e.preventDefault();
     if (!typed.trim()) return;
-    submitCommand(typed);
+    processVoiceCommand(typed, 'typed');
     setTyped('');
     setShowInput(false);
   };
@@ -305,6 +443,7 @@ export default function GlobalCopilotFAB() {
     if (ptt.recording) return ptt.interim || 'Listening…';
     if (wakeEnabled && wakeWord.armed) return 'Go ahead…';
     if (wakeEnabled && wakeWord.listening) return 'Say "Copilot…"';
+    if (queueSize > 0) return `${queueSize} queued for sync`;
     if (unlocked) return 'Tap to talk';
     return 'Tap to activate';
   })();

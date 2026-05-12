@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, Volume2, VolumeX, Loader2, RotateCcw, ArrowLeft, Sparkles, Radio, ExternalLink, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api, getUser } from '@/lib/api';
+import { flushOfflineCommands, getOfflineQueueSize, queueOfflineCommand, sendCopilotMessage } from '@/lib/voiceControlLayer';
 import { toast } from 'sonner';
 import { isInIframe } from '@/hooks/useWakeWord';
 
@@ -74,6 +75,7 @@ export default function Copilot() {
   const [handsFree, setHandsFree] = useState(false);
   const [muted, setMuted] = useState(false);
   const [partial, setPartial] = useState('');
+  const [queueSize, setQueueSize] = useState(() => getOfflineQueueSize());
   const recogRef = useRef(null);
   const handsFreeRef = useRef(false);
   const mutedRef = useRef(false);
@@ -129,6 +131,20 @@ export default function Copilot() {
     };
   }, []);
 
+  useEffect(() => {
+    const sync = async () => {
+      const flushed = await flushOfflineCommands({
+        buildMeta: () => ({ channel: 'voice', source: 'copilot_page', replayed_from_offline_queue: true }),
+      });
+      if (flushed > 0) toast.success(`Synced ${flushed} queued command${flushed > 1 ? 's' : ''}.`);
+      setQueueSize(getOfflineQueueSize());
+    };
+    const onOnline = () => { sync(); };
+    window.addEventListener('online', onOnline);
+    if (navigator.onLine) sync();
+    return () => window.removeEventListener('online', onOnline);
+  }, []);
+
   const sendToCopilot = useCallback(async (text) => {
     const trimmed = (text || '').trim();
     if (!trimmed) return;
@@ -137,13 +153,13 @@ export default function Copilot() {
     setPartial('');
     setMode('thinking');
     try {
-      const r = await api.post('/copilot/chat', { message: trimmed });
-      const reply = r.data?.reply || "Sorry boss, I didn't catch that.";
+      const data = await sendCopilotMessage(trimmed, { channel: 'voice', source: 'copilot_page' });
+      const reply = data?.reply || "Sorry boss, I didn't catch that.";
       const aMsg = { id: `a-${Date.now()}`, role: 'assistant', content: reply, created_at: new Date().toISOString() };
       setMessages((prev) => [...prev, aMsg]);
 
       // Action feedback
-      const action = r.data?.action;
+      const action = data?.action;
       if (action?.executed) {
         const t = action.type;
         if (t === 'duty_change') toast.success(`Status: ${action.new_status?.replace('_', ' ')}`);
@@ -207,6 +223,16 @@ export default function Copilot() {
         }
       });
     } catch (e) {
+      const offline = !navigator.onLine || !e?.response;
+      if (offline) {
+        const total = queueOfflineCommand(trimmed, { channel: 'voice', source: 'copilot_page' });
+        setQueueSize(total);
+        toast.info('No signal. Command queued and will sync when online.');
+        const aMsg = { id: `a-${Date.now()}`, role: 'assistant', content: 'No signal right now. I queued that command and will sync when service returns.', created_at: new Date().toISOString() };
+        setMessages((prev) => [...prev, aMsg]);
+        setMode('idle');
+        return;
+      }
       const errMsg = e?.response?.data?.detail || 'Co-Pilot is offline right now.';
       toast.error(errMsg);
       const aMsg = { id: `a-${Date.now()}`, role: 'assistant', content: errMsg, created_at: new Date().toISOString() };
@@ -410,6 +436,9 @@ export default function Copilot() {
               <span className={`w-1.5 h-1.5 rounded-full ${mode === 'idle' ? 'bg-sky-400' : mode === 'listening' ? 'bg-red-400 animate-pulse' : mode === 'thinking' ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400 animate-pulse'}`} />
               {statusLabel}
             </div>
+            {queueSize > 0 && (
+              <div className="text-[10px] uppercase tracking-wider text-amber-300">{queueSize} queued for sync</div>
+            )}
           </div>
           <button
             onClick={resetConversation}
