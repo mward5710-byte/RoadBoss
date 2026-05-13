@@ -48,7 +48,7 @@ export default function Home() {
     navigate('/login?app=roadboss');
   };
 
-  const goInvestors = () => navigate('/deck');
+  const goInvestors = () => navigate('/investors');
 
   return (
     <div

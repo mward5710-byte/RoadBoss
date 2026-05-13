@@ -46,6 +46,17 @@ export default function Login() {
   React.useEffect(() => {
     const ge = params.get('google_error');
     if (ge) toast.error(`Google sign-in: ${ge}`);
+    const me = getUser();
+    if (!ge && app && me) {
+      const role = me.role || '';
+      if (app === 'wreckerlogix' || app === 'wrecker') {
+        if (role === 'wrecker_operator') navigate('/wrecker/me', { replace: true });
+        else navigate('/wrecker', { replace: true });
+        return;
+      }
+      if (role === 'driver') navigate('/driver', { replace: true });
+      else navigate('/app', { replace: true });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -64,7 +75,7 @@ export default function Login() {
       if (r.user.role === 'driver') navigate('/driver');
       else if (r.user.role === 'wrecker_operator') navigate('/wrecker/me');
       else if (['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin'].includes(r.user.role)) navigate('/wrecker');
-      else if (r.user.role === 'super_admin') navigate('/super');
+      else if (r.user.role === 'super_admin') navigate('/app');
       else navigate('/app');
     } catch (err) {
       toast.error(err?.response?.data?.detail || 'Login failed');

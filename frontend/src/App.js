@@ -5,20 +5,9 @@ import { Toaster } from 'sonner';
 import Marketing from '@/pages/Marketing';
 import Home from '@/pages/Home';
 import Login from '@/pages/Login';
-import PitchDeck from '@/pages/PitchDeck';
-import Pitch from '@/pages/Pitch';
 import InvestorInquiries from '@/pages/InvestorInquiries';
-import Reel from '@/pages/Reel';
-import Intro from '@/pages/Intro';
-import Cuts from '@/pages/Cuts';
-import SuperAdmin from '@/pages/SuperAdmin';
-import MediaHub from '@/pages/MediaHub';
 import ImpersonationBanner from '@/components/ImpersonationBanner';
 import GlobalCopilotFAB from '@/components/GlobalCopilotFAB';
-import TryPage from '@/pages/TryPage';
-import ShareKit from '@/pages/ShareKit';
-import UserGuide from '@/pages/UserGuide';
-import RoiCalculator from '@/pages/RoiCalculator';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
 import GoogleCallback from '@/pages/GoogleCallback';
@@ -117,30 +106,27 @@ function App() {
           <Route path="/marketing" element={<Marketing />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/deck" element={<PitchDeck />} />
-          <Route path="/pitch" element={<Pitch />} />
           <Route path="/investors" element={<InvestorInquiries />} />
-          <Route path="/reel" element={<Reel />} />
-          <Route path="/cuts" element={<Cuts />} />
-          <Route path="/intro" element={<Intro />} />
-          <Route path="/try" element={<TryPage />} />
-          <Route path="/share-kit" element={<ShareKit />} />
-          <Route path="/guide" element={<UserGuide />} />
-          <Route path="/help" element={<UserGuide />} />
-          <Route path="/roi" element={<RoiCalculator />} />
-          <Route path="/savings" element={<RoiCalculator />} />
-          <Route path="/fleet" element={<RoiCalculator />} />
+          {/* Retired non-essential pages now redirect to core production routes */}
+          <Route path="/super" element={<Navigate to="/app" replace />} />
+          <Route path="/media" element={<Navigate to="/marketing" replace />} />
+          <Route path="/deck" element={<Navigate to="/investors" replace />} />
+          <Route path="/pitch" element={<Navigate to="/investors" replace />} />
+          <Route path="/reel" element={<Navigate to="/marketing" replace />} />
+          <Route path="/cuts" element={<Navigate to="/marketing" replace />} />
+          <Route path="/intro" element={<Navigate to="/marketing" replace />} />
+          <Route path="/try" element={<Navigate to="/marketing" replace />} />
+          <Route path="/share-kit" element={<Navigate to="/marketing" replace />} />
+          <Route path="/guide" element={<Navigate to="/marketing" replace />} />
+          <Route path="/help" element={<Navigate to="/marketing" replace />} />
+          <Route path="/roi" element={<Navigate to="/marketing" replace />} />
+          <Route path="/savings" element={<Navigate to="/marketing" replace />} />
+          <Route path="/fleet" element={<Navigate to="/marketing" replace />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/auth/google-callback" element={<GoogleCallback />} />
           <Route path="/legal/terms" element={<Terms />} />
           <Route path="/legal/privacy" element={<Privacy />} />
-
-          {/* SUPER ADMIN CONSOLE — Mike's god-mode console */}
-          <Route path="/super" element={<RequireAuth roles={['super_admin']}><SuperAdmin /></RequireAuth>} />
-
-          {/* MEDIA HUB — TikTok hooks, QR codes, logos for Mike */}
-          <Route path="/media" element={<MediaHub />} />
 
           {/* PUBLIC customer-facing pay link (NO auth) — sent via SMS/email */}
           <Route path="/pay/:token" element={<WreckerPublicPay />} />
