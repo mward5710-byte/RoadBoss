@@ -2399,13 +2399,17 @@ async def update_roadside_status(disp_id: str, body: RoadsideStatusIn, user=Depe
 
 # ============================================================
 # AI Copilot — RoadBoss "Co-Pilot Buddy" (Stage 3)
-# Natural-language voice assistant powered by Emergent LLM key.
+# Natural-language voice assistant — powered by your own LLM key via LiteLLM.
 # Context-aware: knows driver name, HOS remaining, current trip, vehicle, alerts.
 # ============================================================
 
-EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '').strip()
-COPILOT_MODEL_PROVIDER = 'anthropic'
-COPILOT_MODEL_NAME = 'claude-sonnet-4-5-20250929'
+# Support both new key name and legacy fallback
+COPILOT_LLM_API_KEY = (
+    os.environ.get('COPILOT_LLM_API_KEY', '')
+    or os.environ.get('EMERGENT_LLM_KEY', '')
+).strip()
+COPILOT_MODEL_PROVIDER = os.environ.get('COPILOT_LLM_PROVIDER', 'anthropic')
+COPILOT_MODEL_NAME = os.environ.get('COPILOT_LLM_MODEL', 'claude-sonnet-4-5-20250929')
 
 COPILOT_SYSTEM_BASE = """You are RoadBoss Co-Pilot Buddy — a hands-free AI assistant riding shotgun with a professional truck driver.
 
@@ -3555,8 +3559,8 @@ async def _parse_and_execute_action(reply_text: str, user: Dict[str, Any],
 
 @api_router.post("/copilot/chat")
 async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(503, "Co-Pilot AI is not configured yet. Add EMERGENT_LLM_KEY to enable.")
+    if not COPILOT_LLM_API_KEY:
+        raise HTTPException(503, "Co-Pilot AI is not configured yet. Add COPILOT_LLM_API_KEY to enable.")
     msg_text = (body.message or '').strip()
     if not msg_text:
         raise HTTPException(400, "Empty message")
@@ -3611,20 +3615,14 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
 
     # Lazy import so server still boots if package missing
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        import litellm
     except Exception as e:
-        logger.error(f"emergentintegrations import failed: {e}")
+        logger.error(f"litellm import failed: {e}")
         raise HTTPException(500, "Co-Pilot AI library not available.")
 
     system_prompt = COPILOT_SYSTEM_BASE + _build_driver_context(user, driver, active_trip, vehicle, recent_alerts, wrecker_ctx=wrecker_ctx)
 
     try:
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=session_id,
-            system_message=system_prompt,
-        ).with_model(COPILOT_MODEL_PROVIDER, COPILOT_MODEL_NAME)
-
         # Replay short conversational history (last 4 turns) so context survives
         # across calls. Tight on purpose — every replayed turn = more tokens = more $.
         history = await db.copilot_chats.find(
@@ -3641,8 +3639,16 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
             prior_text = "\n\nRecent conversation so far (oldest first):\n" + "\n".join(transcript_lines) + "\n\n"
 
         composed = prior_text + f"Driver just said: {msg_text}"
-        reply = await chat.send_message(UserMessage(text=composed))
-        reply_text = (reply or '').strip()
+        model_str = f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}"
+        response = await litellm.acompletion(
+            model=model_str,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": composed},
+            ],
+            api_key=COPILOT_LLM_API_KEY,
+        )
+        reply_text = (response.choices[0].message.content or '').strip()
     except HTTPException:
         raise
     except Exception as e:
@@ -3652,7 +3658,7 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         if 'rate limit' in low or 'rate_limit' in low or '429' in low:
             raise HTTPException(429, "Co-Pilot is being rate-limited. Give it 10 seconds and try again.")
         if 'authentication' in low or 'invalid api key' in low or 'unauthorized' in low:
-            raise HTTPException(401, "Co-Pilot AI key is invalid. Check EMERGENT_LLM_KEY.")
+            raise HTTPException(401, "Co-Pilot AI key is invalid. Check COPILOT_LLM_API_KEY.")
         raise HTTPException(502, "Co-Pilot is having trouble reaching the brain. Try again in a moment.")
 
     # Parse and execute any ACTION marker emitted by the model
@@ -3726,7 +3732,7 @@ async def copilot_reset(user=Depends(get_current_user)):
 @api_router.get("/copilot/status")
 async def copilot_status(user=Depends(get_current_user)):
     return {
-        'configured': bool(EMERGENT_LLM_KEY),
+        'configured': bool(COPILOT_LLM_API_KEY),
         'model': f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
         'persona': 'Co-Pilot Buddy',
     }
