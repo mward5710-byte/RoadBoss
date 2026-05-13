@@ -21,24 +21,28 @@ const ICON_SRC = '/brand/roadboss-icon.png';
 const WORDMARK_ASPECT = 917 / 744;
 
 export function Logo({
-  size = 32,
+  size = 36,
   withWordmark = true,
   className = '',
   tagline = '',
 }) {
   if (!withWordmark) {
+    const iconSize = Math.round(size * 1.12);
+    const iconPad = Math.max(1, Math.round(iconSize * 0.06));
     return (
       <img
         src={ICON_SRC}
         alt="RoadBoss"
         draggable={false}
-        width={size}
-        height={size}
+        width={iconSize}
+        height={iconSize}
         className={`rounded-md ${className}`}
         style={{
-          width: size,
-          height: size,
-          objectFit: 'cover',
+          width: iconSize,
+          height: iconSize,
+          objectFit: 'contain',
+          padding: iconPad,
+          boxSizing: 'border-box',
           display: 'inline-block',
           background: '#0a0e16',
         }}
@@ -49,7 +53,7 @@ export function Logo({
 
   // The wordmark already contains "ROADBOSS" lettering, so we don't
   // render extra text — only the optional small tagline below the mark.
-  const wordmarkHeight = Math.round(size * 1.6);
+  const wordmarkHeight = Math.round(size * 1.85);
   const wordmarkWidth = Math.round(wordmarkHeight * WORDMARK_ASPECT);
 
   return (

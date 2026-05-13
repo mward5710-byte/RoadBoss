@@ -39,7 +39,7 @@ export default function DriverShell() {
         </button>
       )}
       <header className="flex items-center justify-between px-5 py-4 border-b border-white/5 sticky top-0 bg-[#07090d]/95 backdrop-blur z-30">
-        <Link to="/driver"><Logo size={24} withWordmark={false} /></Link>
+        <Link to="/driver"><Logo size={30} withWordmark={false} /></Link>
         <Link to="/driver/profile" className="flex-1 px-3 cursor-pointer">
           <div className="text-[10px] uppercase tracking-widest text-sky-400/80">Cab</div>
           <div className="text-sm font-semibold text-white truncate flex items-center gap-1">{user?.name?.split(' ')[0]} <User className="w-3 h-3 text-slate-500" /></div>

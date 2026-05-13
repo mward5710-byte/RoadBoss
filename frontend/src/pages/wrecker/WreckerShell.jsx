@@ -158,7 +158,7 @@ export default function WreckerShell() {
           data-testid="wrecker-logo-link"
           onClick={() => setMobileOpen(false)}
         >
-          <WreckerLogixLogo size={36} withWordmark />
+          <WreckerLogixLogo size={44} withWordmark />
         </Link>
         {/* Close button visible only inside the mobile drawer */}
         <button
@@ -260,7 +260,7 @@ export default function WreckerShell() {
           to={role === 'wrecker_operator' ? '/wrecker/me' : '/wrecker'}
           className="flex items-center gap-2 min-w-0 flex-1"
         >
-          <WreckerLogixLogo size={28} withWordmark={false} />
+          <WreckerLogixLogo size={34} withWordmark={false} />
           <div className="min-w-0">
             <div className="text-[11px] font-bold text-white tracking-wider leading-tight truncate">
               WRECKER<span className="text-amber-400">LOGIX</span>

@@ -126,7 +126,7 @@ export default function Home() {
         <ProductButton
           testId="home-pick-roadboss"
           accent="sky"
-          icon={<RoadBossLogo size={32} withWordmark={false} />}
+          icon={<RoadBossLogo size={40} withWordmark={false} />}
           title="RoadBoss"
           subtitle="Fleet · Long-haul"
           tagline="Inspections, IFTA, dashcam, drivers."

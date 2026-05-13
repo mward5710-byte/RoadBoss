@@ -12,20 +12,21 @@ import React from 'react';
 const SRC = '/assets/wreckerlogix-logo.jpeg';
 
 export function WreckerLogixLogo({
-  size = 32,
+  size = 36,
   withWordmark = true,
   className = '',
 }) {
+  const visualSize = Math.round(size * 1.1);
   if (!withWordmark) {
     return (
       <img
         src={SRC}
         alt="WreckerLogix"
         draggable={false}
-        width={size}
-        height={size}
-        className={`rounded-md object-cover bg-white/[0.04] border border-white/10 ${className}`}
-        style={{ width: size, height: size }}
+        width={visualSize}
+        height={visualSize}
+        className={`rounded-md object-contain bg-white/[0.04] border border-white/10 ${className}`}
+        style={{ width: visualSize, height: visualSize, padding: Math.max(1, Math.round(visualSize * 0.05)), boxSizing: 'border-box' }}
         data-testid="wreckerlogix-logo-icon"
       />
     );
@@ -40,19 +41,19 @@ export function WreckerLogixLogo({
         src={SRC}
         alt="WreckerLogix"
         draggable={false}
-        className="rounded-md object-cover bg-white/[0.04] border border-white/10 shrink-0"
-        style={{ width: size, height: size }}
+        className="rounded-md object-contain bg-white/[0.04] border border-white/10 shrink-0"
+        style={{ width: visualSize, height: visualSize, padding: Math.max(1, Math.round(visualSize * 0.05)), boxSizing: 'border-box' }}
       />
       <div className="leading-none min-w-0">
         <div
           className="font-bold text-white tracking-wider"
-          style={{ fontSize: Math.max(11, size * 0.36) }}
+          style={{ fontSize: Math.max(11, visualSize * 0.36) }}
         >
           WRECKER<span className="text-amber-400">LOGIX</span>
         </div>
         <div
           className="uppercase tracking-[0.32em] text-slate-500 mt-1"
-          style={{ fontSize: Math.max(7, size * 0.22) }}
+          style={{ fontSize: Math.max(7, visualSize * 0.22) }}
         >
           Towing &amp; Recovery
         </div>
