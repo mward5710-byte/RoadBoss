@@ -112,7 +112,8 @@ function App() {
           {/* HOME — the very first page when the app icon is tapped.
               Three buttons: WreckerLogix · Towing | RoadBoss · Fleet | Investors.
               Strict product wall — picking one routes into THAT product only. */}
-          <Route path="/" element={<Home />} />
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/home" element={<Home />} />
           <Route path="/marketing" element={<Marketing />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/login" element={<Login />} />
