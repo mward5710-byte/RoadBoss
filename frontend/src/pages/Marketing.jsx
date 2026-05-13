@@ -25,7 +25,7 @@ function OpenAppButton({ size = 'sm', fullLabel = false, dataTestId = 'nav-open-
     : u.role === 'driver' ? '/driver'
     : u.role === 'wrecker_operator' ? '/wrecker/me'
     : ['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin'].includes(u.role) ? '/wrecker'
-    : u.role === 'super_admin' ? '/super'
+    : u.role === 'super_admin' ? '/app'
     : '/app';
   const label = u ? (fullLabel ? `Open RoadBoss · ${u.name?.split(' ')[0] || ''}` : 'Open App') : 'Open the App';
   return (
@@ -332,17 +332,18 @@ export default function Marketing() {
           <div className="flex items-center gap-3">
             <Logo size={22} />
             <div className="text-[11px] text-slate-500 leading-tight">
-              <div className="text-slate-300 font-medium">Apex Epoxy Flooring LLC · Operating as RoadBoss</div>
-              <div>Built by Michael Ward · Kokomo, Indiana</div>
+              <div className="text-slate-300 font-medium">RoadBoss™ · WreckerLogix™</div>
+              <div>Built by Mike Ward · Kokomo, Indiana</div>
             </div>
           </div>
           <div className="text-[11px] text-slate-500 text-center">
-            © {new Date().getFullYear()} Apex Epoxy Flooring LLC. All rights reserved.<br />
-            <span className="text-slate-600">RoadBoss · Wreckerlogix · Co-Pilot</span>
+            © {new Date().getFullYear()} Mike Ward. All Rights Reserved.<br />
+            <span className="text-slate-600">Proprietary &amp; Confidential · Unauthorized use prohibited.</span>
           </div>
           <div className="flex gap-4 text-xs text-slate-500">
             <Link to="/login" className="hover:text-white">Sign in</Link>
-            <a href="#waitlist" className="hover:text-white">Waitlist</a>
+            <Link to="/legal/terms" className="hover:text-white">Terms</Link>
+            <Link to="/legal/privacy" className="hover:text-white">Privacy</Link>
           </div>
         </Section>
       </footer>

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { auth, getUser } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import AppFooter from '@/components/AppFooter';
 
 const nav = [
   { to: '/app', icon: LayoutDashboard, label: 'Overview', end: true },
@@ -164,6 +165,7 @@ export default function AppShell() {
           >
             <LogOut className="w-4 h-4 mr-2" /> Sign out
           </Button>
+          <AppFooter className="mt-2" />
         </div>
       </aside>
 

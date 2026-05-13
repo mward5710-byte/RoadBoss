@@ -8,6 +8,7 @@ import {
 import { auth, getUser, api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { WreckerLogixLogo } from '@/components/WreckerLogixLogo';
+import AppFooter from '@/components/AppFooter';
 
 // Sidebar nav grouped into sections:
 //   OPERATIONS — day-to-day dispatch + driving stuff
@@ -231,6 +232,7 @@ export default function WreckerShell() {
         <Button data-testid="wrecker-logout" onClick={logout} variant="ghost" size="sm" className="w-full justify-start text-slate-400 hover:text-white">
           <LogOut className="w-4 h-4 mr-2" /> Sign out
         </Button>
+        <AppFooter className="mt-2" />
       </div>
     </>
   );

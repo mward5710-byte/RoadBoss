@@ -8,6 +8,7 @@ import { auth, setSession, getUser } from '@/lib/api';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Truck, Zap, ChevronDown, Briefcase, Wrench, ChevronRight } from 'lucide-react';
+import AppFooter from '@/components/AppFooter';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -147,6 +148,7 @@ export default function Login() {
               <div className="mt-4 inline-flex items-center gap-1 text-sm text-amber-300 font-semibold">Continue <ArrowRight className="w-4 h-4" /></div>
             </button>
           </div>
+          <AppFooter variant="light" className="mt-10" />
         </div>
       </div>
     );
@@ -285,6 +287,7 @@ export default function Login() {
           )}
         </div>
         <div className="mt-6 text-center"><Link to="/" className="text-xs text-slate-500 hover:text-white">← Back to home</Link></div>
+        <AppFooter variant="light" className="mt-4" />
       </motion.div>
     </div>
   );
