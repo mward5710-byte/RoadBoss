@@ -263,7 +263,7 @@ export default function Login() {
               <div className="hp-divider my-6" />
               <div className="text-xs uppercase tracking-widest text-slate-500 mb-3">Demo accounts</div>
               <div className="space-y-2">
-                <button data-testid="login-demo-admin" type="button" onClick={() => quickFill('fleet_admin@highwaypilot.io')} className="w-full flex items-center gap-3 p-3 rounded-lg border border-white/5 hover:border-amber-500/30 hover:bg-amber-500/5 transition text-left">
+                <button data-testid="login-demo-admin" type="button" onClick={() => quickFill('fleet_admin@wrecker-logix.com')} className="w-full flex items-center gap-3 p-3 rounded-lg border border-white/5 hover:border-amber-500/30 hover:bg-amber-500/5 transition text-left">
                   <div className="w-9 h-9 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center"><Zap className="w-4 h-4 text-amber-300" /></div>
                   <div className="flex-1">
                     <div className="text-sm text-white">Fleet Admin</div>
@@ -271,7 +271,7 @@ export default function Login() {
                   </div>
                   <div className="text-[11px] text-slate-500">Click to fill</div>
                 </button>
-                <button data-testid="login-demo-driver" type="button" onClick={() => quickFill('driver@highwaypilot.io')} className="w-full flex items-center gap-3 p-3 rounded-lg border border-white/5 hover:border-amber-500/30 hover:bg-amber-500/5 transition text-left">
+                <button data-testid="login-demo-driver" type="button" onClick={() => quickFill('driver@wrecker-logix.com')} className="w-full flex items-center gap-3 p-3 rounded-lg border border-white/5 hover:border-amber-500/30 hover:bg-amber-500/5 transition text-left">
                   <div className="w-9 h-9 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center"><Truck className="w-4 h-4 text-amber-300" /></div>
                   <div className="flex-1">
                     <div className="text-sm text-white">Driver (PWA)</div>

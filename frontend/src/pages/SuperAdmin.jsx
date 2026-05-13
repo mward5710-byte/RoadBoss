@@ -579,10 +579,13 @@ function UsersPanel({ navigate }) {
   const visibleUsers = users.filter((u) => {
     if (!hideDemo) return true;
     const e = (u.email || '').toLowerCase();
-    return !e.endsWith('@highwaypilot.io');
+    return !(e.endsWith('@highwaypilot.io') || e.endsWith('@wrecker-logix.com'));
   });
 
-  const demoCountInList = users.filter((u) => (u.email || '').toLowerCase().endsWith('@highwaypilot.io')).length;
+  const demoCountInList = users.filter((u) => {
+    const e = (u.email || '').toLowerCase();
+    return e.endsWith('@highwaypilot.io') || e.endsWith('@wrecker-logix.com');
+  }).length;
   const showWipeButton = !demoStatus?.wiped && (demoStatus?.demo_users || 0) > 0;
 
   return (
@@ -653,7 +656,7 @@ function UsersPanel({ navigate }) {
                   Wipe all demo data?
                 </AlertDialogTitle>
                 <AlertDialogDescription className="text-slate-400 leading-relaxed">
-                  Deletes every <span className="font-mono text-rose-300">@highwaypilot.io</span> account
+                  Deletes every demo-domain account (<span className="font-mono text-rose-300">@wrecker-logix.com</span> and legacy <span className="font-mono text-rose-300">@highwaypilot.io</span>)
                   ({demoStatus?.demo_users || 0} users), all seeded tow jobs ({demoStatus?.tow_jobs || 0}),
                   impounds ({demoStatus?.impounds || 0}), motor clubs, fuel tanks, and demo vehicles.
                   <br /><br />
@@ -697,7 +700,8 @@ function UsersPanel({ navigate }) {
           const tint = roleTint(u.role);
           const isMe = u.id === me?.id;
           const isEditing = editingId === u.id;
-          const isDemo = (u.email || '').toLowerCase().endsWith('@highwaypilot.io');
+          const em = (u.email || '').toLowerCase();
+          const isDemo = em.endsWith('@highwaypilot.io') || em.endsWith('@wrecker-logix.com');
           return (
             <Card key={u.id} data-testid={`super-user-${u.email}`} className="bg-slate-900/60 border-slate-800 p-3 sm:p-4">
               {isEditing ? (
