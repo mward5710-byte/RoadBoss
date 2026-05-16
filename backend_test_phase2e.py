@@ -6,12 +6,15 @@ Focus: Verify all 94 existing tests still pass + new seed functionality + richer
 """
 import requests
 import sys
+import os
 from datetime import datetime
 import json
 import time
 
 class Phase2ERegressionTester:
-    def __init__(self, base_url="https://build-forge-49.preview.emergentagent.com"):
+    def __init__(self, base_url=None):
+        if base_url is None:
+            base_url = os.getenv("ROADBOSS_BASE_URL", "http://localhost:8001")
         self.base_url = base_url
         self.api_url = f"{base_url}/api"
         self.tokens = {}  # Store tokens for all 7 demo accounts
