@@ -2432,6 +2432,7 @@ def _copilot_provider_api_key() -> str:
         'xai': ['XAI_API_KEY'],
     }
     for key in provider_env_keys.get(_copilot_effective_provider(), []):
+    for key in provider_env_keys.get(COPILOT_LLM_PROVIDER, []):
         value = os.environ.get(key, '').strip()
         if value:
             return value
@@ -3733,6 +3734,7 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         # CREDIT GUARD: Detect specific budget / quota errors so the user knows
         # exactly what's wrong instead of a generic "brain" message.
         if ('budget' in low and 'exceeded' in low) or 'insufficient_quota' in low:
+        if 'budget has been exceeded' in low or 'budget exceeded' in low or 'insufficient_quota' in low or ('quota' in low and 'exceeded' in low):
             raise HTTPException(
                 402,
                 "AI credit balance is empty with your configured provider. Top up credits, then try Co-Pilot again."
