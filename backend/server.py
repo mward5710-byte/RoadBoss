@@ -34,7 +34,7 @@ JWT_EXP_HOURS = 24 * 365 * 10  # 10 years — Mike's "one-time sign in" rule.
                                # uses its OWN OAuth tokens (separate lifecycle),
                                # so this has zero effect on QB connectivity.
 
-app = FastAPI(title="Highway Pilot API", version="0.1.0")
+app = FastAPI(title="RoadBoss API", version="0.1.0")
 api_router = APIRouter(prefix="/api")
 bearer = HTTPBearer(auto_error=False)
 
@@ -207,7 +207,7 @@ class AlertIn(BaseModel):
 
 @api_router.get("/")
 async def root():
-    return {"service": "Highway Pilot API", "status": "ok", "version": "0.1.0"}
+    return {"service": "RoadBoss API", "status": "ok", "version": "0.1.0"}
 
 @api_router.get("/health")
 async def health():

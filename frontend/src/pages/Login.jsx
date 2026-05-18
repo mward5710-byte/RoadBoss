@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input';
 import { auth, setSession, getUser } from '@/lib/api';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Truck, Zap, ChevronDown } from 'lucide-react';
+import { ArrowRight, Truck, Zap, ChevronDown, Briefcase, Wrench, ChevronRight } from 'lucide-react';
+import AppFooter from '@/components/AppFooter';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -42,24 +43,20 @@ export default function Login() {
   const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const showDemo = params.get('demo') === '1';
 
-  // Surface Google OAuth errors from query string. We INTENTIONALLY do NOT
-  // auto-redirect already-signed-in users from /login anymore. Mike's V2
-  // architecture (see /app/memory/v2_architecture_spec.md §2) makes the Home
-  // splash the single entry point — every cold-start must show the
-  // WreckerLogix · RoadBoss · Investors picker first. The previous auto-
-  // redirect was bypassing that splash for anyone whose iPhone PWA icon was
-  // installed back when start_url=/login (because the home-screen icon kept
-  // launching /login and skipping straight into the cab).
+  // Surface Google OAuth errors from query string.
   React.useEffect(() => {
     const ge = params.get('google_error');
     if (ge) toast.error(`Google sign-in: ${ge}`);
-    // If somebody hits /login while already signed in WITHOUT a product hint,
-    // bounce them to the Home splash so they pick their workspace cleanly.
-    // (?app=wreckerlogix or ?app=roadboss skips the bounce — those are the
-    // intentional "switch product" flows from the splash itself.)
     const me = getUser();
-    if (me && !ge && !app && params.get('force') !== '1') {
-      navigate('/', { replace: true });
+    if (!ge && app && me) {
+      const role = me.role || '';
+      if (app === 'wreckerlogix' || app === 'wrecker') {
+        if (role === 'wrecker_operator') navigate('/wrecker/me', { replace: true });
+        else navigate('/wrecker', { replace: true });
+        return;
+      }
+      if (role === 'driver') navigate('/driver', { replace: true });
+      else navigate('/app', { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -79,7 +76,7 @@ export default function Login() {
       if (r.user.role === 'driver') navigate('/driver');
       else if (r.user.role === 'wrecker_operator') navigate('/wrecker/me');
       else if (['wrecker_dispatcher', 'wrecker_supervisor', 'fleet_admin'].includes(r.user.role)) navigate('/wrecker');
-      else if (r.user.role === 'super_admin') navigate('/super');
+      else if (r.user.role === 'super_admin') navigate('/app');
       else navigate('/app');
     } catch (err) {
       toast.error(err?.response?.data?.detail || 'Login failed');
@@ -87,6 +84,75 @@ export default function Login() {
   };
 
   const quickFill = (em) => { setEmail(em); setPassword('HighwayPilot2026!'); };
+
+  const pickWorkspace = (targetApp) => {
+    const me = getUser();
+    if (!me) return navigate(`/login?app=${targetApp}`);
+
+    const role = me.role || '';
+    if (targetApp === 'wreckerlogix') {
+      if (role === 'wrecker_operator') return navigate('/wrecker/me');
+      return navigate('/wrecker');
+    }
+
+    if (role === 'driver') return navigate('/driver');
+    return navigate('/app');
+  };
+
+  if (!app) {
+    return (
+      <div className="min-h-screen hp-grid-bg text-white p-5">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex items-center justify-between py-4">
+            <Link to="/investors" className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 text-xs uppercase tracking-wider text-slate-300 hover:text-white transition" data-testid="login-entry-investors">
+              Investors / Fleet Owners
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+            <Link to="/marketing" className="text-xs uppercase tracking-wider text-slate-400 hover:text-white transition">
+              Learn more
+            </Link>
+          </div>
+
+          <div className="text-center mt-8">
+            <Logo size={44} withWordmark />
+            <h1 className="text-2xl sm:text-3xl font-bold mt-6">Choose your login route</h1>
+            <p className="text-sm text-slate-400 mt-2">Open the workspace you run today.</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-10">
+            <button
+              type="button"
+              onClick={() => pickWorkspace('roadboss')}
+              data-testid="login-entry-roadboss"
+              className="text-left rounded-2xl border border-sky-400/35 bg-[#0a0e14] p-6 hover:border-sky-300/60 transition"
+            >
+              <div className="w-11 h-11 rounded-lg bg-sky-500/15 border border-sky-400/30 flex items-center justify-center">
+                <Briefcase className="w-5 h-5 text-sky-300" />
+              </div>
+              <div className="mt-4 text-xl font-bold">RoadBoss</div>
+              <div className="text-xs uppercase tracking-wider text-sky-300 mt-1">Fleet Operations</div>
+              <div className="mt-4 inline-flex items-center gap-1 text-sm text-sky-300 font-semibold">Continue <ArrowRight className="w-4 h-4" /></div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => pickWorkspace('wreckerlogix')}
+              data-testid="login-entry-wreckerlogix"
+              className="text-left rounded-2xl border border-amber-400/35 bg-[#0a0e14] p-6 hover:border-amber-300/60 transition"
+            >
+              <div className="w-11 h-11 rounded-lg bg-amber-500/15 border border-amber-400/30 flex items-center justify-center">
+                <Wrench className="w-5 h-5 text-amber-300" />
+              </div>
+              <div className="mt-4 text-xl font-bold">WreckerLogix</div>
+              <div className="text-xs uppercase tracking-wider text-amber-300 mt-1">Towing Services</div>
+              <div className="mt-4 inline-flex items-center gap-1 text-sm text-amber-300 font-semibold">Continue <ArrowRight className="w-4 h-4" /></div>
+            </button>
+          </div>
+          <AppFooter variant="light" className="mt-10" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen hp-grid-bg flex items-center justify-center p-5">
@@ -197,7 +263,7 @@ export default function Login() {
               <div className="hp-divider my-6" />
               <div className="text-xs uppercase tracking-widest text-slate-500 mb-3">Demo accounts</div>
               <div className="space-y-2">
-                <button data-testid="login-demo-admin" type="button" onClick={() => quickFill('fleet_admin@highwaypilot.io')} className="w-full flex items-center gap-3 p-3 rounded-lg border border-white/5 hover:border-amber-500/30 hover:bg-amber-500/5 transition text-left">
+                <button data-testid="login-demo-admin" type="button" onClick={() => quickFill('fleet_admin@wrecker-logix.com')} className="w-full flex items-center gap-3 p-3 rounded-lg border border-white/5 hover:border-amber-500/30 hover:bg-amber-500/5 transition text-left">
                   <div className="w-9 h-9 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center"><Zap className="w-4 h-4 text-amber-300" /></div>
                   <div className="flex-1">
                     <div className="text-sm text-white">Fleet Admin</div>
@@ -205,7 +271,7 @@ export default function Login() {
                   </div>
                   <div className="text-[11px] text-slate-500">Click to fill</div>
                 </button>
-                <button data-testid="login-demo-driver" type="button" onClick={() => quickFill('driver@highwaypilot.io')} className="w-full flex items-center gap-3 p-3 rounded-lg border border-white/5 hover:border-amber-500/30 hover:bg-amber-500/5 transition text-left">
+                <button data-testid="login-demo-driver" type="button" onClick={() => quickFill('driver@wrecker-logix.com')} className="w-full flex items-center gap-3 p-3 rounded-lg border border-white/5 hover:border-amber-500/30 hover:bg-amber-500/5 transition text-left">
                   <div className="w-9 h-9 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center"><Truck className="w-4 h-4 text-amber-300" /></div>
                   <div className="flex-1">
                     <div className="text-sm text-white">Driver (PWA)</div>
@@ -221,6 +287,7 @@ export default function Login() {
           )}
         </div>
         <div className="mt-6 text-center"><Link to="/" className="text-xs text-slate-500 hover:text-white">← Back to home</Link></div>
+        <AppFooter variant="light" className="mt-4" />
       </motion.div>
     </div>
   );
