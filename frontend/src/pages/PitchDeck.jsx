@@ -1,4 +1,4 @@
-// PitchDeck — an investor-ready in-browser slide deck for RoadBoss / Highway Pilot.
+// PitchDeck — an investor-ready in-browser slide deck for RoadBoss.
 // Accessible at /deck (public). Arrow / Space / Click advances; Esc exits fullscreen.
 // Designed to feel like a native Keynote/Pitch.com deck — dark, premium, typography-first.
 // The source of truth for copy is /app/memory/pitch_deck.md.

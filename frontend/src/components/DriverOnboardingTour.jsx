@@ -57,7 +57,7 @@ const STEPS = [
     glow: 'from-cyan-500/25 via-cyan-400/10 to-transparent',
     eyebrow: 'Wake word',
     title: 'Say "Hey Co-Pilot" — hands never leave the wheel.',
-    body: 'Arm the wake word from the bar at the bottom. Presets include Hey Co-Pilot, Highway Pilot, Hey Boss, and Hey RoadBoss.',
+    body: 'Arm the wake word from the bar at the bottom. Presets include Hey Co-Pilot, Hey Boss, and Hey RoadBoss.',
     hint: 'Browsers may need a mic-permission prompt the first time.',
   },
   {

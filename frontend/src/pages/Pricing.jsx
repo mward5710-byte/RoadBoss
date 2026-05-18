@@ -244,7 +244,7 @@ export default function Pricing() {
                   </li>
                 ))}
               </ul>
-              <a href="mailto:hello@highwaypilot.io?subject=RoadBoss%20Enterprise%20Inquiry">
+              <a href="mailto:hello@roadboss.app?subject=RoadBoss%20Enterprise%20Inquiry">
                 <Button data-testid="subscribe-enterprise" variant="outline" className="mt-6 w-full border-white/15 text-slate-200 hover:bg-white/5">
                   Contact sales <ArrowRight className="w-4 h-4 ml-1" />
                 </Button>
