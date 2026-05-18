@@ -316,7 +316,7 @@ Save → hot reload → `/wrecker/reports` is live.
 | Page is blank, "Cannot read property of undefined" | A required field is `null` and you didn't guard it | Wrap with `{thing && (…)}` or use `thing?.field` |
 | Backend returns 401 on every request | Your token expired (shouldn't happen — they last 10 years) OR you logged out in another tab | Hit `/login` again |
 | Login says "Invalid credentials" but you're SURE the password is right | Browser auto-fill stomping. Edge → Settings → Passwords → delete the saved one | Type manually next time |
-| iPhone PWA goes straight into the cab instead of splash | Your installed icon was made BEFORE the splash work — its cached `start_url` is `/login` | Long-press icon → Remove App. Open Safari → `…emergentagent.com/` → Share → Add to Home Screen |
+| iPhone PWA goes straight into the cab instead of splash | Your installed icon was made BEFORE the splash work — its cached `start_url` is `/login` | Long-press icon → Remove App. Open Safari → `…roadboss.app/` → Share → Add to Home Screen |
 | "service is not running" error | Frontend or backend died | `tail -n 80 /var/log/supervisor/frontend.err.log`, then `sudo supervisorctl restart frontend` |
 | Customize page saves silently fail | Wrong password in the confirm dialog | Re-enter — this is the safety latch |
 | Lost half a feature | You probably hot-saved a half-edit. Customize → "Reset All" gets you back to defaults. |

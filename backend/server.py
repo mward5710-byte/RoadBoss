@@ -2399,17 +2399,105 @@ async def update_roadside_status(disp_id: str, body: RoadsideStatusIn, user=Depe
 
 # ============================================================
 # AI Copilot — RoadBoss "Co-Pilot Buddy" (Stage 3)
-# Natural-language voice assistant — powered by your own LLM key via LiteLLM.
+# Natural-language voice assistant powered by configurable LLM providers.
 # Context-aware: knows driver name, HOS remaining, current trip, vehicle, alerts.
 # ============================================================
 
-# Support both new key name and legacy fallback
-COPILOT_LLM_API_KEY = (
-    os.environ.get('COPILOT_LLM_API_KEY', '')
-    or os.environ.get('EMERGENT_LLM_KEY', '')
-).strip()
-COPILOT_MODEL_PROVIDER = os.environ.get('COPILOT_LLM_PROVIDER', 'anthropic')
-COPILOT_MODEL_NAME = os.environ.get('COPILOT_LLM_MODEL', 'claude-sonnet-4-5-20250929')
+COPILOT_LLM_PROVIDER = (os.environ.get('COPILOT_LLM_PROVIDER', 'anthropic') or 'anthropic').strip().lower()
+COPILOT_LLM_MODEL = (os.environ.get('COPILOT_LLM_MODEL', 'claude-sonnet-4-5-20250929') or 'claude-sonnet-4-5-20250929').strip()
+COPILOT_LLM_API_KEY = os.environ.get('COPILOT_LLM_API_KEY', '').strip()
+COPILOT_LLM_BASE_URL = os.environ.get('COPILOT_LLM_BASE_URL', '').strip()
+
+
+def _copilot_effective_provider() -> str:
+    """Return the provider to use for API-key lookup.
+
+    If COPILOT_LLM_MODEL is a fully-qualified "provider/model" string the
+    embedded prefix is authoritative.  Otherwise fall back to COPILOT_LLM_PROVIDER.
+    """
+    if '/' in COPILOT_LLM_MODEL:
+        return COPILOT_LLM_MODEL.split('/', 1)[0].strip().lower()
+    return COPILOT_LLM_PROVIDER
+
+
+def _copilot_provider_api_key() -> str:
+    if COPILOT_LLM_API_KEY:
+        return COPILOT_LLM_API_KEY
+    provider_env_keys = {
+        'anthropic': ['ANTHROPIC_API_KEY'],
+        'openai': ['OPENAI_API_KEY'],
+        'google': ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
+        'gemini': ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
+        'groq': ['GROQ_API_KEY'],
+        'xai': ['XAI_API_KEY'],
+    }
+    for key in provider_env_keys.get(_copilot_effective_provider(), []):
+        value = os.environ.get(key, '').strip()
+        if value:
+            return value
+    return ''
+
+
+def _copilot_provider_model() -> str:
+    if '/' in COPILOT_LLM_MODEL:
+        return COPILOT_LLM_MODEL
+    return f"{COPILOT_LLM_PROVIDER}/{COPILOT_LLM_MODEL}"
+
+
+def _copilot_config_error() -> Optional[str]:
+    """Return an error string if the Co-Pilot config is invalid, else None.
+
+    Catches the case where COPILOT_LLM_MODEL is a fully-qualified
+    "provider/model" string whose prefix disagrees with COPILOT_LLM_PROVIDER,
+    which would cause silent API-key lookup failures.
+    """
+    model_provider = _copilot_effective_provider()
+    if '/' in COPILOT_LLM_MODEL and model_provider != COPILOT_LLM_PROVIDER:
+        return (
+            f"Co-Pilot config conflict: COPILOT_LLM_MODEL starts with '{model_provider}' "
+            f"but COPILOT_LLM_PROVIDER is '{COPILOT_LLM_PROVIDER}'. "
+            "Either set COPILOT_LLM_PROVIDER to match the model prefix, "
+            "or remove the provider prefix from COPILOT_LLM_MODEL."
+        )
+    return None
+
+
+def _copilot_is_configured() -> bool:
+    return bool(_copilot_provider_api_key() and COPILOT_LLM_MODEL)
+
+
+async def _copilot_send_message(system_prompt: str, user_prompt: str, session_id: str) -> str:
+    try:
+        from litellm import acompletion
+    except Exception as e:
+        logger.error(f"litellm import failed: {e}")
+        raise HTTPException(500, "Co-Pilot AI library not available.")
+
+    request: Dict[str, Any] = {
+        'model': _copilot_provider_model(),
+        'messages': [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': user_prompt},
+        ],
+        'api_key': _copilot_provider_api_key(),
+        'metadata': {
+            'feature': 'copilot_chat',
+            'session_id': session_id,
+        },
+    }
+    if COPILOT_LLM_BASE_URL:
+        request['api_base'] = COPILOT_LLM_BASE_URL
+
+    response = await acompletion(**request)
+    choices = getattr(response, 'choices', None) or []
+    if not choices:
+        return ''
+    message = getattr(choices[0], 'message', None)
+    content = getattr(message, 'content', '')
+    if isinstance(content, list):
+        text_parts = [part.get('text', '') for part in content if isinstance(part, dict)]
+        return ''.join(text_parts).strip()
+    return (content or '').strip()
 
 COPILOT_SYSTEM_BASE = """You are RoadBoss Co-Pilot Buddy — a hands-free AI assistant riding shotgun with a professional truck driver.
 
@@ -3559,8 +3647,11 @@ async def _parse_and_execute_action(reply_text: str, user: Dict[str, Any],
 
 @api_router.post("/copilot/chat")
 async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
-    if not COPILOT_LLM_API_KEY:
-        raise HTTPException(503, "Co-Pilot AI is not configured yet. Add COPILOT_LLM_API_KEY to enable.")
+    if not _copilot_is_configured():
+        raise HTTPException(503, "Co-Pilot AI is not configured yet. Set COPILOT_LLM_PROVIDER, COPILOT_LLM_MODEL, and an API key.")
+    config_err = _copilot_config_error()
+    if config_err:
+        raise HTTPException(400, config_err)
     msg_text = (body.message or '').strip()
     if not msg_text:
         raise HTTPException(400, "Empty message")
@@ -3613,13 +3704,6 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
     }
     await db.copilot_chats.insert_one(user_doc)
 
-    # Lazy import so server still boots if package missing
-    try:
-        import litellm
-    except Exception as e:
-        logger.error(f"litellm import failed: {e}")
-        raise HTTPException(500, "Co-Pilot AI library not available.")
-
     system_prompt = COPILOT_SYSTEM_BASE + _build_driver_context(user, driver, active_trip, vehicle, recent_alerts, wrecker_ctx=wrecker_ctx)
 
     try:
@@ -3639,26 +3723,24 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
             prior_text = "\n\nRecent conversation so far (oldest first):\n" + "\n".join(transcript_lines) + "\n\n"
 
         composed = prior_text + f"Driver just said: {msg_text}"
-        model_str = f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}"
-        response = await litellm.acompletion(
-            model=model_str,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": composed},
-            ],
-            api_key=COPILOT_LLM_API_KEY,
-        )
-        reply_text = (response.choices[0].message.content or '').strip()
+        reply_text = await _copilot_send_message(system_prompt=system_prompt, user_prompt=composed, session_id=session_id)
     except HTTPException:
         raise
     except Exception as e:
         err_str = str(e)
         logger.error(f"Copilot LLM error: {err_str}")
         low = err_str.lower()
+        # CREDIT GUARD: Detect specific budget / quota errors so the user knows
+        # exactly what's wrong instead of a generic "brain" message.
+        if ('budget' in low and 'exceeded' in low) or 'insufficient_quota' in low:
+            raise HTTPException(
+                402,
+                "AI credit balance is empty with your configured provider. Top up credits, then try Co-Pilot again."
+            )
         if 'rate limit' in low or 'rate_limit' in low or '429' in low:
             raise HTTPException(429, "Co-Pilot is being rate-limited. Give it 10 seconds and try again.")
         if 'authentication' in low or 'invalid api key' in low or 'unauthorized' in low:
-            raise HTTPException(401, "Co-Pilot AI key is invalid. Check COPILOT_LLM_API_KEY.")
+            raise HTTPException(401, "Co-Pilot AI key is invalid. Check COPILOT_LLM_API_KEY (or provider API key env var).")
         raise HTTPException(502, "Co-Pilot is having trouble reaching the brain. Try again in a moment.")
 
     # Parse and execute any ACTION marker emitted by the model
@@ -3680,7 +3762,7 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         'content': spoken_text,
         'action': action_result,
         'meta': body.meta or {},
-        'model': f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
+        'model': _copilot_provider_model(),
         'created_at': now_utc().isoformat(),
     })
 
@@ -3707,7 +3789,7 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         'reply': spoken_text,
         'action': action_result,
         'session_id': session_id,
-        'model': f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
+        'model': _copilot_provider_model(),
     }
 
 
@@ -3732,8 +3814,9 @@ async def copilot_reset(user=Depends(get_current_user)):
 @api_router.get("/copilot/status")
 async def copilot_status(user=Depends(get_current_user)):
     return {
-        'configured': bool(COPILOT_LLM_API_KEY),
-        'model': f"{COPILOT_MODEL_PROVIDER}/{COPILOT_MODEL_NAME}",
+        'configured': _copilot_is_configured(),
+        'config_error': _copilot_config_error(),
+        'model': _copilot_provider_model(),
         'persona': 'Co-Pilot Buddy',
     }
 
