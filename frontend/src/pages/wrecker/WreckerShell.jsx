@@ -8,6 +8,7 @@ import {
 import { auth, getUser, api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { WreckerLogixLogo } from '@/components/WreckerLogixLogo';
+import AppFooter from '@/components/AppFooter';
 
 // Sidebar nav grouped into sections:
 //   OPERATIONS — day-to-day dispatch + driving stuff
@@ -157,7 +158,7 @@ export default function WreckerShell() {
           data-testid="wrecker-logo-link"
           onClick={() => setMobileOpen(false)}
         >
-          <WreckerLogixLogo size={36} withWordmark />
+          <WreckerLogixLogo size={44} withWordmark />
         </Link>
         {/* Close button visible only inside the mobile drawer */}
         <button
@@ -231,6 +232,7 @@ export default function WreckerShell() {
         <Button data-testid="wrecker-logout" onClick={logout} variant="ghost" size="sm" className="w-full justify-start text-slate-400 hover:text-white">
           <LogOut className="w-4 h-4 mr-2" /> Sign out
         </Button>
+        <AppFooter className="mt-2" />
       </div>
     </>
   );
@@ -258,7 +260,7 @@ export default function WreckerShell() {
           to={role === 'wrecker_operator' ? '/wrecker/me' : '/wrecker'}
           className="flex items-center gap-2 min-w-0 flex-1"
         >
-          <WreckerLogixLogo size={28} withWordmark={false} />
+          <WreckerLogixLogo size={34} withWordmark={false} />
           <div className="min-w-0">
             <div className="text-[11px] font-bold text-white tracking-wider leading-tight truncate">
               WRECKER<span className="text-amber-400">LOGIX</span>

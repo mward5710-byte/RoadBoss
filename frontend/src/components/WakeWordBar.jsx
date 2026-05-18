@@ -9,14 +9,12 @@ import { toast } from 'sonner';
 
 const WAKE_PRESETS = {
   'hey-copilot': ['hey co-pilot', 'hey copilot', 'a copilot', 'a co-pilot'],
-  'highway-pilot': ['highway pilot', 'high pilot'],
   'hey-boss': ['hey boss', 'a boss'],
   'hey-roadboss': ['hey roadboss', 'hey road boss', 'roadboss', 'road boss'],
 };
 
 const PRESET_LABELS = {
   'hey-copilot': 'Hey Co-Pilot',
-  'highway-pilot': 'Highway Pilot',
   'hey-boss': 'Hey Boss',
   'hey-roadboss': 'Hey RoadBoss',
 };

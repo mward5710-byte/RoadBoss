@@ -36,7 +36,7 @@ export default function ImpersonationBanner() {
     toast.success('Back to your super-admin session.');
     setActive(false);
     setActingAs(null);
-    setTimeout(() => navigate('/super'), 150);
+    setTimeout(() => navigate('/app'), 150);
   };
 
   return (

@@ -4,7 +4,7 @@
 > **Repo:** https://github.com/mward5710-byte/Wreckerlogix (PUBLIC, Dart 98.9%)
 > **Tech:** Flutter + Dart + Firebase + GoRouter + Provider
 > **Goal:** Ship to **iOS App Store + Google Play** ASAP. Match Towbook's full feature set, but **leapfrog with voice-first hands-free dispatch**.
-> **Sister product:** RoadBoss (https://build-forge-49.preview.emergentagent.com) — voice-first PWA for truck drivers. Wrecker Mode also lives there.
+> **Sister product:** RoadBoss (https://roadboss.app) — voice-first PWA for truck drivers. Wrecker Mode also lives there.
 
 ---
 
@@ -55,7 +55,7 @@ This is how **real tow shops actually work**. The previous Flutter scaffold got 
 - Drivers can be toggled on-duty / off-duty (only on-duty drivers eligible for rotation)
 - This logic is already battle-tested in the RoadBoss web app at `/app/backend/wrecker.py` — port the same rules to Flutter.
 
-**Example screens (already built and working in RoadBoss web at https://build-forge-49.preview.emergentagent.com):**
+**Example screens (already built and working in RoadBoss web at https://roadboss.app):**
 - `/wrecker` — Dispatcher view (kanban board + Drivers·Rotation panel + Select-to-assign flow)
 - `/wrecker/me` — Driver view (one big "current call" card + "up next" queue, no assign UI)
 - `/wrecker/jobs/:id` — Job detail (status pipeline + Driver Assignment card with reassign-gated-by-supervisor)
@@ -132,10 +132,10 @@ Run `dart format .` locally and commit the result. Run `flutter analyze` and fix
 Mike said the bots "didn't even get my logo in there." Fix this.
 
 **OFFICIAL LOGO ASSET (from Mike, May 2026):**
-- High-res master: https://customer-assets.emergentagent.com/job_build-forge-49/artifacts/rkiwlg9l_IMG_0846.jpeg
+- High-res master: https://customer-assets.roadboss.app/job_build-forge-49/artifacts/rkiwlg9l_IMG_0846.jpeg
 - Description: Chrome + orange "WRECKERLOGIX" wordmark inside a steel gear shield with a tow hook hanging off the bottom-right.
 - Color palette derived from the logo: chrome silver `#c8d0d8`, deep orange `#ff7a18`, jet black `#0b0e14`.
-- This is also the logo currently used in the **RoadBoss "Wrecker Mode" sidebar** at https://build-forge-49.preview.emergentagent.com/wrecker — the brand families match.
+- This is also the logo currently used in the **RoadBoss "Wrecker Mode" sidebar** at https://roadboss.app/wrecker — the brand families match.
 
 **Logo asset placement in Flutter project:**
 - Save the JPEG to `assets/icons/wreckerlogix-logo.jpeg` AND export a 1024×1024 transparent PNG to `assets/icons/wreckerlogix_icon.png` for icon generation.
@@ -416,7 +416,7 @@ When Mike submits to App Store, Apple asks 14 categories of "what data do you co
 
 ## 🤖 PHASE 5 — RoadBoss CROSS-PROMOTION (last day)
 
-Mike runs RoadBoss as the bigger brand (https://build-forge-49.preview.emergentagent.com). Wreckerlogix should warmly cross-promote it.
+Mike runs RoadBoss as the bigger brand (https://roadboss.app). Wreckerlogix should warmly cross-promote it.
 
 - Add a settings menu item "Try RoadBoss for trucking" → external link to RoadBoss `/try`.
 - If user is a Stripe customer in either app, recognize them in both (later — share Stripe customer IDs across products via a shared backend lookup).
@@ -457,7 +457,7 @@ Mike runs RoadBoss as the bigger brand (https://build-forge-49.preview.emergenta
 
 - Mike runs RoadBoss in a separate Emergent session. He can fork that session's plan if needed.
 - The RoadBoss codebase has working examples of: Twilio SMS, SendGrid, Stripe, Voice Command Engine, AI Co-Pilot, Crash Detection. **Many of those patterns translate directly to Flutter.**
-- Reference RoadBoss preview URL: https://build-forge-49.preview.emergentagent.com
+- Reference RoadBoss preview URL: https://roadboss.app
 - Reference RoadBoss repo: ask Mike for access if you need to mine it.
 
 ---

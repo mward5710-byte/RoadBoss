@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-const DEFAULT_PHRASES = ['hey co-pilot', 'hey copilot', 'highway pilot', 'hey boss', 'hey roadboss', 'roadboss'];
+const DEFAULT_PHRASES = ['hey co-pilot', 'hey copilot', 'hey boss', 'hey roadboss', 'roadboss'];
 
 export function useWakeWord({ enabled, wakePhrases = DEFAULT_PHRASES, onCommand, cooldownMs = 1500 }) {
   const [listening, setListening] = useState(false);
