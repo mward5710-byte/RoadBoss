@@ -34,7 +34,7 @@ JWT_EXP_HOURS = 24 * 365 * 10  # 10 years — Mike's "one-time sign in" rule.
                                # uses its OWN OAuth tokens (separate lifecycle),
                                # so this has zero effect on QB connectivity.
 
-app = FastAPI(title="Highway Pilot API", version="0.1.0")
+app = FastAPI(title="RoadBoss API", version="0.1.0")
 api_router = APIRouter(prefix="/api")
 bearer = HTTPBearer(auto_error=False)
 
@@ -207,7 +207,7 @@ class AlertIn(BaseModel):
 
 @api_router.get("/")
 async def root():
-    return {"service": "Highway Pilot API", "status": "ok", "version": "0.1.0"}
+    return {"service": "RoadBoss API", "status": "ok", "version": "0.1.0"}
 
 @api_router.get("/health")
 async def health():
@@ -2432,6 +2432,7 @@ def _copilot_provider_api_key() -> str:
         'xai': ['XAI_API_KEY'],
     }
     for key in provider_env_keys.get(_copilot_effective_provider(), []):
+    for key in provider_env_keys.get(COPILOT_LLM_PROVIDER, []):
         value = os.environ.get(key, '').strip()
         if value:
             return value
@@ -3733,6 +3734,7 @@ async def copilot_chat(body: CopilotChatIn, user=Depends(get_current_user)):
         # CREDIT GUARD: Detect specific budget / quota errors so the user knows
         # exactly what's wrong instead of a generic "brain" message.
         if ('budget' in low and 'exceeded' in low) or 'insufficient_quota' in low:
+        if 'budget has been exceeded' in low or 'budget exceeded' in low or 'insufficient_quota' in low or ('quota' in low and 'exceeded' in low):
             raise HTTPException(
                 402,
                 "AI credit balance is empty with your configured provider. Top up credits, then try Co-Pilot again."

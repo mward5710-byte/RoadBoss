@@ -72,7 +72,7 @@ const CHAPTERS = [
         body: [
           'On the driver Home screen, look at the **bottom bar**. Tap the microphone icon.',
           'The first time, your phone asks for **microphone permission** — say yes.',
-          'You can pick your wake word from: **"Hey Co-Pilot"**, **"Highway Pilot"**, **"Hey Boss"**, or **"Hey RoadBoss"**.',
+          'You can pick your wake word from: **"Hey Co-Pilot"**, **"Hey Boss"**, or **"Hey RoadBoss"**.',
           'Once armed, you can talk to Co-Pilot without touching your phone.',
         ],
       },

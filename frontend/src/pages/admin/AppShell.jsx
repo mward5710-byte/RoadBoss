@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { auth, getUser } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import AppFooter from '@/components/AppFooter';
 
 const nav = [
   { to: '/app', icon: LayoutDashboard, label: 'Overview', end: true },
@@ -66,7 +67,7 @@ export default function AppShell() {
         >
           <Menu className="w-5 h-5" />
         </button>
-        <Logo size={22} />
+        <Logo size={28} />
         <div className="text-sm font-semibold text-white truncate flex-1">{activeLabel}</div>
         <Link to="/app/profile" className="p-1 rounded-lg hover:bg-white/5 transition" data-testid="admin-mobile-profile">
           <div className="w-7 h-7 rounded-full bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-300 text-[11px] font-semibold">
@@ -97,7 +98,7 @@ export default function AppShell() {
         data-testid="admin-sidebar"
       >
         <div className="p-4 border-b border-white/5 flex items-center justify-between">
-          <Link to="/app" onClick={() => setMobileOpen(false)}><Logo size={28} /></Link>
+          <Link to="/app" onClick={() => setMobileOpen(false)}><Logo size={34} /></Link>
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
@@ -164,6 +165,7 @@ export default function AppShell() {
           >
             <LogOut className="w-4 h-4 mr-2" /> Sign out
           </Button>
+          <AppFooter className="mt-2" />
         </div>
       </aside>
 
