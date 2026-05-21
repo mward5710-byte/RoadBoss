@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request, Response, Body
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -184,14 +184,28 @@ class HOSLogIn(BaseModel):
     started_at: Optional[str] = None
     notes: Optional[str] = None
 
+class PartItem(BaseModel):
+    name: str
+    part_number: Optional[str] = None
+    qty: float = 1
+    unit_cost: Optional[float] = None
+    vendor: Optional[str] = None
+    status: str = 'need_to_order'  # need_to_order | ordered | received | installed
+
 class MaintenanceIn(BaseModel):
     vehicle_id: str
     service_type: str
     due_at: Optional[str] = None
     due_miles: Optional[int] = None
     completed: bool = False
+    completed_at: Optional[str] = None
     notes: Optional[str] = None
     cost: Optional[float] = None
+    # Mechanic shop fields
+    priority: str = 'normal'  # low | normal | high | critical
+    mechanic_notes: Optional[str] = None
+    assigned_to: Optional[str] = None
+    parts: Optional[List[Dict[str, Any]]] = None
 
 class AlertIn(BaseModel):
     type: str  # hos_violation | crash | speeding | hard_brake | maintenance_due | dispatch
@@ -632,9 +646,17 @@ async def create_maintenance(body: MaintenanceIn, user=Depends(require_role('fle
 async def update_maintenance(mid: str, body: MaintenanceIn, user=Depends(require_role('fleet_admin', 'dispatcher'))):
     return await _update('maintenance', mid, body.model_dump())
 
-@api_router.delete("/maintenance/{mid}")
-async def delete_maintenance(mid: str, user=Depends(require_role('fleet_admin'))):
-    return await _delete('maintenance', mid)
+@api_router.patch("/maintenance/{mid}")
+async def patch_maintenance(mid: str, body: Dict[str, Any] = Body(...), user=Depends(require_role('fleet_admin', 'dispatcher'))):
+    """Partial update — only fields present in the request body are changed."""
+    body.pop('id', None)
+    body['updated_at'] = datetime.utcnow().isoformat()
+    result = await db.maintenance.find_one_and_update(
+        {'id': mid}, {'$set': body}, return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail='Not found')
+    return serialize_doc(result)
 
 # ============================================================
 # Alerts & Dashcam events

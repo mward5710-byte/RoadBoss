@@ -15,7 +15,7 @@ const nav = [
   { to: '/app/vehicles', icon: Truck, label: 'Vehicles' },
   { to: '/app/trips', icon: Route, label: 'Trips' },
   { to: '/app/inspections', icon: ClipboardCheck, label: 'Inspections' },
-  { to: '/app/maintenance', icon: Wrench, label: 'Maintenance' },
+  { to: '/app/maintenance', icon: Wrench, label: 'Mechanic Shop' },
   { to: '/app/roadside', icon: LifeBuoy, label: 'Roadside' },
   { to: '/app/crash-events', icon: AlertTriangle, label: 'Crash Events' },
   { to: '/app/alerts', icon: Bell, label: 'Alerts' },
