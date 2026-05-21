@@ -3334,6 +3334,120 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
             'drivers': out,
         }
 
+    async def _accounting_mileage(start_dt: datetime, end_dt: datetime):
+        """Loaded + deadhead miles rolled up from completed tow jobs in the period."""
+        jobs = []
+        cursor = db.tow_jobs.find({
+            'status': 'completed',
+            '$or': [
+                {'completed_at': {'$gte': start_dt, '$lt': end_dt}},
+                {'updated_at': {'$gte': start_dt, '$lt': end_dt}},
+            ],
+        }, {'_id': 0}).sort('completed_at', -1)
+        async for j in cursor:
+            jobs.append(j)
+
+        total_loaded = 0.0
+        total_deadhead = 0.0
+        by_truck: Dict[str, Dict[str, Any]] = {}
+        by_driver: Dict[str, Dict[str, Any]] = {}
+        items = []
+
+        # Lookup caches to avoid N+1 queries
+        truck_cache: Dict[str, str] = {}
+        driver_cache: Dict[str, str] = {}
+
+        for j in jobs:
+            loaded = float(j.get('loaded_miles') or 0)
+            deadhead = float(j.get('deadhead_miles') or 0)
+            total_miles = round(loaded + deadhead, 2)
+            revenue = float(j.get('final_price') or j.get('quoted_price') or 0)
+            total_loaded += loaded
+            total_deadhead += deadhead
+
+            # Truck rollup
+            tid = j.get('assigned_truck_id') or ''
+            if tid:
+                if tid not in truck_cache:
+                    t = await db.wrecker_trucks.find_one({'id': tid}, {'name': 1, 'unit_number': 1})
+                    truck_cache[tid] = (t or {}).get('name') or (t or {}).get('unit_number') or tid[:8]
+                tname = truck_cache[tid]
+                agg = by_truck.setdefault(tid, {
+                    'truck_id': tid, 'truck_name': tname,
+                    'loaded_miles': 0.0, 'deadhead_miles': 0.0, 'job_count': 0, 'revenue': 0.0,
+                })
+                agg['loaded_miles'] = round(agg['loaded_miles'] + loaded, 2)
+                agg['deadhead_miles'] = round(agg['deadhead_miles'] + deadhead, 2)
+                agg['job_count'] += 1
+                agg['revenue'] = round(agg['revenue'] + revenue, 2)
+
+            # Driver rollup
+            did = j.get('assigned_driver_id') or ''
+            if did:
+                if did not in driver_cache:
+                    u = await db.users.find_one({'id': did}, {'name': 1})
+                    driver_cache[did] = (u or {}).get('name') or did[:8]
+                dname = driver_cache[did]
+                agg = by_driver.setdefault(did, {
+                    'driver_id': did, 'driver_name': dname,
+                    'loaded_miles': 0.0, 'deadhead_miles': 0.0, 'job_count': 0,
+                })
+                agg['loaded_miles'] = round(agg['loaded_miles'] + loaded, 2)
+                agg['deadhead_miles'] = round(agg['deadhead_miles'] + deadhead, 2)
+                agg['job_count'] += 1
+
+            items.append({
+                'job_id': j.get('id'),
+                'date': (j.get('completed_at') or j.get('updated_at') or _now()).isoformat(),
+                'customer': (j.get('customer') or {}).get('name') or '',
+                'service': j.get('service_type') or '',
+                'truck_id': tid,
+                'truck_name': truck_cache.get(tid, ''),
+                'driver_id': did,
+                'driver_name': driver_cache.get(did, ''),
+                'loaded_miles': round(loaded, 2),
+                'deadhead_miles': round(deadhead, 2),
+                'total_miles': total_miles,
+                'revenue': round(revenue, 2),
+            })
+
+        total_loaded = round(total_loaded, 2)
+        total_deadhead = round(total_deadhead, 2)
+        total_all = round(total_loaded + total_deadhead, 2)
+        total_revenue = sum(it['revenue'] for it in items)
+        rev_per_loaded = round(total_revenue / total_loaded, 2) if total_loaded > 0 else 0.0
+
+        trucks_list = sorted(by_truck.values(), key=lambda x: -(x['loaded_miles'] + x['deadhead_miles']))
+        drivers_list = sorted(by_driver.values(), key=lambda x: -(x['loaded_miles'] + x['deadhead_miles']))
+        # Add revenue-per-mile per truck
+        for t in trucks_list:
+            tm = t['loaded_miles'] + t['deadhead_miles']
+            t['total_miles'] = round(tm, 2)
+            t['revenue_per_mile'] = round(t['revenue'] / tm, 2) if tm > 0 else 0.0
+        for d in drivers_list:
+            d['total_miles'] = round(d['loaded_miles'] + d['deadhead_miles'], 2)
+
+        return {
+            'total_loaded_miles': total_loaded,
+            'total_deadhead_miles': total_deadhead,
+            'total_miles': total_all,
+            'job_count': len(items),
+            'total_revenue': round(total_revenue, 2),
+            'revenue_per_loaded_mile': rev_per_loaded,
+            'by_truck': trucks_list,
+            'by_driver': drivers_list,
+            'items': items,
+        }
+
+    @router.get('/accounting/mileage')
+    async def accounting_mileage(period: str = 'this_month',
+                                  start: Optional[str] = None,
+                                  end: Optional[str] = None,
+                                  user=Depends(require_dispatcher)):
+        s, e, label = _parse_period(period, start, end)
+        data = await _accounting_mileage(s, e)
+        return {'period_label': label, **data}
+
     @router.get('/accounting/overview')
     async def accounting_overview(period: str = 'this_month',
                                    start: Optional[str] = None,
@@ -3449,6 +3563,43 @@ def build_wrecker_router(db, get_current_user, require_role, serialize_doc, noti
             rows.append([])
             rows.append(['TOTAL', '', '', f"{data['total_hours']:.2f}", '', f"{data['total_gross']:.2f}"])
             return _csv_response(rows, f"payroll_{slug}.csv")
+        if tab == 'mileage':
+            data = await _accounting_mileage(s, e)
+            rows = [['Date', 'Job ID', 'Customer', 'Service', 'Driver', 'Truck',
+                     'Loaded Miles', 'Deadhead Miles', 'Total Miles', 'Revenue']]
+            for it in data['items']:
+                rows.append([
+                    it['date'][:10], it['job_id'], it['customer'], it['service'],
+                    it['driver_name'], it['truck_name'],
+                    f"{it['loaded_miles']:.2f}", f"{it['deadhead_miles']:.2f}",
+                    f"{it['total_miles']:.2f}", f"{it['revenue']:.2f}",
+                ])
+            rows.append([])
+            rows.append(['', 'TOTAL', '', '', '', '',
+                         f"{data['total_loaded_miles']:.2f}",
+                         f"{data['total_deadhead_miles']:.2f}",
+                         f"{data['total_miles']:.2f}",
+                         f"{data['total_revenue']:.2f}"])
+            rows.append([])
+            rows.append(['--- By Truck ---'])
+            rows.append(['Truck', '', 'Jobs', 'Loaded Mi', 'Deadhead Mi', 'Total Mi', 'Revenue', 'Rev/Mile'])
+            for t in data['by_truck']:
+                rows.append([
+                    t['truck_name'], '', t['job_count'],
+                    f"{t['loaded_miles']:.2f}", f"{t['deadhead_miles']:.2f}",
+                    f"{t['total_miles']:.2f}", f"{t['revenue']:.2f}",
+                    f"{t['revenue_per_mile']:.2f}",
+                ])
+            rows.append([])
+            rows.append(['--- By Driver ---'])
+            rows.append(['Driver', '', 'Jobs', 'Loaded Mi', 'Deadhead Mi', 'Total Mi'])
+            for d in data['by_driver']:
+                rows.append([
+                    d['driver_name'], '', d['job_count'],
+                    f"{d['loaded_miles']:.2f}", f"{d['deadhead_miles']:.2f}",
+                    f"{d['total_miles']:.2f}",
+                ])
+            return _csv_response(rows, f"mileage_{slug}.csv")
         # Overview
         rev = await _accounting_revenue(s, e)
         exp = await _accounting_expenses(s, e)

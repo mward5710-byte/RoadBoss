@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import {
   DollarSign, TrendingUp, TrendingDown, Wallet, Calendar, Download, Loader2,
   Receipt, Wrench, Clock, FileSpreadsheet, ArrowUpRight, ArrowDownRight,
-  Building2, BarChart3,
+  Building2, BarChart3, Route, Truck, User2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -37,6 +37,7 @@ export default function WreckerAccounting() {
   const [revenue, setRevenue] = useState(null);
   const [expenses, setExpenses] = useState(null);
   const [payroll, setPayroll] = useState(null);
+  const [mileage, setMileage] = useState(null);
   const [tab, setTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(null);
@@ -53,13 +54,14 @@ export default function WreckerAccounting() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [ov, rv, ex, py] = await Promise.all([
+      const [ov, rv, ex, py, mi] = await Promise.all([
         api.get(`/wrecker/accounting/overview?${periodParams}`),
         api.get(`/wrecker/accounting/revenue?${periodParams}`),
         api.get(`/wrecker/accounting/expenses?${periodParams}`),
         api.get(`/wrecker/accounting/payroll?${periodParams}`),
+        api.get(`/wrecker/accounting/mileage?${periodParams}`),
       ]);
-      setOverview(ov.data); setRevenue(rv.data); setExpenses(ex.data); setPayroll(py.data);
+      setOverview(ov.data); setRevenue(rv.data); setExpenses(ex.data); setPayroll(py.data); setMileage(mi.data);
     } catch (e) {
       toast.error('Could not load accounting data');
     } finally {
@@ -149,6 +151,7 @@ export default function WreckerAccounting() {
             <TabsTrigger value="revenue" data-testid="acc-tab-revenue">Revenue</TabsTrigger>
             <TabsTrigger value="expenses" data-testid="acc-tab-expenses">Expenses</TabsTrigger>
             <TabsTrigger value="payroll" data-testid="acc-tab-payroll">Payroll</TabsTrigger>
+            <TabsTrigger value="mileage" data-testid="acc-tab-mileage">Mileage</TabsTrigger>
           </TabsList>
 
           {/* OVERVIEW */}
@@ -360,6 +363,146 @@ export default function WreckerAccounting() {
                 <div className="p-8 text-center text-slate-500 text-sm">No completed shifts in this period yet.</div>
               )}
             </Card>
+          </TabsContent>
+
+          {/* MILEAGE */}
+          <TabsContent value="mileage" className="space-y-4" data-testid="mileage-tab-content">
+            {mileage && (
+              <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                  <div className="text-xs text-slate-500 uppercase tracking-widest">Loaded + deadhead miles from completed tow jobs</div>
+                  <ExportBtn label="Export CSV" onClick={() => downloadCsv('mileage')} loading={exporting === 'mileage'} testid="export-mileage-btn" />
+                </div>
+
+                {/* KPI cards */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                  <KpiCard icon={Route} label="Loaded Miles" value={`${Number(mileage.total_loaded_miles || 0).toLocaleString()} mi`}
+                           sub="pickup → dropoff" accent="emerald" testid="kpi-loaded-miles" />
+                  <KpiCard icon={TrendingUp} label="Deadhead Miles" value={`${Number(mileage.total_deadhead_miles || 0).toLocaleString()} mi`}
+                           sub="base → pickup" accent="sky" testid="kpi-deadhead-miles" />
+                  <KpiCard icon={Wrench} label="Total Miles" value={`${Number(mileage.total_miles || 0).toLocaleString()} mi`}
+                           sub={`${mileage.job_count} job${mileage.job_count === 1 ? '' : 's'}`} accent="amber" testid="kpi-total-miles" />
+                  <KpiCard icon={DollarSign} label="Rev / Loaded Mile" value={`$${Number(mileage.revenue_per_loaded_mile || 0).toFixed(2)}`}
+                           sub="avg across all trucks" accent="emerald" testid="kpi-rev-per-mile" />
+                </div>
+
+                <div className="grid lg:grid-cols-2 gap-4">
+                  {/* By truck */}
+                  <Card className="bg-[#0d1218] border-white/5">
+                    <div className="p-4 border-b border-white/5 text-sm font-semibold text-white flex items-center gap-2">
+                      <Truck className="w-4 h-4 text-amber-400" /> Miles by Truck
+                    </div>
+                    {mileage.by_truck?.length ? (
+                      <table className="w-full text-xs" data-testid="miles-by-truck-table">
+                        <thead>
+                          <tr className="text-slate-500 uppercase tracking-wider border-b border-white/5">
+                            <th className="px-3 py-2 text-left">Truck</th>
+                            <th className="px-3 py-2 text-right">Jobs</th>
+                            <th className="px-3 py-2 text-right">Loaded</th>
+                            <th className="px-3 py-2 text-right">Deadhead</th>
+                            <th className="px-3 py-2 text-right">Rev/Mi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/[0.04]">
+                          {mileage.by_truck.map((t) => (
+                            <tr key={t.truck_id} className="hover:bg-white/[0.02]" data-testid={`truck-mile-row-${t.truck_id}`}>
+                              <td className="px-3 py-2 text-white font-medium">{t.truck_name || t.truck_id}</td>
+                              <td className="px-3 py-2 text-right text-slate-400 tabular-nums">{t.job_count}</td>
+                              <td className="px-3 py-2 text-right text-emerald-300 tabular-nums">{t.loaded_miles.toFixed(1)}</td>
+                              <td className="px-3 py-2 text-right text-sky-300 tabular-nums">{t.deadhead_miles.toFixed(1)}</td>
+                              <td className="px-3 py-2 text-right text-amber-300 tabular-nums">${t.revenue_per_mile.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div className="p-6 text-sm text-slate-500">No truck mileage data yet.</div>
+                    )}
+                  </Card>
+
+                  {/* By driver */}
+                  <Card className="bg-[#0d1218] border-white/5">
+                    <div className="p-4 border-b border-white/5 text-sm font-semibold text-white flex items-center gap-2">
+                      <User2 className="w-4 h-4 text-sky-400" /> Miles by Driver
+                    </div>
+                    {mileage.by_driver?.length ? (
+                      <table className="w-full text-xs" data-testid="miles-by-driver-table">
+                        <thead>
+                          <tr className="text-slate-500 uppercase tracking-wider border-b border-white/5">
+                            <th className="px-3 py-2 text-left">Driver</th>
+                            <th className="px-3 py-2 text-right">Jobs</th>
+                            <th className="px-3 py-2 text-right">Loaded</th>
+                            <th className="px-3 py-2 text-right">Deadhead</th>
+                            <th className="px-3 py-2 text-right">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/[0.04]">
+                          {mileage.by_driver.map((d) => (
+                            <tr key={d.driver_id} className="hover:bg-white/[0.02]" data-testid={`driver-mile-row-${d.driver_id}`}>
+                              <td className="px-3 py-2 text-white font-medium">{d.driver_name}</td>
+                              <td className="px-3 py-2 text-right text-slate-400 tabular-nums">{d.job_count}</td>
+                              <td className="px-3 py-2 text-right text-emerald-300 tabular-nums">{d.loaded_miles.toFixed(1)}</td>
+                              <td className="px-3 py-2 text-right text-sky-300 tabular-nums">{d.deadhead_miles.toFixed(1)}</td>
+                              <td className="px-3 py-2 text-right text-white tabular-nums font-semibold">{d.total_miles.toFixed(1)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div className="p-6 text-sm text-slate-500">No driver mileage data yet.</div>
+                    )}
+                  </Card>
+                </div>
+
+                {/* Per-job table */}
+                <Card className="bg-[#0d1218] border-white/5">
+                  <div className="p-4 border-b border-white/5 text-sm font-semibold text-white flex items-center gap-2">
+                    <Route className="w-4 h-4 text-slate-400" /> Per-Job Mile Detail
+                  </div>
+                  {mileage.items?.length ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs" data-testid="mileage-items-table">
+                        <thead>
+                          <tr className="text-slate-500 uppercase tracking-wider border-b border-white/5">
+                            <th className="px-3 py-2 text-left">Date</th>
+                            <th className="px-3 py-2 text-left">Customer</th>
+                            <th className="px-3 py-2 text-left">Service</th>
+                            <th className="px-3 py-2 text-right">Loaded</th>
+                            <th className="px-3 py-2 text-right">Deadhead</th>
+                            <th className="px-3 py-2 text-right">Total</th>
+                            <th className="px-3 py-2 text-right">Revenue</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/[0.03]">
+                          {mileage.items.map((it) => (
+                            <tr key={it.job_id} className="hover:bg-white/[0.02]">
+                              <td className="px-3 py-2 text-slate-400 tabular-nums">{it.date?.slice(0, 10)}</td>
+                              <td className="px-3 py-2 text-white">{it.customer || '—'}</td>
+                              <td className="px-3 py-2 text-slate-400 capitalize">{it.service?.replace('_', ' ') || '—'}</td>
+                              <td className="px-3 py-2 text-right text-emerald-300 tabular-nums">{it.loaded_miles.toFixed(1)}</td>
+                              <td className="px-3 py-2 text-right text-sky-300 tabular-nums">{it.deadhead_miles.toFixed(1)}</td>
+                              <td className="px-3 py-2 text-right text-white tabular-nums">{it.total_miles.toFixed(1)}</td>
+                              <td className="px-3 py-2 text-right text-amber-300 tabular-nums">{usd(it.revenue)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="bg-white/[0.02] font-semibold border-t border-white/10">
+                          <tr>
+                            <td className="px-3 py-2 text-white" colSpan={3}>TOTAL</td>
+                            <td className="px-3 py-2 text-right text-emerald-300 tabular-nums">{mileage.total_loaded_miles?.toFixed(1)}</td>
+                            <td className="px-3 py-2 text-right text-sky-300 tabular-nums">{mileage.total_deadhead_miles?.toFixed(1)}</td>
+                            <td className="px-3 py-2 text-right text-white tabular-nums">{mileage.total_miles?.toFixed(1)}</td>
+                            <td className="px-3 py-2 text-right text-amber-300 tabular-nums">{usd(mileage.total_revenue)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="p-6 text-sm text-slate-500">No completed jobs with mileage data yet. Miles are calculated automatically from job pickup and dropoff addresses.</div>
+                  )}
+                </Card>
+              </motion.div>
+            )}
           </TabsContent>
         </Tabs>
       )}
