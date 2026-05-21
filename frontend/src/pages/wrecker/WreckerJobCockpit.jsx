@@ -126,6 +126,9 @@ export default function WreckerJobCockpit() {
   // Add charge form
   const [chargeKey, setChargeKey] = useState('');
   const [chargeQty, setChargeQty] = useState('1');
+  // Charge picker — inline prompt (replaces window.prompt for phone friendliness)
+  const [chargePromptPreset, setChargePromptPreset] = useState(null);
+  const [chargePromptValue, setChargePromptValue] = useState('');
   // Add payment form
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('cash');
@@ -432,33 +435,34 @@ export default function WreckerJobCockpit() {
     ? CHARGE_CATALOG.filter((c) => c.label.toLowerCase().includes(chargeSearch.toLowerCase()))
     : CHARGE_CATALOG;
 
-  const addCatalogCharge = async (preset) => {
-    let label = preset.label;
-    let rate = preset.rate;
-    let qty = 1;
-    if (preset.prompt === 'qty') {
-      const input = window.prompt(`${preset.promptText || 'Quantity'}:`, '1');
-      if (input == null) return;
-      const n = parseFloat(input);
-      if (!n || n <= 0) { toast.error('Enter a positive number'); return; }
-      qty = n;
-    } else if (preset.prompt === 'amount') {
-      const def = preset.rate > 0 ? String(preset.rate) : '';
-      const input = window.prompt(`${preset.promptText || 'Amount in $'}:`, def);
-      if (input == null) return;
-      const n = parseFloat(input);
-      if (!n || n <= 0) { toast.error('Enter a positive amount'); return; }
-      rate = n;
+  const addCatalogCharge = (preset) => {
+    if (preset.prompt) {
+      // Show inline amount/qty input inside the dialog — no window.prompt on phones
+      setChargePromptPreset(preset);
+      setChargePromptValue(preset.rate > 0 ? String(preset.rate) : '');
+      return;
     }
+    _submitCatalogCharge(preset, preset.rate, 1);
+  };
+
+  const confirmChargePrompt = async () => {
+    const preset = chargePromptPreset;
+    if (!preset) return;
+    const n = parseFloat(chargePromptValue);
+    if (!n || n <= 0) { toast.error('Enter a positive number'); return; }
+    const rate = preset.prompt === 'amount' ? n : preset.rate;
+    const qty  = preset.prompt === 'qty'    ? n : 1;
+    await _submitCatalogCharge(preset, rate, qty);
+    setChargePromptPreset(null);
+    setChargePromptValue('');
+  };
+
+  const _submitCatalogCharge = async (preset, rate, qty) => {
     try {
       await api.post(`/wrecker/jobs/${id}/charges`, {
-        key: preset.key,
-        label: label,
-        rate: rate,
-        qty: qty,
-        unit: preset.unit,
+        key: preset.key, label: preset.label, rate, qty, unit: preset.unit,
       });
-      toast.success(`+ $${(rate * qty).toFixed(2)} · ${label}`);
+      toast.success(`+ $${(rate * qty).toFixed(2)} · ${preset.label}`);
       setChargePickerOpen(false);
       setChargeSearch('');
       load();
@@ -1097,7 +1101,7 @@ export default function WreckerJobCockpit() {
                         <div>
                           <div className="text-[9px] uppercase tracking-wider text-amber-300 font-semibold mb-0.5">Rate ($)</div>
                           <Input
-                            type="number" step="0.01" value={editRate}
+                            type="number" step="0.01" inputMode="decimal" value={editRate}
                             onChange={(e) => setEditRate(e.target.value)}
                             data-testid={`charge-edit-rate-${c.id}`}
                             className="h-8 bg-[#07090d] border-amber-500/30 text-white text-sm"
@@ -1107,7 +1111,7 @@ export default function WreckerJobCockpit() {
                         <div>
                           <div className="text-[9px] uppercase tracking-wider text-amber-300 font-semibold mb-0.5">Qty {c.unit && c.unit !== 'flat' ? `(${c.unit})` : ''}</div>
                           <Input
-                            type="number" step="0.5" value={editQty}
+                            type="number" step="0.5" inputMode="decimal" value={editQty}
                             onChange={(e) => setEditQty(e.target.value)}
                             data-testid={`charge-edit-qty-${c.id}`}
                             className="h-8 bg-[#07090d] border-amber-500/30 text-white text-sm"
@@ -1167,55 +1171,105 @@ export default function WreckerJobCockpit() {
       )}
 
       {/* Towbook charge picker — searchable modal, 28-item catalog. */}
-      <Dialog open={chargePickerOpen} onOpenChange={(v) => { if (!v) { setChargePickerOpen(false); setChargeSearch(''); } }}>
+      <Dialog open={chargePickerOpen} onOpenChange={(v) => { if (!v) { setChargePickerOpen(false); setChargeSearch(''); setChargePromptPreset(null); setChargePromptValue(''); } }}>
         <DialogContent className="bg-[#0a0e14] border-white/10 text-white max-w-md max-h-[88vh] overflow-hidden flex flex-col p-0" data-testid="charge-picker-dialog">
-          <div className="px-4 pt-4 pb-3 border-b border-white/5">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-white">Select a charge</h3>
-              <button onClick={() => setChargePickerOpen(false)} className="text-slate-500 hover:text-white" data-testid="charge-picker-close">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="relative mt-2">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-              <Input
-                value={chargeSearch}
-                onChange={(e) => setChargeSearch(e.target.value)}
-                placeholder="Search charges..."
-                autoFocus
-                data-testid="charge-search-input"
-                className="pl-9 bg-[#07090d] border-white/10 text-white"
-              />
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto" data-testid="charge-picker-list">
-            {filteredCatalog.length === 0 ? (
-              <div className="py-12 text-center text-slate-500 text-sm">No charges match "{chargeSearch}"</div>
-            ) : (
-              <div className="divide-y divide-white/5">
-                {filteredCatalog.map((c) => (
-                  <button
-                    key={c.key}
-                    onClick={() => addCatalogCharge(c)}
-                    data-testid={`charge-pick-${c.key}`}
-                    className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-amber-500/5 active:bg-amber-500/10 transition"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm text-white font-medium truncate">{c.label}</div>
-                      {c.prompt && (
-                        <div className="text-[10px] uppercase tracking-wider text-amber-400/80 mt-0.5">
-                          {c.prompt === 'qty' ? `Asks for ${c.promptText || 'qty'}` : 'Asks for amount'}
-                        </div>
-                      )}
-                    </div>
-                    <div className="text-sm text-emerald-300 font-semibold tabular-nums shrink-0">
-                      ${c.rate.toFixed(2)}{c.unit && c.unit !== 'flat' ? c.unit : ''}
-                    </div>
-                  </button>
-                ))}
+          {/* Header + search — hidden while prompt is open so the input has full focus */}
+          {!chargePromptPreset && (
+            <div className="px-4 pt-4 pb-3 border-b border-white/5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-white">Select a charge</h3>
+                <button onClick={() => setChargePickerOpen(false)} className="text-slate-500 hover:text-white" data-testid="charge-picker-close">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-            )}
-          </div>
+              <div className="relative mt-2">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                <Input
+                  value={chargeSearch}
+                  onChange={(e) => setChargeSearch(e.target.value)}
+                  placeholder="Search charges..."
+                  autoFocus
+                  data-testid="charge-search-input"
+                  className="pl-9 bg-[#07090d] border-white/10 text-white"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Inline amount / qty prompt — replaces window.prompt for phone UX */}
+          {chargePromptPreset && (
+            <div className="px-4 py-5 flex flex-col gap-4" data-testid="charge-prompt-panel">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest text-amber-400">Add charge</div>
+                  <div className="text-lg font-bold text-white mt-0.5">{chargePromptPreset.label}</div>
+                </div>
+                <button
+                  onClick={() => { setChargePromptPreset(null); setChargePromptValue(''); }}
+                  className="text-slate-500 hover:text-white"
+                  data-testid="charge-prompt-back"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div>
+                <div className="text-xs text-slate-400 mb-2">
+                  {chargePromptPreset.prompt === 'qty' ? (chargePromptPreset.promptText || 'Enter quantity') : (chargePromptPreset.promptText || 'Enter amount ($)')}
+                </div>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={chargePromptValue}
+                  onChange={(e) => setChargePromptValue(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && confirmChargePrompt()}
+                  placeholder={chargePromptPreset.prompt === 'qty' ? 'e.g. 2' : 'e.g. 75.00'}
+                  autoFocus
+                  className="text-xl h-14 bg-[#07090d] border-white/20 text-white text-center tabular-nums"
+                  data-testid="charge-prompt-input"
+                />
+              </div>
+              <Button
+                onClick={confirmChargePrompt}
+                className="w-full h-12 bg-amber-500 text-slate-950 hover:bg-amber-400 text-sm uppercase tracking-widest font-bold"
+                data-testid="charge-prompt-confirm"
+              >
+                <Plus className="w-5 h-5 mr-1.5" /> Add Charge
+              </Button>
+            </div>
+          )}
+
+          {!chargePromptPreset && (
+            <div className="flex-1 overflow-y-auto" data-testid="charge-picker-list">
+              {filteredCatalog.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 text-sm">No charges match "{chargeSearch}"</div>
+              ) : (
+                <div className="divide-y divide-white/5">
+                  {filteredCatalog.map((c) => (
+                    <button
+                      key={c.key}
+                      onClick={() => addCatalogCharge(c)}
+                      data-testid={`charge-pick-${c.key}`}
+                      className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-amber-500/5 active:bg-amber-500/10 transition"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm text-white font-medium truncate">{c.label}</div>
+                        {c.prompt && (
+                          <div className="text-[10px] uppercase tracking-wider text-amber-400/80 mt-0.5">
+                            {c.prompt === 'qty' ? `Enter qty` : 'Enter amount'}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-sm text-emerald-300 font-semibold tabular-nums shrink-0">
+                        ${c.rate.toFixed(2)}{c.unit && c.unit !== 'flat' ? `/${c.unit}` : ''}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

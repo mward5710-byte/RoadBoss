@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Mic, MapPin, Phone, Clock, ArrowRight, Truck, RefreshCw, AlertTriangle, CheckCircle2, Zap, Navigation, Radio } from 'lucide-react';
+import { Mic, MapPin, Phone, Clock, ArrowRight, Truck, RefreshCw, AlertTriangle, CheckCircle2, Zap, Navigation, Radio, LogIn, LogOut, Coffee, Play } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { navUrl, NAV_APPS, getNavApp, setNavApp } from '@/lib/navPref';
@@ -19,6 +19,30 @@ const STATUS_COLORS = {
   in_progress: 'bg-orange-500/15 border-orange-500/30 text-orange-300',
   completed: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300',
 };
+
+function fmtHM(min) {
+  if (min == null) return '—';
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+function workedMin(shift) {
+  if (!shift?.clocked_in_at) return 0;
+  const start = new Date(shift.clocked_in_at).getTime();
+  const now = Date.now();
+  let total = (now - start) / 60000;
+  for (const l of shift.lunches || []) {
+    const ls = new Date(l.start).getTime();
+    const le = l.end ? new Date(l.end).getTime() : now;
+    total -= Math.max(0, (le - ls) / 60000);
+  }
+  return Math.max(0, total);
+}
+function isOnLunchBreak(shift) {
+  if (!shift) return false;
+  const ls = shift.lunches || [];
+  return ls.length > 0 && !ls[ls.length - 1].end;
+}
 
 export default function WreckerDriverHome() {
   const navigate = useNavigate();
