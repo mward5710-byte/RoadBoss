@@ -263,9 +263,9 @@ export default function WreckerQuoteDetail() {
               size="sm"
               variant="outline"
               className="border-white/10 text-slate-300 hover:bg-white/5"
-              data-testid="quote-cockpit"
+              data-testid="quote-job-detail"
             >
-              <Truck className="w-4 h-4 mr-1.5" /> Open Cockpit
+              <Truck className="w-4 h-4 mr-1.5" /> Open Job Detail
             </Button>
           </Link>
 
@@ -383,7 +383,7 @@ export default function WreckerQuoteDetail() {
         <div className="p-5">
           {(job.charges || []).length === 0 ? (
             <div className="text-sm text-slate-500 text-center py-6">
-              No charges yet — add them in the cockpit.
+              No charges yet — add them in the job detail.
             </div>
           ) : (
             <div className="space-y-1.5 mb-4">
@@ -572,7 +572,7 @@ function LocationBlock({ label, data, accent, testid }) {
         ) : (
           <div className="text-xs text-slate-500 py-2">
             <AlertCircle className="w-3 h-3 inline mr-1" />
-            No location captured. Add it on the cockpit screen.
+            No location captured. Add it on the job detail screen.
           </div>
         )}
       </CollapsibleContent>

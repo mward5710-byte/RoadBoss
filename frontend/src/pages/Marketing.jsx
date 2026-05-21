@@ -166,7 +166,7 @@ export default function Marketing() {
         <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.2 }} className="mt-16 hp-panel-bordered rounded-2xl p-1 hp-glow">
           <div className="rounded-xl bg-[#0a0e14] p-6 md:p-10 grid md:grid-cols-2 gap-8 items-center">
             <div>
-              <div className="text-xs uppercase tracking-widest text-sky-400/80 mb-2">Driver cockpit</div>
+              <div className="text-xs uppercase tracking-widest text-sky-400/80 mb-2">Driver App</div>
               <div className="text-3xl md:text-4xl font-semibold text-white">"Hey Pilot, check H-O-S."</div>
               <div className="mt-3 text-slate-400">A single voice command. Hours of service spoken back. Dispatch alerted. Eyes never leave the road.</div>
               <div className="mt-6 flex items-center gap-3">
