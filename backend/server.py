@@ -39,7 +39,7 @@ api_router = APIRouter(prefix="/api")
 bearer = HTTPBearer(auto_error=False)
 
 # Wrecker Mode (tow operator surface) — see /app/backend/wrecker.py
-from wrecker import build_wrecker_router, seed_wrecker_demo, WRECKER_VOICE_INTENTS  # noqa: E402
+from wrecker import build_wrecker_router, WRECKER_VOICE_INTENTS  # noqa: E402
 
 # Third-party integrations (multi-tenant OAuth — each company connects their own)
 from integrations.square_oauth import build_square_router  # noqa: E402
@@ -4695,19 +4695,19 @@ async def super_admin_wipe_demo(user=Depends(require_role('super_admin'))):
 
 
 @api_router.post("/admin/wipe-sample-data")
-async def fleet_admin_wipe_sample_data(user=Depends(require_role('fleet_admin', 'wrecker_supervisor', 'super_admin'))):
-    """Per-tenant escape hatch: lets a brand-new fleet_admin (Kenny etc.)
-    clear the seeded sample tow jobs / impounds / drivers from THEIR view of
-    the platform when they're ready to go live. Same underlying wipe — works
-    because we're a single-tenant deployment per company. Idempotent."""
+async def fleet_admin_wipe_sample_data(user=Depends(require_role('fleet_admin', 'super_admin'))):
+    """Easy clean-slate action for Fleet admins.
+
+    WreckerLogix no longer auto-seeds demo data. If Fleet sample data is still
+    present, this endpoint clears it with the same safe wipe used by Super
+    Admin, and also removes any leftover legacy demo records from older builds.
+    """
     return await _do_wipe_demo(user)
 
 
 @api_router.get("/admin/sample-data-status")
-async def sample_data_status(user=Depends(require_role('fleet_admin', 'wrecker_supervisor', 'super_admin'))):
-    """For new fleet_admin / new-company super_admin onboarding banner: do
-    they still see seeded sample rows? Returns booleans so the dashboard can
-    render a 'Clear Sample Data' nudge until they've gone live."""
+async def sample_data_status(user=Depends(require_role('fleet_admin', 'super_admin'))):
+    """Fleet sample-data status for the Overview clean-slate banner."""
     flag = await db.platform_settings.find_one({'key': 'demo_wiped'})
     wiped = bool(flag and flag.get('value'))
     legacy_email_re = {'$regex': '@(highwaypilot\\.io|wrecker-logix\\.com)$', '$options': 'i'}
@@ -4833,18 +4833,13 @@ async def _do_wipe_demo(user):
 
 @api_router.post("/admin/super/restore-demo")
 async def super_admin_restore_demo(user=Depends(require_role('super_admin'))):
-    """Undo the demo-wipe lock + reseed demo data immediately. For Mike if he
-    changes his mind."""
+    """Undo the demo-wipe lock + reseed Fleet demo data immediately."""
     await db.platform_settings.delete_one({'key': 'demo_wiped'})
     try:
         await _seed_demo()
     except Exception as e:
         logger.error(f'restore-demo seed failed: {e}')
-    try:
-        await seed_wrecker_demo(db, hash_password)
-    except Exception as e:
-        logger.error(f'restore-demo wrecker seed failed: {e}')
-    logger.warning(f"SUPER_ADMIN {user['email']} restored demo data")
+    logger.warning(f"SUPER_ADMIN {user['email']} restored Fleet demo data")
     return {'ok': True}
 
 
@@ -5219,15 +5214,9 @@ async def on_startup():
                 logger.info('Demo data wiped flag set — skipping demo seed.')
         except Exception as e:
             logger.error(f'User count check failed (non-fatal): {e}')
-        # Always ensure Wrecker Mode demo data exists (idempotent) — UNLESS wiped
-        try:
-            if not demo_wiped:
-                result = await seed_wrecker_demo(db, hash_password)
-                logger.info(f'Wrecker seed: {result}')
-            else:
-                logger.info('Demo wiped — skipping wrecker demo seed.')
-        except Exception as e:
-            logger.error(f'Wrecker seed failed: {e}')
+        # Product policy: WreckerLogix starts clean. No automatic tow-side seed
+        # data is created on startup; only Fleet demo data may be seeded.
+        logger.info('Skipping WreckerLogix auto-seed — tow side stays clean by default.')
 
         # ONE-TIME BACKFILL — retroactively tag legacy seeded records as
         # is_demo:true so the per-user stealth filter and global wipe button

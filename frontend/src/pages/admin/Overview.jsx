@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { getUser } from '@/lib/api';
 import { Users, Truck, AlertTriangle, Wrench, Activity, Gauge, ArrowUpRight, BellRing } from 'lucide-react';
 import FleetMap from '@/components/FleetMap';
 import { dutyColor, formatMinutes, severityColor, timeAgo } from '@/lib/utils';
@@ -35,12 +36,44 @@ function Kpi({ icon: Icon, label, value, sub, accent = 'sky', to }) {
 }
 
 export default function Overview() {
+  const me = getUser();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [sampleData, setSampleData] = useState(null);
+  const [wipingSample, setWipingSample] = useState(false);
+
+  const canManageSampleData = ['fleet_admin', 'super_admin'].includes(me?.role);
+
+  const loadOverview = () => {
+    setLoading(true);
+    api.get('/overview').then((r) => setData(r.data)).finally(() => setLoading(false));
+  };
+
+  const loadSampleStatus = () => {
+    if (!canManageSampleData) return;
+    api.get('/admin/sample-data-status')
+      .then((r) => setSampleData(r.data))
+      .catch(() => setSampleData(null));
+  };
 
   useEffect(() => {
-    api.get('/overview').then((r) => setData(r.data)).finally(() => setLoading(false));
+    loadOverview();
+    loadSampleStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const wipeSampleData = async () => {
+    if (wipingSample) return;
+    if (!window.confirm('Wipe Fleet sample data and any leftover legacy demo rows? Real customer data will be kept.')) return;
+    setWipingSample(true);
+    try {
+      await api.post('/admin/wipe-sample-data');
+      loadOverview();
+      loadSampleStatus();
+    } finally {
+      setWipingSample(false);
+    }
+  };
 
   if (loading) return <div className="p-8 text-slate-400">Loading command center...</div>;
   if (!data) return <div className="p-8 text-red-400">Failed to load.</div>;
@@ -49,12 +82,34 @@ export default function Overview() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6">
+      {canManageSampleData && sampleData?.has_sample_data && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-widest text-amber-300">Fleet sample data active</div>
+            <div className="text-sm text-slate-200 mt-1">
+              Drivers, vehicles, trips, and other sample records are still loaded. WreckerLogix stays clean by default.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={wipeSampleData}
+            disabled={wipingSample}
+            className="px-3.5 py-2 rounded-lg bg-amber-400 text-slate-950 text-sm font-semibold hover:bg-amber-300 disabled:opacity-60"
+            data-testid="overview-wipe-sample-data"
+          >
+            {wipingSample ? 'Wiping…' : 'Wipe sample data'}
+          </button>
+        </div>
+      )}
+
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <div className="text-xs uppercase tracking-widest text-sky-400/80">Fleet Command Center</div>
           <h1 className="text-3xl font-bold text-white mt-1">Overview</h1>
         </div>
-        <div className="text-xs px-2.5 py-1 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-300">Live · seeded with demo data</div>
+        <div className="text-xs px-2.5 py-1 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-300">
+          {sampleData?.has_sample_data ? 'Live · fleet sample data active' : 'Live · real data'}
+        </div>
       </header>
 
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -70,7 +125,9 @@ export default function Overview() {
             <div className="flex items-center justify-between p-4 border-b border-white/5">
               <div>
                 <div className="text-sm font-semibold text-white">Live driver map</div>
-                <div className="text-xs text-slate-500">Last positions · demo data</div>
+                <div className="text-xs text-slate-500">
+                  {sampleData?.has_sample_data ? 'Last positions · fleet sample data' : 'Last positions · live fleet data'}
+                </div>
               </div>
               <Link to="/app/drivers" className="text-xs text-sky-400 hover:text-sky-300">View all →</Link>
             </div>

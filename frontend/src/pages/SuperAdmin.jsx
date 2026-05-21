@@ -398,11 +398,11 @@ function StatsPanel() {
   useEffect(() => { refresh(); }, []);
 
   const restoreDemo = async () => {
-    if (!window.confirm('Restore the demo accounts and seed data? This is just for testing or to undo an accidental wipe.')) return;
+    if (!window.confirm('Restore the Fleet sample accounts and demo seed data? WreckerLogix stays clean by default.')) return;
     setRestoring(true);
     try {
       await api.post('/admin/super/restore-demo');
-      toast.success('Demo data restored.');
+      toast.success('Fleet sample data restored.');
       await refresh();
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Restore failed.');
@@ -448,7 +448,7 @@ function StatsPanel() {
         <Card className="mt-5 bg-emerald-500/5 border-emerald-500/30 p-4 text-xs text-slate-300 flex flex-wrap items-center gap-3" data-testid="super-stats-wiped-banner">
           <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
           <div className="flex-1 min-w-[200px]">
-            <strong className="text-white">Clean slate active.</strong> Demo data has been wiped and won't be re-seeded on restart. Real customer accounts only.
+            <strong className="text-white">Clean slate active.</strong> Sample data has been wiped and Fleet demo records will not be re-seeded on restart.
           </div>
           <Button
             size="sm"
@@ -459,13 +459,13 @@ function StatsPanel() {
             data-testid="super-restore-demo"
           >
             {restoring ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
-            Restore demo
+            Restore Fleet demo
           </Button>
         </Card>
       ) : (
         <Card className="mt-5 bg-slate-900/40 border-slate-800 p-4 text-xs text-slate-400">
-          <strong className="text-slate-300">Note:</strong> Some figures include seeded demo records (e.g. {stats.tow_jobs} sample tow jobs)
-          so the dispatch board doesn't render empty. Use <strong className="text-rose-300">Wipe Demo Data</strong> in the Users tab when you're ready to hand off to real customers.
+          <strong className="text-slate-300">Note:</strong> Fleet demo records may still be included in these totals until you clear them.
+          WreckerLogix no longer auto-seeds sample data. Use <strong className="text-rose-300">Wipe Sample Data</strong> in the Users tab when you're ready to go live.
         </Card>
       )}
     </div>
@@ -643,23 +643,23 @@ function UsersPanel({ navigate }) {
                 className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-rose-500/15 border border-rose-500/40 text-rose-200 hover:bg-rose-500/25 text-xs font-semibold transition-colors"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                Wipe Demo Data
-              </button>
-            </AlertDialogTrigger>
+                  Wipe Sample Data
+                </button>
+              </AlertDialogTrigger>
             <AlertDialogContent className="bg-slate-950 border-slate-800 text-slate-200">
               <AlertDialogHeader>
                 <AlertDialogTitle className="text-white flex items-center gap-2">
                   <AlertTriangle className="w-5 h-5 text-rose-400" />
-                  Wipe all demo data?
+                  Wipe all sample data?
                 </AlertDialogTitle>
                 <AlertDialogDescription className="text-slate-400 leading-relaxed">
                   Deletes every <span className="font-mono text-rose-300">@highwaypilot.io</span> account
-                  ({demoStatus?.demo_users || 0} users), all seeded tow jobs ({demoStatus?.tow_jobs || 0}),
-                  impounds ({demoStatus?.impounds || 0}), motor clubs, fuel tanks, and demo vehicles.
+                  ({demoStatus?.demo_users || 0} users), all seeded fleet records, and any leftover legacy tow demo rows
+                  like tow jobs ({demoStatus?.tow_jobs || 0}) and impounds ({demoStatus?.impounds || 0}).
                   <br /><br />
                   <strong className="text-white">Your founder accounts and any real customers (Kenny, etc.) are NOT touched.</strong>
                   <br /><br />
-                  After wipe, demo data won't auto-recreate on server restart.
+                  After wipe, Fleet demo data won't auto-recreate on server restart.
                   You can restore later from the Stats tab.
                 </AlertDialogDescription>
               </AlertDialogHeader>
@@ -679,7 +679,7 @@ function UsersPanel({ navigate }) {
 
         {demoStatus?.wiped && (
           <Badge variant="outline" className="ml-auto border-emerald-500/40 bg-emerald-500/10 text-emerald-300 text-[10px] uppercase tracking-widest">
-            <Check className="w-3 h-3 mr-1" /> Demo Wiped — Clean Slate
+            <Check className="w-3 h-3 mr-1" /> Sample Data Wiped — Clean Slate
           </Badge>
         )}
       </div>
