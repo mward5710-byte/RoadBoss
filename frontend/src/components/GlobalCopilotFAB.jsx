@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useWakeWord, isInIframe, supportsSTT } from '@/hooks/useWakeWord';
 import { usePushToTalk } from '@/hooks/usePushToTalk';
-import { getUser } from '@/lib/api';
+import { getUser, api } from '@/lib/api';
 import {
   assessRiskLevel,
   flushOfflineCommands,
@@ -59,6 +59,16 @@ const MPS_TO_MPH = 2.23694;
 const SPEED_PRECISION_DECIMALS = 1;
 const DEFAULT_SILENCE_MS = 1500;
 const TRUCK_NOISE_SILENCE_MS = 1800;
+
+// Proactive job-status reminder timing
+const JOB_POLL_MS            = 60 * 1000;  // poll active jobs every 60 s
+const EN_ROUTE_REMIND_MS     = 15 * 60 * 1000; // 15 min en-route → ask "on scene?"
+const ON_SCENE_REMIND_MS     =  3 * 60 * 1000; // 3 min on-scene  → ask "in progress?"
+const IN_PROGRESS_REMIND_MS  = 25 * 60 * 1000; // 25 min in-progress → ask "job done?"
+const REMINDER_COOLDOWN_MS   = 20 * 60 * 1000; // don't repeat same reminder for 20 min
+const CONFIRM_EXPIRE_MS      = 45 * 1000;       // auto-clear unanswered pendingConfirm after 45 s
+const WRECKER_ROLES = new Set(['wrecker_operator', 'wrecker_dispatcher', 'wrecker_supervisor', 'super_admin']);
+const JOB_STATUS_PRI = { assigned: 0, en_route: 1, on_scene: 2, in_progress: 3, pending: 4 };
 
 // Small audible cue so user KNOWS the mic just opened
 function chime() {
@@ -115,6 +125,11 @@ export default function GlobalCopilotFAB() {
     try { return localStorage.getItem(VOICE_PROFILE_KEY) || 'truck_noise'; } catch { return 'truck_noise'; }
   });
   const lastActionRef = useRef(null);
+  // Proactive reminder tracking refs
+  const modeRef = useRef('idle');        // mirrors `mode` without stale closure issues
+  const lastReminderRef = useRef({});    // { 'jobId_status': timestamp } cooldown tracker
+  const jobStatusSinceRef = useRef({}); // { 'jobId_status': timestamp } when we first saw that state
+  const confirmExpireRef = useRef(null); // timeout id for auto-clearing unanswered pendingConfirm
   const inIframe = isInIframe();
   const sttSupported = supportsSTT();
 
@@ -134,6 +149,88 @@ export default function GlobalCopilotFAB() {
       return () => clearTimeout(t);
     }
   }, [mode, reply]);
+
+  // Keep modeRef in sync so polling effects read the latest mode without stale closures
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+
+  // Auto-expire unanswered pendingConfirm after 45 s so it doesn't linger
+  useEffect(() => {
+    if (pendingConfirm) {
+      confirmExpireRef.current = setTimeout(() => {
+        setPendingConfirm(null);
+      }, CONFIRM_EXPIRE_MS);
+    }
+    return () => { if (confirmExpireRef.current) clearTimeout(confirmExpireRef.current); };
+  }, [pendingConfirm]);
+
+  // ── Proactive job-status reminders (wrecker operators / dispatchers) ────────
+  // Polls /wrecker/jobs every minute. Speaks a reminder + sets pendingConfirm.
+  // Driver says "yes/yeah/go ahead" → action executes. "No/cancel" → dismissed.
+  useEffect(() => {
+    if (!unlocked || hidden || !WRECKER_ROLES.has(me?.role)) return;
+
+    const poll = async () => {
+      if (modeRef.current !== 'idle') return; // don't interrupt speaking/thinking
+      try {
+        const { data: jobs } = await api.get('/wrecker/jobs');
+        if (!Array.isArray(jobs) || !jobs.length) return;
+
+        // Most action-relevant active job first
+        const active = jobs
+          .filter((j) => !['completed', 'cancelled'].includes(j.status))
+          .sort((a, b) => (JOB_STATUS_PRI[a.status] ?? 9) - (JOB_STATUS_PRI[b.status] ?? 9));
+        const job = active[0];
+        if (!job) return;
+
+        const now = Date.now();
+        const jId = job.id;
+        const status = job.status;
+        const firstName = (me?.name || '').split(' ')[0] || 'boss';
+        const reminderKey = `${jId}_${status}`;
+
+        // Track when we first saw this job in this status
+        if (!jobStatusSinceRef.current[reminderKey]) {
+          jobStatusSinceRef.current[reminderKey] = now;
+        }
+        const statusAge = now - jobStatusSinceRef.current[reminderKey];
+
+        // Cooldown: don't repeat same reminder within REMINDER_COOLDOWN_MS
+        const timeSinceLast = now - (lastReminderRef.current[reminderKey] || 0);
+        if (timeSinceLast < REMINDER_COOLDOWN_MS) return;
+
+        let question = null;
+        let command = null;
+
+        if (status === 'assigned') {
+          const customer = (job.customer?.name || '').split(' ')[0] || 'the customer';
+          const pickup = (job.pickup?.address || job.pickup_location || '').split(',')[0] || 'their location';
+          const svc = (job.service_type || 'tow').replace(/_/g, ' ');
+          question = `Hey ${firstName} — new ${svc} call assigned for ${customer} at ${pickup}. Ready to roll? Say yes and I'll mark you en route.`;
+          command = "mark me en route to the call";
+        } else if (status === 'en_route' && statusAge > EN_ROUTE_REMIND_MS) {
+          question = `${firstName}, you've been en route a while now. On scene yet? Say yes and I'll mark it.`;
+          command = "I'm on scene";
+        } else if (status === 'on_scene' && statusAge > ON_SCENE_REMIND_MS) {
+          question = `${firstName}, you're on scene — got the vehicle hooked up? Say yes and I'll mark you in progress.`;
+          command = "mark the job in progress";
+        } else if (status === 'in_progress' && statusAge > IN_PROGRESS_REMIND_MS) {
+          question = `${firstName}, you've been rolling a while. Vehicle dropped off? Say yes and I'll mark the job complete.`;
+          command = "job complete mark it done";
+        }
+
+        if (question && command) {
+          lastReminderRef.current[reminderKey] = now;
+          setMode('speaking');
+          setReply(question);
+          speak(question, () => setMode('idle'));
+          setPendingConfirm({ command, risk: 'low' });
+        }
+      } catch { /* network error — silently skip this poll */ }
+    };
+
+    const id = setInterval(poll, JOB_POLL_MS);
+    return () => clearInterval(id);
+  }, [unlocked, hidden, me]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!navigator?.geolocation) return;
