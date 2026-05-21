@@ -6,19 +6,18 @@
 // Flow:
 //   1. Say "Copilot" (or variant) → mic arms → say command → auto-submits.
 //   2. Or: tap orb → speak → auto-submits on silence (~1.5 s).
-//   3. Reply is spoken aloud and shown briefly above the orb, then dismissed.
+//   3. Reply is spoken aloud (no on-screen chat bubble / panel UI).
 //   4. Actions (status toasts, nav redirects) run after TTS completes.
 //
 // Limitations:
 //   - Wake word does NOT work on a locked iPhone screen. iOS suspends mic.
 //   - Wake word does NOT work in the Emergent preview iframe (cross-origin
-//     mic block). The component shows an "Open in tab" hint when iframed.
+//     mic block).
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  Mic, X, Sparkles, Send, AlertTriangle, ExternalLink,
-  Loader2, Volume2, Square, Keyboard,
+  Mic, Sparkles, Loader2, Volume2, Square,
 } from 'lucide-react';
 import { useWakeWord, isInIframe, supportsSTT } from '@/hooks/useWakeWord';
 import { usePushToTalk } from '@/hooks/usePushToTalk';
@@ -26,7 +25,6 @@ import { getUser, api } from '@/lib/api';
 import {
   assessRiskLevel,
   flushOfflineCommands,
-  getOfflineQueueSize,
   parseVoiceDirective,
   queueOfflineCommand,
   sendCopilotMessage,
@@ -53,7 +51,6 @@ function pathHidden(pathname) {
 }
 
 const STORAGE_UNLOCK = 'roadboss.globalfab.unlocked.v1';
-const REPLY_DISMISS_DELAY_MS = 4000;
 const VOICE_PROFILE_KEY = 'roadboss.voice.profile.v1';
 const MPS_TO_MPH = 2.23694;
 const SPEED_PRECISION_DECIMALS = 1;
@@ -115,12 +112,9 @@ export default function GlobalCopilotFAB() {
     try { return localStorage.getItem(STORAGE_UNLOCK) === '1'; } catch { return false; }
   });
   const [mode, setMode] = useState('idle'); // idle | thinking | speaking
-  const [reply, setReply] = useState('');
-  const [typed, setTyped] = useState('');
-  const [showInput, setShowInput] = useState(false);
+  const [, setReply] = useState('');
   const [pendingConfirm, setPendingConfirm] = useState(null);
   const [speedMph, setSpeedMph] = useState(null);
-  const [queueSize, setQueueSize] = useState(() => getOfflineQueueSize());
   const [voiceProfile] = useState(() => {
     try { return localStorage.getItem(VOICE_PROFILE_KEY) || 'truck_noise'; } catch { return 'truck_noise'; }
   });
@@ -141,14 +135,6 @@ export default function GlobalCopilotFAB() {
   useEffect(() => {
     try { if (unlocked) localStorage.setItem(STORAGE_UNLOCK, '1'); } catch {}
   }, [unlocked]);
-
-  // Auto-clear reply after TTS finishes and assistant returns to idle
-  useEffect(() => {
-    if (mode === 'idle' && reply) {
-      const t = setTimeout(() => setReply(''), REPLY_DISMISS_DELAY_MS);
-      return () => clearTimeout(t);
-    }
-  }, [mode, reply]);
 
   // Keep modeRef in sync so polling effects read the latest mode without stale closures
   useEffect(() => { modeRef.current = mode; }, [mode]);
@@ -262,7 +248,6 @@ export default function GlobalCopilotFAB() {
         },
       });
       if (flushed > 0) toast.success(`Synced ${flushed} queued voice command${flushed > 1 ? 's' : ''}.`);
-      setQueueSize(getOfflineQueueSize());
     };
     const onOnline = () => { flushQueued(); };
     window.addEventListener('online', onOnline);
@@ -353,8 +338,7 @@ export default function GlobalCopilotFAB() {
       const errMsg = e?.response?.data?.detail || 'Co-Pilot is offline right now.';
       const offline = !navigator.onLine || !e?.response;
       if (offline) {
-        const total = queueOfflineCommand(t, { channel: 'voice', source, profile: voiceProfile });
-        setQueueSize(total);
+        queueOfflineCommand(t, { channel: 'voice', source, profile: voiceProfile });
         setReply('No signal right now. I queued that command and will sync when connection returns.');
         setMode('idle');
         toast.info('Voice command queued for sync when online.');
@@ -462,8 +446,7 @@ export default function GlobalCopilotFAB() {
     if (ptt.error === 'not-allowed' || ptt.error === 'service-not-allowed') {
       toast.error('Mic permission denied. Tap the address-bar lock → Microphone → Allow, then reload.', { duration: 8000 });
     } else if (ptt.error === 'not_supported') {
-      toast.error('Voice not supported on this browser. Use the type box instead.', { duration: 5000 });
-      setShowInput(true);
+      toast.error('Voice not supported on this browser.', { duration: 5000 });
     }
   }, [ptt.error]);
 
@@ -485,10 +468,8 @@ export default function GlobalCopilotFAB() {
       setUnlocked(true);
       if (inIframe) {
         toast.error('Microphone is blocked inside the preview iframe. Open in a real Safari tab for full voice.', { duration: 7000 });
-        setShowInput(true);
       } else if (!sttSupported) {
-        toast.error('Voice not supported on this browser. Use the type box instead.', { duration: 5000 });
-        setShowInput(true);
+        toast.error('Voice not supported on this browser.', { duration: 5000 });
       } else {
         toast.success('Co-Pilot active. Say "Copilot" or tap to talk.', { duration: 3000 });
       }
@@ -504,9 +485,9 @@ export default function GlobalCopilotFAB() {
     // If thinking/speaking → don't interrupt
     if (mode === 'thinking' || mode === 'speaking') return;
 
-    // Cannot record in iframe or unsupported browser — toggle text input instead
+    // Cannot record in iframe or unsupported browser
     if (inIframe || !sttSupported) {
-      setShowInput((s) => !s);
+      toast.error('Voice input is unavailable here.');
       return;
     }
 
@@ -514,14 +495,6 @@ export default function GlobalCopilotFAB() {
     setReply('');
     chime();
     ptt.start();
-  };
-
-  const onTypedSubmit = (e) => {
-    e.preventDefault();
-    if (!typed.trim()) return;
-    processVoiceCommand(typed, 'typed');
-    setTyped('');
-    setShowInput(false);
   };
 
   const orbCls = (() => {
@@ -540,21 +513,8 @@ export default function GlobalCopilotFAB() {
     if (ptt.recording) return ptt.interim || 'Listening…';
     if (wakeEnabled && wakeWord.armed) return 'Go ahead…';
     if (wakeEnabled && wakeWord.listening) return 'Say "Copilot…"';
-    if (queueSize > 0) return `${queueSize} queued for sync`;
     if (unlocked) return 'Tap to talk';
     return 'Tap to activate';
-  })();
-
-  // Status pill is only visible while something is actively happening
-  const isActive = ptt.recording || mode !== 'idle' || (wakeEnabled && wakeWord.armed);
-
-  const statusPillCls = (() => {
-    const base = 'rounded-full px-3 py-1 text-xs font-semibold shadow-lg border max-w-[200px] truncate';
-    if (mode === 'thinking') return `${base} bg-amber-500/20 border-amber-500/40 text-amber-200`;
-    if (mode === 'speaking') return `${base} bg-emerald-500/20 border-emerald-500/40 text-emerald-200`;
-    if (ptt.recording) return `${base} bg-red-500/20 border-red-500/40 text-red-200`;
-    if (wakeWord.armed) return `${base} bg-red-500/20 border-red-500/40 text-red-200`;
-    return `${base} bg-sky-500/20 border-sky-500/40 text-sky-200`;
   })();
 
   return (
@@ -562,88 +522,7 @@ export default function GlobalCopilotFAB() {
       className={`fixed ${fabPositionCls} z-[2147483500] flex flex-col items-end gap-2`}
       data-testid="global-copilot-fab-wrapper"
     >
-      {/* Iframe warning */}
-      {unlocked && inIframe && (
-        <div className="max-w-[220px] rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-amber-200 text-xs flex items-start gap-2">
-          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-          <span>
-            Mic blocked in preview.{' '}
-            <button
-              onClick={() => window.open(window.location.href, '_blank')}
-              className="font-semibold inline-flex items-center gap-0.5 underline"
-            >
-              Open in tab <ExternalLink className="w-2.5 h-2.5" />
-            </button>
-          </span>
-        </div>
-      )}
-
-      {/* Reply bubble — auto-dismisses 4 s after speaking ends */}
-      {reply && (
-        <div
-          className="max-w-[240px] rounded-xl bg-slate-950/97 border border-slate-700 shadow-xl px-3 py-2 text-sm text-slate-100 leading-snug"
-          data-testid="global-copilot-reply"
-        >
-          <div className="flex items-center gap-1.5 mb-1">
-            <Sparkles className="w-3 h-3 text-sky-400 flex-shrink-0" />
-            <span className="text-[10px] uppercase tracking-widest text-sky-300/80 font-bold">Co-Pilot</span>
-          </div>
-          {reply}
-        </div>
-      )}
-
-      {/* Status pill — only when actively recording / thinking / speaking / armed */}
-      {isActive && (
-        <div className={statusPillCls}>
-          {statusLabel}
-        </div>
-      )}
-
-      {/* Text input fallback — hidden unless voice is unavailable or user toggles it */}
-      {showInput && (
-        <form
-          onSubmit={onTypedSubmit}
-          className="flex items-center gap-2 rounded-xl bg-slate-950/97 border border-slate-700 shadow-xl px-2 py-2 w-[220px]"
-        >
-          <input
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            placeholder="Type a command…"
-            className="flex-1 bg-transparent text-white text-sm focus:outline-none min-w-0"
-            data-testid="global-copilot-input"
-          />
-          <button
-            type="submit"
-            disabled={!typed.trim() || mode === 'thinking'}
-            className="flex-shrink-0 p-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-slate-950"
-            data-testid="global-copilot-send"
-          >
-            <Send className="w-3.5 h-3.5" />
-          </button>
-        </form>
-      )}
-
-      {/* Orb row — main tap target; optional close-input button */}
       <div className="flex items-center gap-2">
-        {showInput && (
-          <button
-            onClick={() => setShowInput(false)}
-            className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 text-slate-400 hover:text-white flex items-center justify-center"
-            aria-label="Close keyboard input"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        )}
-        {/* Show keyboard toggle when voice is unavailable and input is hidden */}
-        {!showInput && unlocked && (inIframe || !sttSupported) && (
-          <button
-            onClick={() => setShowInput(true)}
-            className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 text-slate-400 hover:text-white flex items-center justify-center"
-            aria-label="Open keyboard input"
-          >
-            <Keyboard className="w-3.5 h-3.5" />
-          </button>
-        )}
         <button
           onClick={handleOrbTap}
           className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 shadow-xl shadow-black/40 flex items-center justify-center transition-all active:scale-95 ${orbCls}`}
